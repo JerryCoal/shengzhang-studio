@@ -1,5 +1,7 @@
 # 生长 · 个人运营工作台
 
+[下载 Windows 完整版](https://github.com/JerryCoal/shengzhang-studio/releases/latest)。解压后运行 `ShengzhangStudio.exe`，内置本机后端和运行环境，支持独立加密用户、AI 连接及已授权的平台任务。实际模型与平台功能需要自己的 API 密钥和相应权限。
+
 用于 GitHub Pages 的独立静态发布包。页面位于 `docs/`，发布源为 `main` 分支的 `/docs` 目录。
 
 支持注册与登录、独立本地用户、项目资料、模板策略、图文和短片制作、素材导出、手动发布记录、评论导入与复盘。
