@@ -1,6 +1,6 @@
 const SCOPE = new URL(self.registration.scope);
 const PREFIX = `shengzhang-shell:${SCOPE.pathname}:`;
-const CACHE = `${PREFIX}v3`;
+const CACHE = `${PREFIX}v4`;
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', event => event.waitUntil((async () => {
   for (const key of await caches.keys()) if (key.startsWith(PREFIX) && key !== CACHE) await caches.delete(key);
@@ -10,7 +10,7 @@ self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   if (event.request.method !== 'GET' || url.origin !== SCOPE.origin || !url.pathname.startsWith(SCOPE.pathname)) return;
   const path = url.pathname.slice(SCOPE.pathname.length);
-  if (path === 'api' || path.startsWith('api/') || path.startsWith('downloads/')) return;
+  if (path === 'api' || path.startsWith('api/') || path.startsWith('downloads/') || path === 'backend.json' || path === 'oauth-callback.html' || path.startsWith('oauth/')) return;
   event.respondWith((async () => {
     const cache = await caches.open(CACHE);
     try {
