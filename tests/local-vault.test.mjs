@@ -1,0 +1,54 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { indexedDB } from 'fake-indexeddb';
+globalThis.indexedDB = indexedDB;
+globalThis.window = Object.assign(new EventTarget(), { indexedDB, isSecureContext: true });
+const vault = await import('../src/local-vault.ts');
+const open = () => new Promise((resolve, reject) => { const r = indexedDB.open('shengzhang-local-users-v1', 2); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
+const record = async name => { const db = await open(); return new Promise((resolve, reject) => { const r = db.transaction('users').objectStore('users').get(name); r.onsuccess = () => { db.close(); resolve(r.result); }; r.onerror = () => reject(r.error); }); };
+
+test('local users have isolated encrypted data; incorrect passwords and account collisions preserve existing data', async () => {
+  await vault.registerLocal('测试甲', 'Example-password-A');
+  await vault.changeLocalState(s => { s.projects[0].brief.name = '甲的私有品牌计划'; });
+  const encrypted = await record('测试甲');
+  assert.equal(encrypted.version, 1);
+  assert.equal(encrypted.salt.length, 16);
+  assert.equal(encrypted.iv.length, 12);
+  assert(!new TextDecoder().decode(encrypted.ciphertext).includes('甲的私有品牌计划'));
+  assert(!JSON.stringify(encrypted).includes('Example-password-A'));
+  vault.lockLocalWorkspace();
+  await assert.rejects(vault.readLocalState(), /登录/);
+  await assert.rejects(vault.loginLocal('测试甲', 'incorrect-password'), /密码不正确/);
+  assert.equal(vault.localUsername(), '');
+  await assert.rejects(vault.registerLocal(' 测试甲 ', 'Collision-password'), /已在当前浏览器注册/);
+  await vault.registerLocal('测试乙', 'Example-password-B');
+  assert.notEqual((await vault.readLocalState()).projects[0].brief.name, '甲的私有品牌计划');
+  await vault.changeLocalState(s => { s.projects[0].brief.name = '乙的独立资料'; });
+  vault.lockLocalWorkspace();
+  await vault.loginLocal('测试甲', 'Example-password-A');
+  assert.equal((await vault.readLocalState()).projects[0].brief.name, '甲的私有品牌计划');
+  const before = await record('测试甲');
+  await assert.rejects(vault.changeLocalState(s => { s.projects[0].brief.name = '不能保存'; throw new Error('validation'); }), /validation/);
+  const after = await record('测试甲');
+  assert.deepEqual(after.ciphertext, before.ciphertext);
+  assert.equal((await vault.readLocalState()).projects[0].brief.name, '甲的私有品牌计划');
+  const revision = (await vault.readLocalState()).projects[0].revision;
+  await Promise.all([vault.changeLocalState(s => { s.projects[0].revision += 1; }), vault.changeLocalState(s => { s.projects[0].revision += 1; })]);
+  assert.equal((await vault.readLocalState()).projects[0].revision, revision + 2);
+  assert.notDeepEqual((await record('测试甲')).iv, before.iv);
+  vault.lockLocalWorkspace();
+  await vault.loginLocal('测试乙', 'Example-password-B');
+  assert.equal((await vault.readLocalState()).projects[0].brief.name, '乙的独立资料');
+});
+
+test('ciphertext tampering fails closed and cannot unlock the workspace', async () => {
+  vault.lockLocalWorkspace();
+  const saved = await record('测试乙');
+  new Uint8Array(saved.ciphertext)[0] ^= 1;
+  const db = await open();
+  await new Promise((resolve, reject) => { const tx = db.transaction('users', 'readwrite'); tx.objectStore('users').put(saved); tx.oncomplete = resolve; tx.onabort = reject; });
+  db.close();
+  await assert.rejects(vault.loginLocal('测试乙', 'Example-password-B'), /数据已损坏/);
+  assert.equal(vault.localUsername(), '');
+  assert.deepEqual((await record('测试乙')).ciphertext, saved.ciphertext);
+});

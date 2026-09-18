@@ -1,0 +1,15 @@
+import QRCode from 'qrcode';
+import jsQR from 'jsqr';
+import { createRequire } from 'node:module';
+import { mkdirSync, readFileSync } from 'node:fs';
+const require = createRequire(import.meta.url);
+const { PNG } = createRequire(require.resolve('qrcode'))('pngjs');
+const url = process.argv[2];
+if (!url || new URL(url).protocol !== 'https:') throw new Error('A verified HTTPS deployment URL is required');
+mkdirSync('outputs', { recursive: true });
+const filename = 'outputs/shengzhang-website-qr.png';
+await QRCode.toFile(filename, url, { type: 'png', errorCorrectionLevel: 'M', margin: 4, scale: 12, color: { dark: '#163e30', light: '#ffffff' } });
+const png = PNG.sync.read(readFileSync(filename));
+const decoded = jsQR(new Uint8ClampedArray(png.data), png.width, png.height);
+if (decoded?.data !== url) throw new Error('QR decode verification failed');
+console.log(JSON.stringify({ file: filename, verified: true, width: png.width, url }));

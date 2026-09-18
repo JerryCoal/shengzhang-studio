@@ -1,0 +1,10 @@
+import type { Brief, Strategy, Project, Asset, ContentRule, WorkflowTrace } from '../src/types';
+export const PROMPT_VERSION: string;
+export type PromptStage = 'strategy' | 'planning' | 'copy' | 'cover' | 'first_frame' | 'last_frame' | 'video' | 'classification' | 'analysis';
+export const promptStages: Record<PromptStage, {title:string; input:string; output:string; rule:string}>;
+export const COVER_STYLES: Record<string, string>;
+export const COVER_LAYOUTS: Record<string, string>;
+export function textInstructions(stage: PromptStage): string;
+export function strategyPrompt(brief: Brief): string;
+export function taskPrompt(brief: Brief, strategy: Strategy, channel: string): string;
+export function mediaPrompt(project: Project, asset: Asset, input: {purpose: PromptStage; prompt?: string; query?: string; style?:string; layout?:string; textMode?:string}, rules?: ContentRule[]): WorkflowTrace & {prompt:string; promptVersion:string; retrievalQuery:string};

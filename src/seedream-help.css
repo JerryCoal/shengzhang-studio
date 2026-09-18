@@ -1,0 +1,18 @@
+.seedream-help-link{font-size:12px;line-height:1.8;justify-self:start;color:#286849;text-decoration:underline;text-underline-offset:3px;white-space:normal;margin:-8px 0 14px}
+.seedream-help-link svg{flex-shrink:0}.seedream-help-link:focus-visible{outline:2px solid #286849;outline-offset:4px;border-radius:3px}
+.seedream-help{font-size:14px;line-height:1.9;color:#4a594b;overflow-wrap:anywhere;min-width:0}
+.seedream-help p{margin:9px 0}.seedream-help .seedream-help-lead{margin-top:0;padding:14px 16px;background:#f0f5eb;border-radius:10px}
+.seedream-help .seedream-help-steps{display:grid;gap:20px;margin:22px 0;padding-left:24px}
+.seedream-help .seedream-help-steps>li{padding-left:5px;font-size:14px;line-height:1.9;color:inherit}
+.seedream-help .seedream-help-steps>li::marker{color:#386b4b;font-weight:600}
+.seedream-help h3{margin:0 0 7px;font-size:15px;color:#2d4e36;line-height:1.7}
+.seedream-help code{font-family:Consolas,monospace;font-size:.91em;color:#355d44;background:#f1f4ed;border-radius:4px;padding:2px 4px;overflow-wrap:anywhere}
+.seedream-help .seedream-help-url{display:block;padding:10px 12px;margin:8px 0;white-space:normal;word-break:break-word}
+.seedream-help a{display:inline;color:#286849;text-decoration:underline;text-underline-offset:3px}.seedream-help a svg{vertical-align:middle;margin-left:2px}
+.seedream-help .seedream-help-note{padding:12px 14px;background:#f7f7f0;border-left:3px solid #b8ca9d;border-radius:4px;font-size:13px}
+.seedream-help-example{border-top:1px solid #e2e8dc;padding-top:16px}.seedream-help-example>.text-button{font-size:13px}
+.seedream-help pre{max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere;background:#f1f4ed;border-radius:8px;padding:14px;line-height:1.7}.seedream-help pre code{padding:0}
+.seedream-help-sources{display:flex;flex-wrap:wrap;gap:10px 20px;margin-top:18px;font-size:12px}
+.seedream-help-footer{margin-top:24px;display:flex;justify-content:flex-end}
+.guide-topic-body>.seedream-help{margin-bottom:20px}
+@media(max-width:700px){.seedream-help{font-size:13px}.seedream-help .seedream-help-steps{padding-left:20px;gap:16px}.seedream-help .seedream-help-steps>li{font-size:13px}.seedream-help h3{font-size:14px}}

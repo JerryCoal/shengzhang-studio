@@ -1,0 +1,15 @@
+services:
+  studio:
+    build: .
+    ports:
+      - "127.0.0.1:4318:4318"
+    environment:
+      HOST: 0.0.0.0
+      APP_PASSWORD: ${APP_PASSWORD:?Set an APP_PASSWORD of at least 12 characters}
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+    volumes:
+      - studio-data:/app/data
+    restart: unless-stopped
+volumes:
+  studio-data:

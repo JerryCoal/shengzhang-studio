@@ -1,0 +1,13 @@
+import type { Project } from '../src/types';
+export type NewsArticle = { id: string; title: string; url: string; publishedAt: string; excerpt: string; source: string; sourceId: string; sourceGroup: string; category: string; fetchedAt: string; extraction: string };
+export type TrendSettings = { keywords: string[]; sourceIds: string[]; blockTerms: string[]; genericTerms: string[] };
+export type TrendCandidate = { id: string; term: string; score: number; parts: { relevance: number; freshness: number; sources: number; coverage: number }; matches: { keyword: string; via: string; weight: number }[]; sourceCount: number; articleCount: number; latestAt: string; risk: 'review' | 'unverified'; riskReason: string; articleIds: string[] };
+export type TrendTag = { id: string; candidateId: string; term: string; label: string; kind: string; enabled: boolean; risk: string; confirmedAt: string; expiresAt: string; insertion: string; sources: { title: string; url: string; publishedAt: string; source: string }[] };
+export type TrendsState = { revision: number; settings: TrendSettings; articles: NewsArticle[]; candidates: TrendCandidate[]; tags: TrendTag[]; reports: { sourceId: string; name: string; status: string; count: number; message: string }[]; runId?: string; updatedAt?: string; windowStart?: string; selection?: string[]; filteredDisputes?: number; matchedArticles?: number };
+export const WEEK: number;
+export const COMMON_WORDS: string[];
+export function trendsOf(project: Project): TrendsState;
+export function configureTrends(project: Project, input: unknown): TrendsState;
+export function selectTrends(project: Project, input: unknown, at?: number): TrendTag[];
+export function changeTrendTag(project: Project, tagId: string, input: unknown): TrendTag;
+export function activeTrendTags(project: Project, at?: number): TrendTag[];

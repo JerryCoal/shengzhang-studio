@@ -1,0 +1,30 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+import { indexedDB } from 'fake-indexeddb';
+const require = createRequire(import.meta.url);
+const { build } = createRequire(require.resolve('vite'))('esbuild');
+globalThis.indexedDB = indexedDB;
+globalThis.window = Object.assign(new EventTarget(), { indexedDB, isSecureContext: true });
+const compiled = await build({ stdin: { contents: "export { localAPI } from './src/local-api.ts'; export { registerLocal, loginLocal, lockLocalWorkspace } from './src/local-vault.ts';", resolveDir: process.cwd(), loader: 'ts' }, bundle: true, format: 'esm', platform: 'node', write: false, logLevel: 'silent' });
+const { localAPI: api, registerLocal, loginLocal, lockLocalWorkspace } = await import('data:text/javascript;base64,' + Buffer.from(compiled.outputFiles[0].text).toString('base64'));
+
+test('static edition persists encrypted corpus, custom screening rules and drafts across user switches', async () => {
+  await registerLocal('静态升级甲', 'test-password-static-a');
+  const p = (await api('/state', 'GET')).projects[0];
+  await api(`/projects/${p.id}/corpus`, 'POST', { name: '咖啡项目资料', text: '咖啡原文：测试禁词，随身装包。' });
+  await api('/content-rules', 'PUT', { expectedRevision: 0, rules: [{ id: 'custom', term: '测试禁词', replacement: '平实表达', enabled: true }] });
+  await api('/editor-drafts/new', 'PUT', { brief: { ...p.brief, name: '', facts: '静态未完成草稿' }, expectedVersion: 0 });
+  const generated = await api(`/projects/${p.id}/strategies`, 'POST', { mode: 'demo', instruction: '测试禁词', query: '咖啡' });
+  assert.equal(generated.result.core, '平实表达'); assert.equal(generated.result.corpusReferences[0].name, '咖啡项目资料');
+  assert.equal((await api(`/projects/${p.id}/corpus/search`, 'POST', { query: '咖啡' })).results.length, 1);
+  lockLocalWorkspace(); await registerLocal('静态升级乙', 'test-password-static-b');
+  assert.equal((await api('/editor-drafts/new', 'GET')), null); assert.equal((await api('/content-rules', 'GET')).rules.length, 26);
+  lockLocalWorkspace(); await loginLocal('静态升级甲', 'test-password-static-a');
+  assert.equal((await api('/editor-drafts/new', 'GET')).brief.facts, '静态未完成草稿');
+  assert.equal((await api('/state', 'GET')).projects[0].corpus[0].text, '咖啡原文：测试禁词，随身装包。');
+  const created = await api('/projects', 'POST', { ...p.brief, name: '草稿完成', editorDraftVersion: 1 });
+  assert.equal(created.result.brief.name, '草稿完成'); assert.equal(await api('/editor-drafts/new', 'GET'), null);
+  await assert.rejects(api(`/projects/${p.id}/strategies`, 'POST', { mode: 'openai' }), /静态体验版/);
+  lockLocalWorkspace();
+});
