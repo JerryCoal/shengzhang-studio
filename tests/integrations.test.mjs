@@ -224,6 +224,7 @@ test('comment pagination encodes item ids, deduplicates by id, preserves manual 
     if (path === '/oauth/access_token/') return token();
     if (path === '/item/comment/list/') {
       commentCalls++; const parsed = new URL(url); assert.equal(parsed.searchParams.get('item_id'), 'encrypted-item/+');
+      assert.equal(parsed.searchParams.get('count'), '20'); assert.equal(parsed.searchParams.get('sort_type'), 'time');
       const first = parsed.searchParams.get('cursor') === '0';
       return success({ cursor: first ? 50 : 100, has_more: first, list: [{ comment_id: first ? 'c1' : 'c2', content: '相同的评论内容', create_time: 1760000000, digg_count: secondPass ? 9 : 1, reply_comment_total: 2 }] });
     }
@@ -259,6 +260,95 @@ test('token expiry triggers official refresh before upload and stores refreshed 
   await f.app.locals.integrations.tick(); assert.equal(refreshed, true);
   assert.ok(!JSON.stringify((await f.req('/integrations')).body).includes('refreshed-test-token'));
 });
+test('Douyin lets a comments-only app request its own scopes and refuses denied, stale or duplicated OAuth callbacks', async t => {
+  let exchanged = 0;
+  const f = await fixture(t, { fetcher: async () => { exchanged++; return token('video.data,item.comment,video.list'); } });
+  await f.req('/integrations/douyin', 'PUT', { clientKey: 'test-client', clientSecret, redirectUri: 'https://callback.example.com/authorized' });
+  const prepared = await f.req('/integrations/douyin/authorize', 'POST', { accountId: 'account-dy', purpose: 'comments', includeVideoList: true });
+  const url = new URL(prepared.body.url), state = url.searchParams.get('state');
+  assert.equal(url.searchParams.get('scope'), 'video.data,item.comment,video.list');
+  assert.equal((await f.req('/integrations/douyin/complete', 'POST', { callbackUrl: `https://callback.example.com/authorized?state=${state}&state=${state}&code=one` })).status, 400);
+  assert.equal((await f.req('/integrations/douyin/complete', 'POST', { callbackUrl: `https://callback.example.com/authorized?state=${state}&error=access_denied` })).status, 400);
+  assert.equal((await f.req('/integrations/douyin/complete', 'POST', { callbackUrl: `https://callback.example.com/authorized?state=${state}&code=one` })).status, 400);
+  assert.equal(exchanged, 0);
+});
+
+test('successful publication starts comment collection only with separately confirmed permission and keeps the selected interval', async t => {
+  let creates = 0, reads = 0;
+  const f = await fixture(t, { fetcher: async (url) => {
+    const path = new URL(url).pathname;
+    if (path === '/oauth/access_token/') return token();
+    if (path === '/video/upload/') return success({ video: { video_id: 'uploaded' } });
+    if (path === '/video/create/') { creates++; return success({ item_id: 'item-auto-sync' }); }
+    if (path === '/video/data/') return success({ list: [{ item_id: 'item-auto-sync', is_reviewed: true, video_status: 5, share_url: 'https://www.douyin.com/video/123' }] });
+    if (path === '/item/comment/list/') { reads++; return success({ cursor: 0, has_more: false, list: [{ comment_id: 'comment-one', content: '真实接口格式的模拟评论', create_time: 1760000000, digg_count: reads }] }); }
+    throw new Error('Unexpected endpoint');
+  } });
+  await authorize(f); const pub = await publication(f), base = `/projects/${f.pid}/publications/${pub.id}`;
+  await f.app.locals.integrations.tick(); assert.equal(creates, 0); assert.equal(reads, 0);
+  assert.equal((await f.req(base + '/automatic', 'POST', { confirmed: true, text: '经过确认的投稿', autoComments: true, syncIntervalMinutes: 30 })).status, 200);
+  await f.app.locals.integrations.tick(); assert.equal(reads, 0);
+  await f.req(base + '/platform-status', 'POST');
+  await f.app.locals.integrations.tick();
+  const record = f.p().publications[0]; assert.equal(record.commentSync.enabled, true); assert.equal(record.commentSync.intervalMinutes, 30); assert.equal(reads, 1); assert.equal(record.commentSync.lastAdded, 1);
+  assert.ok(record.commentSync.nextSyncAt >= Date.now() + 29 * 60000);
+  await f.req(base + '/comments-sync', 'PUT', { enabled: false, intervalMinutes: 5 }); await f.app.locals.integrations.tick(); assert.equal(reads, 1);
+  assert.equal((await f.req(base + '/comments-sync', 'PUT', { enabled: true, intervalMinutes: 1 })).status, 400);
+  assert.equal(creates, 1);
+});
+
+test('comment opt-in cannot be queued without item.comment and normal video publishing remains available', async t => {
+  const f = await fixture(t, { fetcher: async () => token('video.create,video.data') });
+  await authorize(f); const pub = await publication(f), base = `/projects/${f.pid}/publications/${pub.id}`;
+  assert.equal((await f.req(base + '/automatic', 'POST', { confirmed: true, text: 'caption', autoComments: true })).status, 403);
+  assert.equal(f.p().publications[0].automation, undefined);
+  assert.equal((await f.req(base + '/automatic', 'POST', { confirmed: true, text: 'caption', autoComments: false })).status, 200);
+});
+
+test('video picker reads only the authorized account, hides nonpublic entries and rejects unsafe links', async t => {
+  const f = await fixture(t, { fetcher: async url => {
+    if (url.includes('/oauth/access_token/')) return token('video.create,video.data,item.comment,video.list');
+    const parsed = new URL(url); assert.equal(parsed.pathname, '/video/list/'); assert.equal(parsed.searchParams.get('open_id'), 'fake-open-id'); assert.equal(parsed.searchParams.get('count'), '20');
+    return success({ cursor: 20, has_more: false, list: [
+      { item_id: 'public', title: '自己的公开视频', is_reviewed: true, video_status: 5, share_url: 'https://www.douyin.com/video/1', create_time: 1760000000 },
+      { item_id: 'private', is_reviewed: true, video_status: 1, share_url: 'https://www.douyin.com/video/2' },
+      { item_id: 'unsafe', is_reviewed: true, video_status: 5, share_url: 'https://www.douyin.com.evil.test/video/3' },
+    ] });
+  } });
+  await authorize(f);
+  const result = await f.req('/integrations/douyin/videos', 'POST', { accountId: 'account-dy' });
+  assert.equal(result.status, 200); assert.deepEqual(result.body.list.map(item => item.itemId), ['public']);
+  assert.ok(!JSON.stringify(result.body).includes(accessToken));
+  assert.equal((await f.req('/integrations/douyin/videos', 'POST', { accountId: 'not-authorized' })).status, 400);
+});
+
+test('comment pagination resumes after the ten-page cap and rejects a non-advancing cursor without losing collected comments', async t => {
+  let broken = false; const cursors = [];
+  const f = await fixture(t, { fetcher: async url => {
+    if (url.includes('/oauth/access_token/')) return token();
+    const parsed = new URL(url), cursor = Number(parsed.searchParams.get('cursor')); cursors.push(cursor);
+    assert.equal(parsed.searchParams.get('count'), '20');
+    return success({ cursor: broken ? cursor : cursor + 1, has_more: broken || cursor < 10, list: [{ comment_id: `comment-${cursor}`, content: `comment ${cursor}`, create_time: 1760000000, digg_count: 1 }] });
+  } });
+  await authorize(f); const pub = await publication(f), base = `/projects/${f.pid}/publications/${pub.id}`;
+  const connectionId = (await f.req('/integrations')).body.douyin.accounts[0].connectionId;
+  f.store.mutate(state => Object.assign(state.projects[0].publications[0], { status: 'published', platformItemId: 'item/+', platformConnectionId: connectionId }));
+  const first = await f.req(base + '/comments-sync', 'POST'); assert.equal(first.body.result.pages, 10); assert.equal(first.body.result.partial, true); assert.equal(f.p().publications[0].commentSync.cursor, 10);
+  const second = await f.req(base + '/comments-sync', 'POST'); assert.equal(second.body.result.added, 1); assert.equal(second.body.result.partial, false); assert.equal(cursors.at(-1), 10); assert.equal(f.p().comments.length, 11);
+  broken = true; const third = await f.req(base + '/comments-sync', 'POST'); assert.equal(third.status, 502); assert.equal(f.p().comments.length, 11); assert.match(third.body.error, /游标未推进/);
+});
+
+test('expired Douyin refresh authorization pauses platform tasks without returning local-login HTTP 401', async t => {
+  const f = await fixture(t, { fetcher: async url => {
+    assert.ok(url.includes('/oauth/access_token/'));
+    return success({ access_token: accessToken, refresh_token: 'fake-refresh', open_id: 'fake-open-id', expires_in: 0.000001, refresh_expires_in: 0.000001, scope: 'video.create,video.data,item.comment' });
+  } });
+  await authorize(f); const pub = await publication(f);
+  const result = await f.req(`/projects/${f.pid}/publications/${pub.id}/automatic`, 'POST', { confirmed: true, text: 'caption' });
+  assert.equal(result.status, 403); assert.match(result.body.error, /抖音授权已过期/); assert.equal((await f.req('/state')).status, 200);
+  assert.equal(f.store.get().accounts.find(a => a.id === 'account-dy').connected, false);
+});
+
 test('background progress cannot invalidate a text generation whose actual inputs are unchanged', async t => {
   let finish, started; const gate = new Promise(r => { finish = r; }); const begin = new Promise(r => { started = r; });
   const f = await fixture(t, { fetcher: async () => { started(); await gate; return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify({ title: 'new strategy', core: 'facts', direction: 'direction', prompt: 'prompt' }) }] }], usage: { input_tokens: 100, output_tokens: 100 } }); } });

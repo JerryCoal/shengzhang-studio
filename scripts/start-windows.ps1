@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $studioRoot = Split-Path -Parent $PSScriptRoot
-$studioApp = Join-Path $studioRoot 'outputs/windows/Shengzhang-Studio-1.0.0/ShengzhangStudio.exe'
+$studioApp = Join-Path $studioRoot 'outputs/windows/Shengzhang-Studio-1.1.0/ShengzhangStudio.exe'
 if (Test-Path -LiteralPath $studioApp) {
   Start-Process -FilePath $studioApp -WorkingDirectory (Split-Path -Parent $studioApp) -WindowStyle Hidden
   exit 0

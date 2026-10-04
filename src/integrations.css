@@ -50,8 +50,35 @@
 .sync-record > div { min-width: 0; }
 .sync-record small { display: block; margin-top: 7px; color: #798173; font-size: 12px; }
 .sync-record .checkbox-row { margin: 0; font-size: 12px; }
+.douyin-service { grid-column: 1 / -1; }
+.douyin-service { scroll-margin-top: 90px; }
+.douyin-guide { border: 1px solid #dbe4d9; background: #f0f5ed; padding: 16px; border-radius: 12px; margin: 18px 0 24px; }
+.douyin-guide summary { cursor: pointer; font-weight: 600; line-height: 1.7; }
+.douyin-guide summary svg { vertical-align: middle; margin-right: 7px; }
+.douyin-guide-body { font-size: 13px; line-height: 1.85; overflow-wrap: anywhere; }
+.douyin-guide-body a { color: #285d47; text-decoration: underline; text-underline-offset: 3px; }
+.douyin-steps { padding-left: 24px; }
+.douyin-steps > li { padding-left: 6px; margin: 18px 0; }
+.douyin-steps p { margin: 7px 0; }
+.douyin-permission-list { display: grid; gap: 6px; margin: 12px 0; }
+.douyin-permission-list > div { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.douyin-permission-list code { min-width: 130px; }
+.douyin-account-capabilities { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.douyin-service .checkbox-row input { width: auto; flex: 0 0 auto; }
+.douyin-list-option { align-items: flex-start; padding-top: 24px; }
+.douyin-next { background: #f0f4eb; padding: 18px; border-radius: 12px; margin-top: 24px; font-size: 13px; line-height: 1.8; }
+.oauth-complete details { margin-top: 18px; }
+.oauth-complete summary { cursor: pointer; font-size: 13px; margin-bottom: 16px; }
+.douyin-video-picker { padding: 16px; border: 1px solid #e1e7dc; border-radius: 12px; margin-bottom: 20px; }
+.douyin-video-list { max-height: 260px; overflow-y: auto; margin: 12px 0; }
+.douyin-video-item { display: flex; gap: 10px; align-items: flex-start; padding: 12px 4px; border-bottom: 1px solid #e1e7dc; font-size: 13px; }
+.douyin-video-item > input { flex: 0 0 auto; margin-top: 4px; }
+.douyin-video-item span { min-width: 0; overflow-wrap: anywhere; }
+.douyin-video-item small { display: block; margin-top: 6px; }
+.sync-frequency { max-width: 180px; }
 @media (max-width: 1150px) { .service-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 600px) {
+  .page-actions { flex-wrap: wrap; min-width: 0; }
   .integration-settings, .comment-sync-panel { padding: 16px; }
   .service-card { padding: 16px; }
   .service-fields, .automatic-preview, .keyframe-grid { grid-template-columns: minmax(0, 1fr); }

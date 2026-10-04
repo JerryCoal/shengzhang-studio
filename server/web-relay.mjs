@@ -32,7 +32,7 @@ export function allowedWebOperation(path, method) {
   if (path === '/tick') return method === 'POST';
   if (path === '/settings/credential/check') return method === 'POST';
   if (path === '/settings/providers/deepseek/credential/check') return method === 'POST';
-  if (/^\/integrations\/douyin\/(authorize|complete)$/.test(path)) return method === 'POST';
+  if (/^\/integrations\/douyin\/(authorize|complete|videos)$/.test(path)) return method === 'POST';
   if (!path.startsWith('/projects/')) return false;
   const id = '[a-zA-Z0-9_-]{1,100}';
   if (new RegExp('^/projects/'+id+'/trends/refresh$').test(path)) return method === 'POST';
@@ -66,7 +66,7 @@ export function createWebRelay({ staticDirectory = resolve('web-dist'), publicOr
     const requestOrigin = req.get('Origin');
     if (requestOrigin && !allowedOrigins.includes(requestOrigin)) return res.status(403).json({ error: '请从网站的正式地址访问' });
     if (requestOrigin) { res.set('Access-Control-Allow-Origin', requestOrigin); res.vary('Origin'); }
-    if (req.path === '/api/health' && req.method === 'GET') return res.status(closing ? 503 : 200).json({ ok: !closing, mode: 'web-local', storage: 'browser-encrypted', serverStoresWorkspaces: false, asyncJobs: true, version: '1.0.0' });
+    if (req.path === '/api/health' && req.method === 'GET') return res.status(closing ? 503 : 200).json({ ok: !closing, mode: 'web-local', storage: 'browser-encrypted', serverStoresWorkspaces: false, asyncJobs: true, version: '1.1.0' });
     if (req.get('Host') !== origin.host) return res.status(403).json({ error: '请从网站的正式地址访问' });
     if (req.method === 'OPTIONS') { res.set({ 'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, X-Studio-Client, Authorization', 'Access-Control-Max-Age': '600' }); return res.sendStatus(204); }
     if (closing) return res.status(503).json({ error: '联网服务正在更新，请稍后重试' });

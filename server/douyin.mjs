@@ -8,6 +8,9 @@ const ORIGIN = 'https://open.douyin.com';
 const active = ['uploading', 'submitting'];
 const field = z.string().trim().min(1).max(512);
 const pendingRecord = record => ['scheduled', 'exported'].includes(record.status);
+const intervalSchema = z.union([z.literal(5), z.literal(15), z.literal(30), z.literal(60)]);
+const syncDelay = pub => (pub.commentSync?.intervalMinutes || 15) * 60000;
+const validShareUrl = value => { try { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password && ['douyin.com', 'iesdouyin.com'].some(host => url.hostname === host || url.hostname.endsWith('.' + host)) ? url.href : ''; } catch { return ''; } };
 export const douyinAppSchema = z.object({ clientKey: field.regex(/^[A-Za-z0-9_-]+$/), clientSecret: field, redirectUri: z.string().url().max(2048).refine(value => { const url = new URL(value); return !url.username && !url.password && !url.hash && !url.search && (url.protocol === 'https:' || (url.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(url.hostname))); }, '请填写平台注册的 HTTPS 回调地址（本地调试可填写 localhost）') }).strict();
 
 export async function douyinRequest(path, { method = 'GET', token, query = {}, body, format = 'json' } = {}, fetcher) {
@@ -60,7 +63,7 @@ export function mountDouyin(app, store, config, { project }) {
     d.assert(!connectionId || account.connectionId === connectionId, '账号授权已更换，请重新检查发布账号并安排任务', 409);
     d.assert(scopes.every(scope => account.scopes.includes(scope)), `抖音授权缺少 ${scopes.join('、')}，请先申请权限并重新授权`, 403);
     if (account.expiresAt > Date.now() + 60000) return { ...account };
-    if (account.refreshExpiresAt <= Date.now()) { paused(accountId, '抖音授权已过期，请重新授权'); throw integrationError('抖音授权已过期，请重新授权', 401); }
+    if (account.refreshExpiresAt <= Date.now()) { paused(accountId, '抖音授权已过期，请重新授权'); throw integrationError('抖音授权已过期，请重新授权', 403, { authorization: true }); }
     try {
       const data = await douyinRequest('/oauth/refresh_token/', { method: 'POST', format: 'form', body: { client_key: state.clientKey, grant_type: 'refresh_token', refresh_token: account.refreshToken } }, fetcher);
       d.assert(typeof data.access_token === 'string' && Number(data.expires_in) > 0 && (!data.open_id || data.open_id === account.openId), '抖音刷新授权响应无效，请重新授权', 502);
@@ -71,7 +74,7 @@ export function mountDouyin(app, store, config, { project }) {
       if (data.scope) fresh.scopes = String(data.scope).split(',').map(s => s.trim());
       await persist(next); d.assert(scopes.every(scope => fresh.scopes.includes(scope)), '刷新后的授权缺少所需权限，请重新授权', 403);
       return { ...fresh };
-    } catch { paused(accountId, '抖音授权刷新失败，请重新授权'); throw integrationError('抖音授权刷新失败，自动任务已暂停，请重新授权', 401); }
+    } catch { paused(accountId, '抖音授权刷新失败，请重新授权'); throw integrationError('抖音授权刷新失败，自动任务已暂停，请重新授权', 403, { authorization: true }); }
   });
   const status = async () => {
     const state = await load();
@@ -91,13 +94,14 @@ export function mountDouyin(app, store, config, { project }) {
     res.json(await status());
   });
   app.post('/api/integrations/douyin/authorize', async (req, res) => {
-    local(req); const { accountId } = z.object({ accountId: z.string() }).strict().parse(req.body);
+    local(req); const { accountId, purpose, includeVideoList } = z.object({ accountId: z.string(), purpose: z.enum(['all', 'publish', 'comments']).default('all'), includeVideoList: z.boolean().default(false) }).strict().parse(req.body);
     d.assert(store.get().accounts.some(a => a.id === accountId && a.platform === 'douyin'), '请选择抖音账号');
     const settings = await load(); d.assert(settings.clientKey, '请先保存抖音应用凭证');
     for (const [key, ticket] of authorizations) if (ticket.expiresAt < Date.now() || ticket.accountId === accountId) authorizations.delete(key);
     const state = randomBytes(32).toString('base64url');
     authorizations.set(state, { accountId, expiresAt: Date.now() + 15 * 60000, redirectUri: settings.redirectUri });
-    const url = new URL('/platform/oauth/connect/', ORIGIN); url.search = new URLSearchParams({ client_key: settings.clientKey, response_type: 'code', scope: 'video.create,video.data,item.comment', redirect_uri: settings.redirectUri, state }).toString();
+    const scopes = [...(purpose !== 'comments' ? ['video.create'] : []), 'video.data', ...(purpose !== 'publish' ? ['item.comment'] : []), ...(includeVideoList ? ['video.list'] : [])];
+    const url = new URL('/platform/oauth/connect/', ORIGIN); url.search = new URLSearchParams({ client_key: settings.clientKey, response_type: 'code', scope: scopes.join(','), redirect_uri: settings.redirectUri, state }).toString();
     res.json({ url: url.href, expiresAt: Date.now() + 15 * 60000 });
   });
   app.post('/api/integrations/douyin/complete', async (req, res) => {
@@ -105,7 +109,9 @@ export function mountDouyin(app, store, config, { project }) {
     const url = new URL(callbackUrl), state = url.searchParams.get('state'), code = url.searchParams.get('code'), ticket = authorizations.get(state);
     d.assert(ticket && ticket.expiresAt > Date.now(), '授权校验已过期或不匹配，请重新点击授权');
     const redirect = new URL(ticket.redirectUri);
-    d.assert(url.origin === redirect.origin && url.pathname === redirect.pathname && code && code.length <= 1024 && !url.username && !url.password, '请粘贴本次授权结束后的完整回调地址');
+    d.assert(url.origin === redirect.origin && url.pathname === redirect.pathname && !url.hash && !url.username && !url.password && url.searchParams.getAll('state').length === 1, '请粘贴本次授权结束后的完整回调地址');
+    if (url.searchParams.has('error') || url.searchParams.has('errCode')) { authorizations.delete(state); throw integrationError('本次抖音授权未完成或被取消，请核对应用权限后重新连接。', 400); }
+    d.assert(code && code.length <= 1024 && url.searchParams.getAll('code').length === 1, '授权地址缺少有效授权码，请重新连接');
     d.assert(!locks.size, '平台正在执行任务，请稍后完成新的授权', 409);
     authorizations.delete(state);
     const connection = await exclusive(async () => {
@@ -122,16 +128,26 @@ export function mountDouyin(app, store, config, { project }) {
   // Local callback landing page has no third-party resources, scripts, or logging of the code.
   app.get('/oauth/douyin/callback', (_req, res) => res.set({ 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'Content-Security-Policy': "default-src 'none'" }).type('html').send('<!doctype html><meta charset="utf-8"><title>返回生长工作台</title><h1>返回工作台完成授权</h1><p>请复制当前地址栏的完整地址，回到设置页粘贴到“授权后的回调地址”。</p>'));
 
+  app.post('/api/integrations/douyin/videos', async (req, res) => {
+    local(req);
+    const { accountId, cursor } = z.object({ accountId: z.string(), cursor: z.union([z.number().int().nonnegative().safe(), z.string().regex(/^\d{1,20}$/)]).default(0) }).strict().parse(req.body);
+    const account = await getToken(accountId, ['video.list']);
+    const data = await douyinRequest('/video/list/', { token: account.accessToken, query: { open_id: account.openId, cursor, count: 20 } }, fetcher);
+    d.assert(Array.isArray(data.list) && typeof data.has_more === 'boolean' && (typeof data.cursor === 'string' || Number.isSafeInteger(data.cursor)), '作品列表响应无效，请稍后重试', 502);
+    d.assert(!data.has_more || String(data.cursor) !== String(cursor), '作品列表游标未推进，请稍后重试', 502);
+    res.json({ list: data.list.filter(item => item.is_reviewed === true && item.video_status === 5 && typeof item.item_id === 'string' && validShareUrl(item.share_url)).map(item => ({ itemId: item.item_id, title: String(item.title || '未命名作品').slice(0, 200), url: validShareUrl(item.share_url), createTime: Number(item.create_time) || 0 })), cursor: data.cursor, hasMore: data.has_more });
+  });
+
   app.post('/api/projects/:id/publications/:publicationId/automatic', async (req, res) => {
     local(req);
-    const input = z.object({ confirmed: z.literal(true), text: z.string().trim().min(1).max(55) }).strict().parse(req.body);
+    const input = z.object({ confirmed: z.literal(true), text: z.string().trim().min(1).max(55), autoComments: z.boolean().default(false), syncIntervalMinutes: intervalSchema.default(15) }).strict().parse(req.body);
     const pub = project(store.get(), req.params.id).publications.find(r => r.id === req.params.publicationId); d.assert(pub, '发布记录不存在', 404);
-    const account = await getToken(pub.accountId, ['video.create', 'video.data']);
+    const account = await getToken(pub.accountId, ['video.create', 'video.data', ...(input.autoComments ? ['item.comment'] : [])]);
     update(req.params.id, pub.id, (_p, fresh) => {
       d.assert(fresh.platform === 'douyin' && !fresh.sample && pendingRecord(fresh) && /^data:video\/(mp4|webm);base64,/.test(fresh.mediaData), '自动发布目前支持已完成的抖音视频');
       d.assert(!fresh.automation || ['blocked', 'failed', 'cancelled'].includes(fresh.automation.status), '此作品已安排自动发布，请勿重复提交', 409);
       d.assert(!fresh.automation?.itemId && fresh.automation?.status !== 'uncertain', '发布结果不明，请先核对平台结果', 409);
-      fresh.automation = { id: d.id(), status: 'queued', text: input.text, consentAt: d.now(), connectionId: account.connectionId, nextPollAt: 0, error: '' };
+      fresh.automation = { id: d.id(), status: 'queued', text: input.text, consentAt: d.now(), connectionId: account.connectionId, nextPollAt: 0, error: '', autoComments: input.autoComments, syncIntervalMinutes: input.syncIntervalMinutes };
     });
     res.json({ result: { queued: true }, state: store.get() });
   });
@@ -151,6 +167,7 @@ export function mountDouyin(app, store, config, { project }) {
         d.assert(url.protocol === 'https:' && ['douyin.com', 'iesdouyin.com'].some(host => url.hostname === host || url.hostname.endsWith('.' + host)) && !url.username && !url.password, '平台返回的作品链接无效', 502);
         Object.assign(fresh, { status: 'published', url: url.href, confirmationSource: 'douyin-api', publishedAt: d.now(), platformItemId: automation.itemId, platformConnectionId: automation.connectionId });
         fresh.automation.status = 'published';
+        if (automation.autoComments && !fresh.commentSync) fresh.commentSync = { enabled: true, intervalMinutes: automation.syncIntervalMinutes || 15, nextSyncAt: 0, cursor: 0, error: '', consentAt: automation.consentAt };
       } else { fresh.automation.status = 'submitted'; fresh.automation.error = item ? `平台尚未确认公开发布（状态 ${Number.isInteger(item.video_status) ? item.video_status : '待审核'}）` : '投稿已提交，等待平台审核结果'; }
     });
   }
@@ -189,7 +206,9 @@ export function mountDouyin(app, store, config, { project }) {
   app.post('/api/projects/:id/publications/:publicationId/platform-item', async (req, res) => {
     local(req); const input = z.object({ itemId: z.string().trim().min(1).max(512), confirmed: z.literal(true) }).strict().parse(req.body);
     const pub = project(store.get(), req.params.id).publications.find(r => r.id === req.params.publicationId); d.assert(pub && pub.platform === 'douyin' && !pub.sample, '请选择自己的抖音作品');
-    d.assert(!active.includes(pub.automation?.status), '平台投稿正在进行', 409);
+    d.assert(!active.includes(pub.automation?.status) && !locks.has(`comments/${pub.id}`) && !locks.has(`publish/${pub.id}`), '平台正在处理这条作品，请稍后关联', 409);
+    d.assert(pub.status !== 'cancelled', '计划已取消，请重新安排');
+    d.assert(!pub.platformItemId || pub.platformItemId === input.itemId, '已有作品关联不能更换，以免混合不同作品的评论', 409);
     const account = await getToken(pub.accountId, ['video.data']);
     const data = await douyinRequest('/video/data/', { method: 'POST', token: account.accessToken, query: { open_id: account.openId }, body: { item_ids: [input.itemId] } }, fetcher);
     d.assert(data.list?.some(item => item.item_id === input.itemId && item.is_reviewed === true && item.video_status === 5), '授权账号下未查到这条已公开的作品');
@@ -197,23 +216,24 @@ export function mountDouyin(app, store, config, { project }) {
     await inspect(req.params.id, pub.id, account); res.json({ result: { linked: true }, state: store.get() });
   });
 
-  async function sync(pid, pubid) {
-    const lock = `comments/${pubid}`; if (locks.has(lock)) return; locks.add(lock);
+  async function sync(pid, pubid, automatic = false) {
+    const lock = `comments/${pubid}`; d.assert(!locks.has(lock), '这条作品正在同步评论，请稍候', 409); locks.add(lock);
     try {
       const pub = project(store.get(), pid).publications.find(r => r.id === pubid);
       d.assert(pub?.status === 'published' && pub.platformItemId && !pub.sample, '请先通过平台确认或关联真实的抖音作品');
       const account = await getToken(pub.accountId, ['item.comment'], pub.platformConnectionId);
-      let cursor = pub.commentSync?.cursor || 0, more = true, added = 0, pages = 0;
+      let cursor = pub.commentSync?.cursor || 0, more = true, added = 0, updated = 0, pages = 0;
       const seen = new Set();
       while (more && pages < 10) {
-        const data = await douyinRequest('/item/comment/list/', { token: account.accessToken, query: { open_id: account.openId, item_id: pub.platformItemId, count: 50, cursor } }, fetcher);
-        d.assert(Array.isArray(data.list) && typeof data.has_more === 'boolean' && (typeof data.cursor === 'number' || typeof data.cursor === 'string'), '评论分页响应无效，原有评论保留', 502);
+        if (closed || (automatic && !project(store.get(), pid).publications.find(r => r.id === pubid)?.commentSync?.enabled)) break;
+        const data = await douyinRequest('/item/comment/list/', { token: account.accessToken, query: { open_id: account.openId, item_id: pub.platformItemId, count: 20, cursor, sort_type: 'time' } }, fetcher);
+        d.assert(Array.isArray(data.list) && data.list.length <= 20 && typeof data.has_more === 'boolean' && (Number.isSafeInteger(data.cursor) || (typeof data.cursor === 'string' && /^\d{1,20}$/.test(data.cursor))), '评论分页响应无效，原有评论保留', 502);
         const next = data.cursor; more = data.has_more;
         d.assert(!more || (String(next) !== String(cursor) && !seen.has(String(next))), '评论分页游标未推进，已停止本轮同步', 502); seen.add(String(next));
-        update(pid, pubid, (p, fresh) => { added += importDouyinComments(p, fresh, data.list).added; fresh.commentSync = { ...fresh.commentSync, cursor: more ? next : 0, partial: more, lastSyncAt: d.now(), error: '', failures: 0, nextSyncAt: Date.now() + (more ? 60000 : 15 * 60000) }; });
+        update(pid, pubid, (p, fresh) => { const result = importDouyinComments(p, fresh, data.list); added += result.added; updated += result.updated; fresh.commentSync = { ...fresh.commentSync, cursor: more ? next : 0, partial: more, lastSyncAt: d.now(), error: '', failures: 0, lastAdded: added, lastUpdated: updated, nextSyncAt: Date.now() + (more ? 60000 : syncDelay(fresh)) }; });
         cursor = next; pages++;
       }
-      return { added, partial: more, pages };
+      return { added, updated, partial: more, pages };
     } catch (error) {
       update(pid, pubid, (_p, pub) => { const failures = (pub.commentSync?.failures || 0) + 1; pub.commentSync = { ...pub.commentSync, failures, error: error.status ? error.message : '评论同步未完成，已采集的原文保留。', nextSyncAt: Date.now() + 15 * 60000 }; if (error.authorization || [401, 403].includes(error.status) || failures >= 6) pub.commentSync.enabled = false; });
       throw error.status ? error : integrationError('评论同步未完成，已采集的原文保留。');
@@ -221,11 +241,11 @@ export function mountDouyin(app, store, config, { project }) {
   }
   app.post('/api/projects/:id/publications/:publicationId/comments-sync', async (req, res) => { local(req); const result = await sync(req.params.id, req.params.publicationId); res.json({ result, state: store.get() }); });
   app.put('/api/projects/:id/publications/:publicationId/comments-sync', async (req, res) => {
-    local(req); const { enabled } = z.object({ enabled: z.boolean() }).strict().parse(req.body);
+    local(req); const { enabled, intervalMinutes } = z.object({ enabled: z.boolean(), intervalMinutes: intervalSchema.optional() }).strict().parse(req.body);
     const pub = project(store.get(), req.params.id).publications.find(r => r.id === req.params.publicationId);
     d.assert(pub?.status === 'published' && pub.platformItemId && !pub.sample, '请先关联平台中的真实作品');
     if (enabled) await getToken(pub.accountId, ['item.comment'], pub.platformConnectionId);
-    update(req.params.id, pub.id, (_p, fresh) => { fresh.commentSync = { ...fresh.commentSync, enabled, nextSyncAt: 0, error: '' }; });
+    update(req.params.id, pub.id, (_p, fresh) => { fresh.commentSync = { ...fresh.commentSync, enabled, intervalMinutes: intervalMinutes || fresh.commentSync?.intervalMinutes || 15, nextSyncAt: 0, error: '' }; });
     res.json({ result: { enabled }, state: store.get() });
   });
   return {
@@ -235,7 +255,7 @@ export function mountDouyin(app, store, config, { project }) {
       if (closed) return;
       for (const p of store.get().projects) for (const r of p.publications) {
         if (pendingRecord(r) && ((r.automation?.status === 'queued' && Date.parse(r.scheduledAt) <= Date.now()) || (r.automation?.status === 'submitted' && r.automation.nextPollAt <= Date.now()))) await publish(p.id, r.id);
-        if (r.status === 'published' && r.commentSync?.enabled && r.commentSync.nextSyncAt <= Date.now()) await sync(p.id, r.id).catch(() => {});
+        if (r.status === 'published' && r.commentSync?.enabled && r.commentSync.nextSyncAt <= Date.now()) await sync(p.id, r.id, true).catch(() => {});
       }
     },
     close() { closed = true; },

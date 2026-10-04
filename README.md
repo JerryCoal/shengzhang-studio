@@ -4,16 +4,18 @@
 
 生长 STUDIO 将品牌资料、项目语料、热点筛选、宣传策略、文案与封面、视频、发布记录和评论复盘连接在同一个工作区。面向独立创作者、小团队和早期品牌，让整理过的资料与反馈继续用于下一次创作。
 
-**当前正式版：v1.0.0 · Windows x64。** 本版整合截至 v0.4.7 的功能，统一版本号与使用文档。Windows 应用内置后端和运行环境，解压即可运行，无需另装 Node.js。
+**当前正式版：v1.1.0 · Windows x64。** 本版完善抖音官方授权、视频投稿与评论同步流程。Windows 应用内置后端和运行环境，解压即可运行，无需另装 Node.js。
+
+**v1.1.0 更新重点：** 抖音应用内授权与六步开通指引、授权作品选择、发布后自动采集评论、同步频率设置，以及授权过期处理和评论分页修复。详见 [完整更新记录](docs/RELEASE-1.1.0.md)、[升级说明](docs/UPGRADE-1.1.0.md) 与 [抖音开通指南](docs/DOUYIN-SETUP.md)。真实投稿和评论采集仍需要开放平台应用获得对应权限，并由用户完成账号授权；本版尚未完成真实抖音账号联调。
 
 ## 下载与打开
 
 | 入口 | 地址 / 说明 |
 | --- | --- |
-| **下载 v1.0.0 Windows 完整版** | [Shengzhang-Studio-1.0.0-windows-x64.zip](https://github.com/JerryCoal/shengzhang-studio/releases/download/v1.0.0/Shengzhang-Studio-1.0.0-windows-x64.zip) |
-| 正式版发布说明 | [v1.0.0 Release](https://github.com/JerryCoal/shengzhang-studio/releases/tag/v1.0.0) |
+| **下载 v1.1.0 Windows 完整版** | [Shengzhang-Studio-1.1.0-windows-x64.zip](https://github.com/JerryCoal/shengzhang-studio/releases/download/v1.1.0/Shengzhang-Studio-1.1.0-windows-x64.zip) |
+| 正式版发布说明 | [v1.1.0 Release](https://github.com/JerryCoal/shengzhang-studio/releases/tag/v1.1.0) |
 | 最新发布入口 | [Releases / latest](https://github.com/JerryCoal/shengzhang-studio/releases/latest) |
-| 文件完整性校验 | [SHA-256 校验文件](https://github.com/JerryCoal/shengzhang-studio/releases/download/v1.0.0/Shengzhang-Studio-1.0.0-windows-x64.zip.sha256) |
+| 文件完整性校验 | [SHA-256 校验文件](https://github.com/JerryCoal/shengzhang-studio/releases/download/v1.1.0/Shengzhang-Studio-1.1.0-windows-x64.zip.sha256) |
 | 历史下载 | [所有已发布版本](https://github.com/JerryCoal/shengzhang-studio/releases) |
 | 网页入口 | [GitHub Pages](https://jerrycoal.github.io/shengzhang-studio/)；在线 AI 和平台功能需要可用后端，不能用静态托管代替后端 |
 | 项目源码 | [JerryCoal/shengzhang-studio](https://github.com/JerryCoal/shengzhang-studio) |
@@ -26,7 +28,19 @@
 
 升级时，先在旧版托盘菜单选择 **退出并停止后台任务**，再打开完整解压后的新版。同一台电脑、同一 Windows 账户下，数据继续保存在 `%LOCALAPPDATA%\ShengzhangStudio`，不需要复制数据库到新版文件夹。仅关闭窗口会缩到托盘。
 
-详细操作见 [v1.0.0 使用说明](docs/UPGRADE-1.0.0.md) 和 [Windows 使用说明](docs/WINDOWS-APP.md)。
+详细操作见 [v1.1.0 升级说明](docs/UPGRADE-1.1.0.md)、[抖音开通指南](docs/DOUYIN-SETUP.md) 和 [Windows 使用说明](docs/WINDOWS-APP.md)。
+
+### v1.1.0：从连接抖音到评论回流
+
+1. 打开 **连接与设置 → 抖音开通与授权**，展开首次使用指引，按步骤创建开放平台应用并申请所需权限。
+2. 保存自己的应用信息及平台登记的回调地址，选择发布、评论或两项功能。作品列表权限可按需申请。
+3. Windows 优先在应用内打开抖音官方授权页；无法完成时可使用浏览器链接和手动回调入口。应用不收集抖音密码。
+4. 在发布中心检查视频、文案、账号和时间，逐条确认启用自动投稿。可同时勾选「发布后自动获取评论」；平台确认审核通过且公开后，才标记为已发布并启动采集。
+5. 在 **评论与复盘** 中选择每 5、15、30 或 60 分钟同步，也可立即同步。已有公开作品可从授权作品列表选择，或手动关联作品 ID。
+
+评论按 ID 去重，保留原文、时间、点赞数及人工分类，并显示上次同步、下次同步和新增/更新数量。每页最多 20 条，每轮最多 200 条，更多分页会继续采集。本版采集范围为授权账号自有公开视频的一级评论，暂不采集楼中楼回复，也不支持抖音图文投稿。
+
+**运行条件：** 保持工作区已登录、电脑联网且唤醒。关闭窗口可留在托盘继续运行，完全退出会停止任务。接口权限取决于开放平台审核；未获权限时不能仅靠登录抖音账号启用自动发布或采集。
 
 ## 工作流程
 
@@ -61,7 +75,7 @@ flowchart TD
 
 - **免费封面**：内容制作 → 图文任务 →「本地模板制作 · 免费」。可配合真实产品图，输出 900 × 1200 PNG。
 - **Seedream 小红书封面**：配置 Seedream → 确认项目策略 → 小红书图文卡片「AI 封面 · Seedream」→ 选择风格、构图和要求 → 预览提示词与语料 → 确认生成 → 检查候选 →「确认采用为封面」。输出 1728 × 2304（3:4）。
-- **AI 视频**：短片任务中，用 GPT Image 2 或 Seedream 生成并检查首尾关键帧，再提交 Seedance。图片和视频分别配置密钥。（ai视频尚未测试）
+- **AI 视频**：短片任务中，用 GPT Image 2 或 Seedream 生成并检查首尾关键帧，再提交 Seedance。图片和视频分别配置密钥；尚未完成真实 AI 视频生成的联调验证。
 - **本地短片**：模板合成约 12 秒短片，可上传配音；输出格式由浏览器支持情况决定。素材包包含成品和配套文案。
 
 Seedream 提示「模型或者接入点不存在」时，点击设置页模型输入框下方的同名小字，查看模型开通、接入点、区域、权限和请求示例。先选模型系列，再粘贴接入点 ID。
@@ -84,7 +98,7 @@ Seedream 提示「模型或者接入点不存在」时，点击设置页模型�
 | 小红书 AI 封面 | 火山方舟 Seedream | 北京区域已开通模型或可用接入点；图片密钥独立保存 |
 | 视频首尾帧 | GPT Image 2 / Seedream | 对应图片服务权限与额度 |
 | AI 视频 | Seedance（火山方舟 / BytePlus） | 对应区域密钥和支持首尾帧的模型或接入点 |
-| 抖音投稿与评论同步 | 抖音开放平台 | 已审核应用、相关接口权限、账号 OAuth 授权；发布任务逐条确认 |（待完成，现在仍无法接入抖音平台，仍需手动）
+| 抖音投稿与评论同步 | 抖音开放平台 | 已审核应用、相关接口权限、账号 OAuth 授权；发布任务逐条确认；真实账号联调待完成，未开通权限前仍需手动发布 |
 | 小红书发布与评论 | 素材导出、手动发布、评论导入 | 当前未接入通用后台自动发布或自动抓取评论接口 |
 
 Windows 版的用户、工作区和凭证在本机按用户加密保存；API 与平台凭证还使用 Windows 当前账户的 DPAPI 保护。勾选自动登录后，下次可点击用户进入，也可取消记住。密码无法找回；工作区备份为明文且不含 API 密钥，请自行保管。
@@ -93,7 +107,7 @@ Windows 版的用户、工作区和凭证在本机按用户加密保存；API �
 
 Windows 菜单「工作台 → 在浏览器中打开」提供连接本机后端的完整网页，与桌面窗口共用本机数据。独立联网网页版的浏览器加密工作区和后端代码保留，但当前没有承诺持续可用的公网后端；不同浏览器与设备不会自动同步。详见 [联网网页版说明](docs/WEB-LOCAL-DATA.md)。
 
-## 截至 v1.0.0 的版本迭代
+## 截至 v1.1.0 的版本迭代
 
 以下区分 GitHub 已发布版本与此前仅本地交付的迭代；未将本地版本描述成已存在的历史 Release。
 
@@ -111,6 +125,7 @@ Windows 菜单「工作台 → 在浏览器中打开」提供连接本机后端�
 | v0.4.6 · 本地交付 | 近七天中文新闻、关键词匹配、候选与风险确认、项目热点标签 | [说明](docs/UPGRADE-0.4.6.md) |
 | v0.4.7 · 本地交付 | Seedream 接入点问答、设置内入口、保留未保存输入的帮助体验 | [说明](docs/UPGRADE-0.4.7.md) |
 | **v1.0.0 · 正式版** | **整合以上功能，公开完整项目源码，统一版本号、流程文档和正式下载入口** | [说明](docs/UPGRADE-1.0.0.md) / [正式版下载](https://github.com/JerryCoal/shengzhang-studio/releases/tag/v1.0.0) |
+| **v1.1.0 · 正式版** | **抖音六步开通指南、应用内授权与浏览器回退、授权作品选择、审核公开后自动采集评论、可选同步频率；修复评论分页和平台授权过期处理** | [更新记录](docs/RELEASE-1.1.0.md) / [正式版下载](https://github.com/JerryCoal/shengzhang-studio/releases/tag/v1.1.0) |
 
 此前源码中的「0.5.0 联网网页版」是并行部署方案的标识，不是桌面 v0.4.7 之后单独发布的正式版本。相关代码在 v1.0.0 中统一版本号，公网部署状态见上文。
 
@@ -124,8 +139,7 @@ Windows 菜单「工作台 → 在浏览器中打开」提供连接本机后端�
 
 ## 生成成本分析
 
-- 生成一个5-10个辅助资料的宣传文案，大概需要<= 0.4 ＄的花费
-
+此前手工记录：一份使用 5–10 份辅助资料的宣传文案，花费约不超过 0.4 美元。这是历史样本估算，不是每次生成的价格保证；服务商、模型、资料长度与重试次数都会影响费用，实际以账户账单为准。
 
 ## 开发与构建
 
@@ -155,7 +169,7 @@ pnpm run build:windows
 node scripts/package-windows.mjs
 ```
 
-输出 `outputs/Shengzhang-Studio-1.0.0-windows-x64.zip`，构建所用 Node 一起打包。仓库不包含第三方运行组件压缩包、用户数据、测试产物或个人密钥。原生工程构建前需执行 `pnpm native:sync`，再使用 Android Studio 或 macOS/Xcode。
+当前源码输出 `outputs/Shengzhang-Studio-1.1.0-windows-x64.zip`，构建所用 Node 一起打包。仓库不包含第三方运行组件压缩包、用户数据、测试产物或个人密钥。原生工程构建前需执行 `pnpm native:sync`，再使用 Android Studio 或 macOS/Xcode。
 
 ```text
 src/          页面、输入辅助、浏览器工作区、图文与视频制作
@@ -169,4 +183,4 @@ android/      安卓工程（待签名与真机验证）
 ios/          iOS 工程（待签名与真机验证）
 ```
 
-更多文档：[提示词与输入辅助](docs/PROMPT-WORKFLOW.md) · [生成与平台连接](docs/GENERATION-AND-PLATFORMS.md) · [部署说明](docs/DEPLOYMENT.md)。历史文档描述对应版本，当前功能与下载以本 README 和 v1.0.0 发布说明为准。
+更多文档：[提示词与输入辅助](docs/PROMPT-WORKFLOW.md) · [生成与平台连接](docs/GENERATION-AND-PLATFORMS.md) · [部署说明](docs/DEPLOYMENT.md)。历史文档描述对应版本，当前功能与下载以本 README 和 v1.1.0 发布说明为准。

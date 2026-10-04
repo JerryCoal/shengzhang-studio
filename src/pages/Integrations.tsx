@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { KeyRound, Link2, LockKeyhole, RefreshCw, Video } from 'lucide-react';
+import { LockKeyhole, RefreshCw, Video } from 'lucide-react';
 import { api, IS_WEB } from '../api';
 import { useStudio } from '../context';
 import { Field, Pill } from '../components';
 import type { Integrations } from '../types';
 import '../integrations.css';
-import { webCallbackUrl } from '../web-connection';
+import { DouyinSettings } from './DouyinSettings';
 import { SeedreamSettings } from './SeedreamSettings';
 
 export function useIntegrations() {
@@ -16,11 +16,11 @@ export function useIntegrations() {
 }
 export function IntegrationSettings() {
   const { value, error, reload } = useIntegrations();
-  const { run, busy, refresh, notify, state } = useStudio();
+  const { run, busy, refresh, notify } = useStudio();
   const [seedKey, setSeedKey] = useState(''), [region, setRegion] = useState<'volcengine' | 'byteplus'>('volcengine'), [model, setModel] = useState('');
-  const [reservation, setReservation] = useState(2), [price, setPrice] = useState(0), [clientKey, setClientKey] = useState(''), [clientSecret, setClientSecret] = useState(''), [redirect, setRedirect] = useState(webCallbackUrl);
-  const [authorizeUrl, setAuthorizeUrl] = useState(''), [callback, setCallback] = useState(''), [deleteService, setDeleteService] = useState('');
-  useEffect(() => { if (value) { setRegion(value.seedance.region); setModel(value.seedance.model); setReservation(value.seedance.reservationUsd); setPrice(value.seedance.outputPriceUsd); if (value.douyin.redirectUri) setRedirect(value.douyin.redirectUri); } }, [value]);
+  const [reservation, setReservation] = useState(2), [price, setPrice] = useState(0);
+  const [deleteService, setDeleteService] = useState('');
+  useEffect(() => { if (value) { setRegion(value.seedance.region); setModel(value.seedance.model); setReservation(value.seedance.reservationUsd); setPrice(value.seedance.outputPriceUsd); } }, [value]);
   const changed = async () => { await reload(); await refresh(); };
   if (error) return <div className="info-box"><span>{error}</span><button className="button small" onClick={() => void reload()}>重新加载连接</button></div>;
   if (!value) return <p className="muted">正在读取生成与发布连接…</p>;
@@ -43,21 +43,7 @@ export function IntegrationSettings() {
         {value.seedance.configured && <button className="text-button muted" disabled={busy || !editable} onClick={() => setDeleteService('seedance')}>删除 Seedance 本机密钥</button>}
         <a className="service-doc" href={region === 'volcengine' ? 'https://www.volcengine.com/docs/82379/1520757' : 'https://docs.byteplus.com/en/docs/ModelArk/1520757'} target="_blank" rel="noreferrer">Seedance 官方接口说明 ↗</a>
       </article>
-      <article className="service-card"><div className="service-title"><Link2 size={21}/><h3>抖音发布与评论</h3><Pill color={value.douyin.accounts.length ? 'green' : 'gray'}>{value.douyin.accounts.length ? '账号已授权' : '待授权'}</Pill></div>
-        <p>支持视频定时投稿、审核状态查询，以及自有公开作品的评论同步。需要开放平台应用审核和账号授权。</p>
-        <form autoComplete="off" onSubmit={e => { e.preventDefault(); const submitted = { clientKey, clientSecret, redirectUri: redirect }; setClientKey(''); setClientSecret(''); setAuthorizeUrl(''); setCallback(''); void run(async () => { await api('/integrations/douyin', 'PUT', submitted); await changed(); notify('应用凭证已加密保存，接下来授权自己的抖音账号'); }); }}>
-          <Field label="抖音 Client Key" hint={value.douyin.configured ? `应用已保存 · 末尾 ${value.douyin.clientKeySuffix}；替换应用后需重新授权。` : '在抖音开放平台创建并审核应用后获取。'}><input autoComplete="off" required disabled={!editable || !value.douyin.supported || busy} value={clientKey} onChange={e => setClientKey(e.target.value)} maxLength={512}/></Field>
-          <Field label="抖音 Client Secret"><input type="password" autoComplete="off" required disabled={!editable || !value.douyin.supported || busy} value={clientSecret} onChange={e => setClientSecret(e.target.value)} maxLength={512}/></Field>
-          <Field label="平台注册的回调地址" hint="必须与开发者后台一致。平台若不接受本地地址，请填已注册的 HTTPS 地址；授权后复制地址栏中的完整回调地址。"><input type="url" required value={redirect} onChange={e => setRedirect(e.target.value)} disabled={!editable || busy} maxLength={2048}/></Field>
-          <button className="button primary full" disabled={!editable || busy || !clientKey.trim() || !clientSecret.trim()}><KeyRound size={16}/>{value.douyin.configured ? '替换应用凭证' : '加密保存应用凭证'}</button>
-        </form>
-        <div className="authorization-step"><h4>授权自己的账号</h4><p className="small-note">所需权限：video.create、video.data、item.comment。授权码和令牌不会进入项目备份。</p>
-          {state.accounts.filter(a => a.platform === 'douyin').map(account => { const connected = value.douyin.accounts.find(a => a.id === account.id); return <div className="authorized-account" key={account.id}><div><b>{account.name}</b><small>{connected ? `已授予：${connected.scopes.join('、')}` : '尚未完成平台授权'}</small>{connected && <small>授权有效期至 {new Date(connected.expiresAt).toLocaleString('zh-CN')} · 支持自动续期</small>}</div><button className="button small" disabled={busy || !editable || !value.douyin.configured} onClick={() => void run(async () => { const result = await api<{ url: string }>('/integrations/douyin/authorize', 'POST', { accountId: account.id }); setAuthorizeUrl(result.url); setCallback(''); })}>{connected ? '重新授权' : '准备授权'}</button></div>; })}
-          {authorizeUrl && <div className="oauth-complete"><a className="button full" href={authorizeUrl} target="_blank" rel="noreferrer">打开抖音，确认授权 ↗</a><Field label="授权后的完整回调地址" hint="完成授权后复制地址栏，15 分钟内粘贴。此地址含一次性授权码，提交后清空。"><input type="password" autoComplete="off" value={callback} onChange={e => setCallback(e.target.value)} maxLength={8192}/></Field><button className="button primary full" disabled={busy || !callback.trim()} onClick={() => { const submitted = callback; setCallback(''); void run(async () => { await api('/integrations/douyin/complete', 'POST', { callbackUrl: submitted }); setAuthorizeUrl(''); await changed(); notify('平台授权已保存，请核对显示的权限'); }); }}>完成账号连接</button></div>}
-        </div>
-        {value.douyin.configured && <button className="text-button muted" disabled={!editable || busy} onClick={() => setDeleteService('douyin')}>删除应用凭证并停止自动任务</button>}
-        <a className="service-doc" href="https://open.douyin.com/platform/resource/docs/develop/permission/web/oauth2" target="_blank" rel="noreferrer">抖音官方授权说明 ↗</a>
-      </article>
+      <DouyinSettings value={value} changed={changed} onDelete={() => setDeleteService('douyin')}/>
     </div>
     <div className="platform-boundary"><b>小红书</b><p>目前保留素材导出、手动发布和评论导入。查到的官方分享 SDK 需要在小红书客户端完成发布，尚未找到可据此接入的通用后台发笔记及评论采集接口。</p><a href="https://agora.xiaohongshu.com/doc" target="_blank" rel="noreferrer">查看官方分享文档 ↗</a></div>
     {!editable && <p className="info-box">个人凭证由运行服务的电脑保管。请在该电脑的本地地址完成配置与自动任务授权。</p>}

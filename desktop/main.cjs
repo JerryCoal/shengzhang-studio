@@ -1,4 +1,5 @@
-const { app, BrowserWindow, Menu, Tray, nativeImage, shell, dialog } = require('electron');
+const { app, BrowserWindow, Menu, Tray, nativeImage, shell, dialog, ipcMain, session } = require('electron');
+const { createDouyinAuthController } = require('./douyin-auth.cjs');
 const { fork, execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const { join } = require('node:path');
@@ -12,6 +13,13 @@ app.setPath('userData', join(dataRoot, 'browser'));
 const reportFile = join(dataRoot, 'startup-status.json');
 const report = event => writeFileSync(reportFile, JSON.stringify({ ...event, at: new Date().toISOString() }));
 let window, tray, backend, website = '', quitting = false, shutdownRequested = false, proxyEnabled = false;
+const douyinAuth = createDouyinAuthController({ BrowserWindow, session, getParent: () => window });
+function trustedRenderer(event) { try { return event.sender === window?.webContents && event.senderFrame === window.webContents.mainFrame && new URL(event.senderFrame.url).origin === website; } catch { return false; } }
+ipcMain.handle('studio:douyin-authorize', async (event, url) => {
+  if (!trustedRenderer(event)) throw new Error('请从工作台开始授权');
+  try { return await douyinAuth.open(url); } catch { return { error: '无法打开抖音授权窗口，请重新准备授权或使用官方链接。' }; }
+});
+ipcMain.handle('studio:douyin-cancel', event => { if (trustedRenderer(event)) douyinAuth.cancel(); });
 function safeExternal(url) { try { const target = new URL(url); if (['https:', 'http:'].includes(target.protocol) && !target.username && !target.password) void shell.openExternal(target.href); } catch {} }
 async function proxyEnvironment() {
   const env = { ...process.env, NO_PROXY: 'localhost,127.0.0.1,::1', NODE_USE_ENV_PROXY: '1' };
@@ -47,7 +55,8 @@ else {
     try {
       website = await startBackend();
       const icon = nativeImage.createFromPath(join(__dirname, 'dist', 'icon-192.png'));
-      window = new BrowserWindow({ width: 1440, height: 940, minWidth: 760, minHeight: 620, show: false, title: '生长 · AI 运营工作台', backgroundColor: '#f6f7f2', icon, webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true } });
+      window = new BrowserWindow({ width: 1440, height: 940, minWidth: 760, minHeight: 620, show: false, title: '生长 · AI 运营工作台', backgroundColor: '#f6f7f2', icon, webPreferences: { preload: join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true } });
+      window.webContents.on('did-start-navigation', (_event, _url, _inPlace, mainFrame) => { if (mainFrame) douyinAuth.cancel(); });
       window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
       window.webContents.session.setPermissionCheckHandler(() => false);
       window.webContents.setWindowOpenHandler(({ url }) => { safeExternal(url); return { action: 'deny' }; });
@@ -71,6 +80,7 @@ else {
   });
 }
 app.on('before-quit', event => {
+  douyinAuth.cancel();
   if (shutdownRequested || !backend || backend.exitCode !== null) { quitting = true; return; }
   event.preventDefault(); quitting = true; shutdownRequested = true; window?.hide();
   const timeout = setTimeout(() => { backend.kill(); app.exit(0); }, 45000);
