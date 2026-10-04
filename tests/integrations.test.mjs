@@ -180,43 +180,32 @@ async function publication(f) {
   f.store.mutate(state => { const a = state.projects[0].assets.find(a => a.id === f.aid); a.status = 'ready'; a.mediaData = mp4; a.mime = 'video/mp4'; });
   return (await f.req(`/projects/${f.pid}/publications`, 'POST', { assetId: f.aid, accountId: 'account-dy', scheduledAt: new Date(Date.now() - 1000).toISOString() })).body.result;
 }
-test('Douyin OAuth uses one-time state; scheduled publication sends exactly reviewed caption once and waits for real public status', async t => {
-  const calls = []; let reviewed = false;
-  const f = await fixture(t, { fetcher: async (url, init) => {
-    calls.push({ url, init }); const path = new URL(url).pathname;
-    if (path === '/oauth/access_token/') { assert.equal(init.method, 'POST'); assert.equal(init.body.get('grant_type'), 'authorization_code'); return token(); }
-    assert.equal(init.headers['access-token'], accessToken);
-    if (path === '/video/upload/') { assert.ok(init.body.get('video') instanceof Blob); return success({ video: { video_id: 'upload-id' } }); }
-    if (path === '/video/create/') { assert.deepEqual(JSON.parse(init.body), { video_id: 'upload-id', text: '用户检查后的文案' }); return success({ item_id: 'encrypted-item/+' }); }
-    if (path === '/video/data/') return success({ list: [{ item_id: 'encrypted-item/+', is_reviewed: reviewed, video_status: reviewed ? 5 : 1, share_url: 'https://www.douyin.com/video/123' }] });
-    throw new Error('unexpected request');
-  } });
-  await authorize(f); const pub = await publication(f), base = `/projects/${f.pid}/publications/${pub.id}`;
-  assert.equal((await f.req(base + '/automatic', 'POST', { confirmed: false, text: '用户检查后的文案' })).status, 400);
-  assert.equal((await f.req(base + '/automatic', 'POST', { confirmed: true, text: '用户检查后的文案' })).status, 200);
-  assert.equal((await f.req(base + '/automatic', 'POST', { confirmed: true, text: 'duplicate' })).status, 409);
-  assert.equal((await f.req(base, 'PATCH', { status: 'cancelled' })).status, 409);
-  await f.app.locals.integrations.tick(); let record = f.p().publications.find(p => p.id === pub.id);
-  assert.equal(record.automation.status, 'submitted'); assert.equal(record.status, 'scheduled');
-  await f.req(base + '/platform-status', 'POST'); assert.equal(f.p().publications.find(p => p.id === pub.id).status, 'scheduled');
-  reviewed = true; await f.req(base + '/platform-status', 'POST'); record = f.p().publications.find(p => p.id === pub.id);
-  assert.equal(record.status, 'published'); assert.equal(record.confirmationSource, 'douyin-api'); assert.equal(record.platformItemId, 'encrypted-item/+');
-  assert.equal(calls.filter(c => new URL(c.url).pathname === '/video/create/').length, 1);
+test('legacy automatic route is closed even for an authorized account; manual confirmation requires a valid platform link', async t => {
+  const calls = []; const f = await fixture(t, { fetcher: async url => { calls.push(url); assert.ok(url.includes('/oauth/access_token/')); return token(); } });
+  await authorize(f); const pub = await publication(f), base = '/projects/'+f.pid+'/publications/'+pub.id;
+  for (const confirmed of [true, false]) assert.equal((await f.req(base+'/automatic', 'POST', { confirmed, text: '旧版请求' })).status, 410);
+  await f.app.locals.integrations.tick(); assert.equal(calls.length, 1); assert.equal(f.p().publications[0].status, 'scheduled');
+  assert.equal(f.store.get().accounts.find(a => a.id === 'account-dy').autoPublish, false);
+  assert.equal((await f.req(base+'/confirm','POST',{confirmed:true,url:'https://evil.test/video/123'})).status,400);
+  assert.equal((await f.req(base+'/confirm','POST',{confirmed:false,url:'https://www.douyin.com/video/123'})).status,400);
+  assert.equal((await f.req(base+'/confirm','POST',{confirmed:true,url:'https://www.douyin.com/video/123'})).status,200);
+  assert.equal(f.p().publications[0].confirmationSource,'user'); assert.equal(calls.length,1);
   for (const path of ['/integrations', '/backup', '/state']) assert.ok(!JSON.stringify((await f.req(path)).body).includes(accessToken));
 });
-test('ambiguous create response is never automatically retried after restart', async t => {
-  let creates = 0; const f = await fixture(t, { fetcher: async (url) => {
-    if (url.includes('/oauth/access_token/')) return token();
-    if (url.includes('/video/upload/')) return success({ video: { video_id: 'uploaded' } });
-    if (url.includes('/video/create/')) { creates++; throw new Error(accessToken); }
-    throw new Error('unexpected');
-  } });
-  await authorize(f); const pub = await publication(f), base = `/projects/${f.pid}/publications/${pub.id}`;
-  await f.req(base + '/automatic', 'POST', { confirmed: true, text: 'authorized' }); await f.app.locals.integrations.tick();
-  assert.equal(f.p().publications.find(p => p.id === pub.id).automation.status, 'uncertain');
-  f.app.locals.integrations.start(); await f.app.locals.integrations.tick(); assert.equal(creates, 1);
-  assert.equal((await f.req(base + '/automatic', 'POST', { confirmed: true, text: 'again' })).status, 409);
+
+test('upgrade disables every legacy publish state, preserves receipts and never sends a request on restart', async t => {
+  let calls=0; const f=await fixture(t,{fetcher:async()=>{calls++;throw Error('No networking during migration');}});
+  const pub=await publication(f);
+  f.store.mutate(state=>{const p=state.projects[0];p.publications=['queued','uploading','submitting','submitted','uncertain','failed','blocked'].map((status,i)=>({...pub,id:'legacy-'+i,automation:{id:'job-'+i,status,itemId:status==='submitted'?'old-item':undefined,autoComments:true,nextPollAt:0}}));});
+  f.app.locals.integrations.start(); await f.app.locals.integrations.tick();
+  const records=f.p().publications; assert(records.every(r=>r.automation.status==='disabled'&&r.automation.autoComments===false));
+  assert.equal(records[0].manualReviewRequired,false);assert.equal(records[2].manualReviewRequired,true);assert.equal(records[3].automation.itemId,'old-item');
+  assert.equal(records[4].manualReviewRequired,true);assert.equal(calls,0);
+  assert.equal((await f.req('/projects/'+f.pid+'/publications/legacy-0','PATCH',{status:'exported'})).status,200);
+  assert.equal((await f.req('/projects/'+f.pid+'/publications/legacy-3/confirm','POST',{confirmed:true,url:'https://www.douyin.com/video/123'})).status,200);
+  assert.equal(f.p().publications[3].manualReviewRequired,false);assert.equal(calls,0);
 });
+
 test('comment pagination encodes item ids, deduplicates by id, preserves manual corrections and resumes partial data', async t => {
   let secondPass = false, commentCalls = 0;
   const f = await fixture(t, { fetcher: async (url) => {
@@ -240,26 +229,21 @@ test('comment pagination encodes item ids, deduplicates by id, preserves manual 
   assert.equal((await f.req(base + '/comments-sync', 'PUT', { enabled: true })).status, 200); await f.app.locals.integrations.tick(); assert.equal(commentCalls, 6);
   await f.req(base + '/comments-sync', 'PUT', { enabled: false }); await f.app.locals.integrations.tick(); assert.equal(commentCalls, 6);
 });
-test('missing granted scopes blocks automatic publishing before upload', async t => {
-  let calls = 0; const f = await fixture(t, { fetcher: async () => { calls++; return token('video.data'); } });
-  await authorize(f); const pub = await publication(f);
-  assert.equal((await f.req(`/projects/${f.pid}/publications/${pub.id}/automatic`, 'POST', { confirmed: true, text: 'caption' })).status, 403); assert.equal(calls, 1);
+test('automatic publishing cannot be re-enabled by a client without platform permission', async t => {
+  let calls=0;const f=await fixture(t,{fetcher:async()=>{calls++;return token('video.data');}});const pub=await publication(f);
+  assert.equal((await f.req('/projects/'+f.pid+'/publications/'+pub.id+'/automatic','POST',{confirmed:true,text:'caption'})).status,410);assert.equal(calls,0);
 });
 
-test('token expiry triggers official refresh before upload and stores refreshed credentials privately', async t => {
-  let refreshed = false;
-  const f = await fixture(t, { fetcher: async (url, init) => {
-    if (url.includes('/oauth/access_token/')) return success({ access_token: accessToken, refresh_token: 'fake-refresh-token', open_id: 'fake-open-id', expires_in: 1, refresh_expires_in: 86400, scope: 'video.create,video.data,item.comment' });
-    if (url.includes('/oauth/refresh_token/')) { assert.equal(init.method, 'POST'); assert.ok(init.body instanceof FormData); assert.equal(init.body.get('grant_type'), 'refresh_token'); assert.equal(init.body.get('refresh_token'), 'fake-refresh-token'); refreshed = true; return success({ access_token: 'refreshed-test-token', expires_in: 7200 }); }
-    assert.equal(init.headers['access-token'], 'refreshed-test-token');
-    if (url.includes('/video/upload/')) return success({ video: { video_id: 'uploaded' } });
-    return success({ item_id: 'published-item' });
-  } });
-  await authorize(f); const pub = await publication(f);
-  assert.equal((await f.req(`/projects/${f.pid}/publications/${pub.id}/automatic`, 'POST', { confirmed: true, text: 'caption' })).status, 200);
-  await f.app.locals.integrations.tick(); assert.equal(refreshed, true);
-  assert.ok(!JSON.stringify((await f.req('/integrations')).body).includes('refreshed-test-token'));
+test('token expiry refreshes only for explicit read-only linking and keeps refreshed credentials private', async t=>{
+  let refreshed=false;const f=await fixture(t,{fetcher:async(url,init)=>{
+    if(url.includes('/oauth/access_token/'))return success({access_token:accessToken,refresh_token:'fake-refresh-token',open_id:'fake-open-id',expires_in:1,refresh_expires_in:86400,scope:'video.data,item.comment'});
+    if(url.includes('/oauth/refresh_token/')){refreshed=true;assert.equal(init.body.get('grant_type'),'refresh_token');return success({access_token:'refreshed-test-token',expires_in:7200});}
+    assert.ok(url.includes('/video/data/'));assert.equal(init.headers['access-token'],'refreshed-test-token');return success({list:[{item_id:'existing-item',is_reviewed:true,video_status:5,share_url:'https://www.douyin.com/video/123'}]});
+  }});await authorize(f);const pub=await publication(f);
+  assert.equal((await f.req('/projects/'+f.pid+'/publications/'+pub.id+'/platform-item','POST',{confirmed:true,itemId:'existing-item'})).status,200);
+  assert.equal(refreshed,true);assert.ok(!JSON.stringify((await f.req('/integrations')).body).includes('refreshed-test-token'));
 });
+
 test('Douyin lets a comments-only app request its own scopes and refuses denied, stale or duplicated OAuth callbacks', async t => {
   let exchanged = 0;
   const f = await fixture(t, { fetcher: async () => { exchanged++; return token('video.data,item.comment,video.list'); } });
@@ -273,36 +257,23 @@ test('Douyin lets a comments-only app request its own scopes and refuses denied,
   assert.equal(exchanged, 0);
 });
 
-test('successful publication starts comment collection only with separately confirmed permission and keeps the selected interval', async t => {
-  let creates = 0, reads = 0;
-  const f = await fixture(t, { fetcher: async (url) => {
-    const path = new URL(url).pathname;
-    if (path === '/oauth/access_token/') return token();
-    if (path === '/video/upload/') return success({ video: { video_id: 'uploaded' } });
-    if (path === '/video/create/') { creates++; return success({ item_id: 'item-auto-sync' }); }
-    if (path === '/video/data/') return success({ list: [{ item_id: 'item-auto-sync', is_reviewed: true, video_status: 5, share_url: 'https://www.douyin.com/video/123' }] });
-    if (path === '/item/comment/list/') { reads++; return success({ cursor: 0, has_more: false, list: [{ comment_id: 'comment-one', content: '真实接口格式的模拟评论', create_time: 1760000000, digg_count: reads }] }); }
-    throw new Error('Unexpected endpoint');
-  } });
-  await authorize(f); const pub = await publication(f), base = `/projects/${f.pid}/publications/${pub.id}`;
-  await f.app.locals.integrations.tick(); assert.equal(creates, 0); assert.equal(reads, 0);
-  assert.equal((await f.req(base + '/automatic', 'POST', { confirmed: true, text: '经过确认的投稿', autoComments: true, syncIntervalMinutes: 30 })).status, 200);
-  await f.app.locals.integrations.tick(); assert.equal(reads, 0);
-  await f.req(base + '/platform-status', 'POST');
-  await f.app.locals.integrations.tick();
-  const record = f.p().publications[0]; assert.equal(record.commentSync.enabled, true); assert.equal(record.commentSync.intervalMinutes, 30); assert.equal(reads, 1); assert.equal(record.commentSync.lastAdded, 1);
-  assert.ok(record.commentSync.nextSyncAt >= Date.now() + 29 * 60000);
-  await f.req(base + '/comments-sync', 'PUT', { enabled: false, intervalMinutes: 5 }); await f.app.locals.integrations.tick(); assert.equal(reads, 1);
-  assert.equal((await f.req(base + '/comments-sync', 'PUT', { enabled: true, intervalMinutes: 1 })).status, 400);
-  assert.equal(creates, 1);
+test('linking a manually posted work never starts comment sync until separately enabled', async t=>{
+  let reads=0;const f=await fixture(t,{fetcher:async url=>{
+    if(url.includes('/oauth/access_token/'))return token();
+    if(url.includes('/video/data/'))return success({list:[{item_id:'manual-item',is_reviewed:true,video_status:5,share_url:'https://www.douyin.com/video/123'}]});
+    assert.ok(url.includes('/item/comment/list/'));reads++;return success({cursor:0,has_more:false,list:[{comment_id:'comment-one',content:'模拟评论',create_time:1760000000,digg_count:reads}]});
+  }});await authorize(f);const pub=await publication(f),base='/projects/'+f.pid+'/publications/'+pub.id;
+  await f.req(base+'/platform-item','POST',{confirmed:true,itemId:'manual-item'});await f.app.locals.integrations.tick();assert.equal(reads,0);
+  assert.equal((await f.req(base+'/comments-sync','PUT',{enabled:true,intervalMinutes:30})).status,200);await f.app.locals.integrations.tick();assert.equal(reads,1);
+  const record=f.p().publications[0];assert.equal(record.commentSync.intervalMinutes,30);assert.ok(record.commentSync.nextSyncAt>=Date.now()+29*60000);
+  await f.req(base+'/comments-sync','PUT',{enabled:false});await f.app.locals.integrations.tick();assert.equal(reads,1);
+  assert.equal((await f.req(base+'/comments-sync','PUT',{enabled:true,intervalMinutes:1})).status,400);
 });
 
-test('comment opt-in cannot be queued without item.comment and normal video publishing remains available', async t => {
-  const f = await fixture(t, { fetcher: async () => token('video.create,video.data') });
-  await authorize(f); const pub = await publication(f), base = `/projects/${f.pid}/publications/${pub.id}`;
-  assert.equal((await f.req(base + '/automatic', 'POST', { confirmed: true, text: 'caption', autoComments: true })).status, 403);
-  assert.equal(f.p().publications[0].automation, undefined);
-  assert.equal((await f.req(base + '/automatic', 'POST', { confirmed: true, text: 'caption', autoComments: false })).status, 200);
+test('OAuth only offers reading scopes and rejects old publishing-purpose requests',async t=>{
+  const f=await fixture(t);await f.req('/integrations/douyin','PUT',{clientKey:'test-client',clientSecret,redirectUri:'https://callback.example.com/authorized'});
+  const result=await f.req('/integrations/douyin/authorize','POST',{accountId:'account-dy'});assert.equal(new URL(result.body.url).searchParams.get('scope'),'video.data,item.comment');
+  for(const purpose of ['all','publish'])assert.equal((await f.req('/integrations/douyin/authorize','POST',{accountId:'account-dy',purpose})).status,400);
 });
 
 test('video picker reads only the authorized account, hides nonpublic entries and rejects unsafe links', async t => {
@@ -344,7 +315,7 @@ test('expired Douyin refresh authorization pauses platform tasks without returni
     return success({ access_token: accessToken, refresh_token: 'fake-refresh', open_id: 'fake-open-id', expires_in: 0.000001, refresh_expires_in: 0.000001, scope: 'video.create,video.data,item.comment' });
   } });
   await authorize(f); const pub = await publication(f);
-  const result = await f.req(`/projects/${f.pid}/publications/${pub.id}/automatic`, 'POST', { confirmed: true, text: 'caption' });
+  const result = await f.req(`/projects/${f.pid}/publications/${pub.id}/platform-item`, 'POST', { confirmed: true, itemId: 'existing' });
   assert.equal(result.status, 403); assert.match(result.body.error, /抖音授权已过期/); assert.equal((await f.req('/state')).status, 200);
   assert.equal(f.store.get().accounts.find(a => a.id === 'account-dy').connected, false);
 });

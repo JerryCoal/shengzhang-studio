@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { disableAutomaticPublishing } from './manual-publishing.mjs';
 
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
 const now = () => new Date().toISOString();
@@ -18,7 +19,7 @@ export function rulesOf(state) { return state.contentRules || defaultRules(); }
 export function normalizeWorkflow(state) {
   state.contentRules ??= defaultRules(); state.rulesRevision ??= 0; state.projectDrafts ??= {};
   for (const project of state.projects) project.corpus ??= [];
-  return state;
+  return disableAutomaticPublishing(state);
 }
 const ruleSchema = z.object({ id: z.string().min(1).max(80), term: z.string().trim().min(1).max(60), replacement: z.string().trim().max(120), enabled: z.boolean() });
 export function saveRules(state, input) {

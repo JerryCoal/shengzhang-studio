@@ -138,13 +138,12 @@ export function confirmPublication(p, publicationId, input) {
   const record = p.publications.find(r => r.id === publicationId);
   assert(record, '发布记录不存在', 404);
   assert(record.status !== 'cancelled', '此计划已取消');
-  assert(!record.automation || ['cancelled', 'blocked', 'failed', 'uncertain'].includes(record.automation.status), '自动投稿正在执行，请等待平台结果或先停止计划', 409);
   assert(input.confirmed === true, '请先确认已经在平台发布成功');
   let url;
   try { url = new URL(input.url); } catch { assert(false, '请输入有效的作品链接'); }
   const domains = record.platform === 'xiaohongshu' ? ['xiaohongshu.com', 'xhslink.com'] : ['douyin.com', 'iesdouyin.com'];
   assert(url.protocol === 'https:' && !url.username && !url.password && domains.some(d => url.hostname === d || url.hostname.endsWith('.' + d)), '请填写对应平台的 HTTPS 作品链接');
-  record.status = 'published'; record.url = url.href; record.confirmationSource = 'user'; record.publishedAt = now(); touch(p);
+  record.manualReviewRequired = false; record.status = 'published'; record.url = url.href; record.confirmationSource = 'user'; record.publishedAt = now(); touch(p);
   return record;
 }
 export const categories = ['购买咨询', '价格顾虑', '使用疑问', '体验反馈', '内容建议', '其他'];

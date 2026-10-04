@@ -18,7 +18,7 @@ const pendingMessage = '有一项联网请求尚未确认。请核对服务商�
 function settingsOf(state: State): Settings {
   const saved = privateOf(state), model = saved.routes.strategy;
   const credential = (provider: TextProvider): Settings['credential'] => ({ supported: true, editable: true, local: true, configured: !!saved.credentials[provider], suffix: saved.credentials[provider]?.slice(-4) || '', source: saved.credentials[provider] ? 'vault' : 'none', protection: '浏览器 · 登录密码 AES-GCM 加密', problem: '' });
-  return { ...catalog, routes: saved.routes, model, ...catalog.models[model as keyof typeof catalog.models], authEnabled: true, version: '1.1.0 · 联网网页版', browserStorage: true,
+  return { ...catalog, routes: saved.routes, model, ...catalog.models[model as keyof typeof catalog.models], authEnabled: true, version: '1.2.0 · 联网网页版', browserStorage: true,
     openaiConfigured: !!saved.credentials.openai, verification: saved.verification, apiDiagnostic: saved.apiDiagnostic,
     providers: { openai: { configured: !!saved.credentials.openai, credential: credential('openai'), verification: saved.verification, apiDiagnostic: saved.apiDiagnostic }, deepseek: { configured: !!saved.credentials.deepseek, credential: credential('deepseek'), verification: saved.deepseekVerification || null, apiDiagnostic: saved.deepseekDiagnostic } },
     pendingWebRequest: saved.pending, recoveredWebResults: saved.recovery?.length || 0,
@@ -192,12 +192,12 @@ export async function webAPI<T>(path: string, method = 'GET', body?: unknown): P
     if (!onlineBusy) {
       const state = await readLocalState();
       if (!state.webPrivate?.pending) for (const p of state.projects) {
-        if (p.assets.some(a => a.aiProduction?.phase === 'generating-video') || p.publications.some(r => ['queued', 'submitted'].includes(r.automation?.status || '') || r.commentSync?.enabled)) await relay('/tick', 'POST', {}, p.id);
+        if (p.assets.some(a => a.aiProduction?.phase === 'generating-video') || p.publications.some(r => r.commentSync?.enabled)) await relay('/tick', 'POST', {}, p.id);
       }
     }
     const state = await readLocalState(); return { version: state.projects.map(p => `${p.id}:${p.revision}`).join('|') } as T;
   }
-  const online = path === '/settings/credential/check' || path === '/settings/providers/deepseek/credential/check' || path.startsWith('/integrations/douyin/') || /^\/projects\/[^/]+\/(assets\/[^/]+\/(copy|cover|cover-apply|cover-reset|keyframes|seedance|video-status|generation-reset)|publications\/[^/]+\/(automatic|stop-automatic|platform-status|platform-item|comments-sync)|comments\/classify)$/.test(path) || (body as { mode?: string })?.mode === 'openai';
+  const online = path === '/settings/credential/check' || path === '/settings/providers/deepseek/credential/check' || path.startsWith('/integrations/douyin/') || /^\/projects\/[^/]+\/(assets\/[^/]+\/(copy|cover|cover-apply|cover-reset|keyframes|seedance|video-status|generation-reset)|publications\/[^/]+\/(platform-status|platform-item|comments-sync)|comments\/classify)$/.test(path) || (body as { mode?: string })?.mode === 'openai';
   if (online) return await relay(path, method, body, path.startsWith('/projects/') ? path.split('/')[2] : undefined) as T;
   const result = await localAPI<unknown>(path, method, body);
   if (result && typeof result === 'object') {

@@ -9,7 +9,7 @@ import type { State, Integrations, Settings, Project } from './types';
 import { defaultSeedream } from '../server/seedream-config.mjs';
 
 const unavailable = '静态体验版未连接在线服务。请在本地完整版中配置 AI 或平台授权；此处不会发出请求或收取费用。';
-const settings: Settings = { ...modelSettings, openaiConfigured: false, authEnabled: true, version: '1.1.0 · 本地静态版', verification: null,
+const settings: Settings = { ...modelSettings, openaiConfigured: false, authEnabled: true, version: '1.2.0 · 本地静态版', verification: null,
   credential: { local: false, editable: false, supported: false, configured: false, source: 'none', suffix: '', protection: '', problem: '静态版不接收 API 密钥。请在本地完整版中配置 AI 服务。' } } as Settings;
 const integrations: Integrations = { local: false, imageProvider: 'openai', seedream: { ...defaultSeedream, configured: false, supported: false, suffix: '', problem: unavailable }, seedance: { region: 'volcengine', model: '', reservationUsd: 2, outputPriceUsd: 0, configured: false, supported: false, suffix: '', problem: unavailable }, douyin: { configured: false, supported: false, redirectUri: '', accounts: [] } };
 function project(state: State, id: string) { const p = state.projects.find(p => p.id === id); d.assert(p, '项目不存在'); return p; }

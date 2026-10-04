@@ -79,7 +79,8 @@ test('authenticated export creates a downloadable ZIP with the exact saved versi
   });
   const prepared = await req(`/projects/${p.id}/export`, 'POST', { kind: 'asset', id: asset.id }); assert.equal(prepared.status, 200);
   const response = await fetch(base + prepared.data.url); assert.equal(response.status, 200); assert.match(response.headers.get('content-disposition'), /attachment/); assert.equal(response.headers.get('cache-control'), 'no-store');
-  const zip = await JSZip.loadAsync(await response.arrayBuffer()); assert.ok(zip.file('素材.png')); assert.match(await zip.file('标题与正文.txt').async('string'), /已保存正文/);
+  const zip = await JSZip.loadAsync(await response.arrayBuffer()); assert.equal(zip.file(/^01-素材\/.+\.png$/).length, 1); assert.match(await zip.file('02-文案/完整文案.txt').async('string'), /已保存正文/);
+  assert.equal((await req(`/projects/${p.id}/export`, 'POST', { kind: 'asset', id: asset.id, expectedRevision: asset.revision + 1 })).status, 409);
   assert.equal((await fetch(base + '/downloads/unknown')).status, 404);
 });
 

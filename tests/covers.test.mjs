@@ -45,7 +45,7 @@ test('Seedream cover is 3:4, grounded in confirmed facts, screened and adopted o
   assert.equal((await f.request(f.path + '/cover-apply', { id: f.a().aiCover.id, expectedRevision: f.a().revision, confirmed: true })).status, 409);
   const exported = await f.request(`/projects/${f.p().id}/export`, { kind: 'asset', id: f.a().id });
   assert.equal(exported.status, 200); const download = await fetch(f.url + exported.body.url);
-  const zip = await JSZip.loadAsync(await download.arrayBuffer()); assert(zip.file('素材.jpg'));
+  const zip = await JSZip.loadAsync(await download.arrayBuffer()); assert.equal(zip.file(/^01-素材\/.+\.jpg$/).length, 1);
   assert(!JSON.stringify((await f.request('/backup', undefined, 'GET')).body).includes(key));
 });
 

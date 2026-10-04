@@ -1,4 +1,5 @@
 import express from 'express';
+import { disableAutomaticPublishing } from './manual-publishing.mjs';
 import { resolve } from 'node:path';
 import { z } from 'zod';
 import { createApp } from './app.mjs';
@@ -38,7 +39,7 @@ export function allowedWebOperation(path, method) {
   if (new RegExp('^/projects/'+id+'/trends/refresh$').test(path)) return method === 'POST';
   if (new RegExp('^/projects/'+id+'/(strategies|analysis|comments/classify)$').test(path)) return method === 'POST';
   if (new RegExp('^/projects/'+id+'/assets/'+id+'/(copy|cover|cover-apply|cover-reset|keyframes|seedance|video-status|generation-reset)$').test(path)) return method === 'POST';
-  if (new RegExp('^/projects/'+id+'/publications/'+id+'/(automatic|stop-automatic|platform-status|platform-item|comments-sync)$').test(path)) return method === 'POST' || (path.endsWith('/comments-sync') && method === 'PUT');
+  if (new RegExp('^/projects/'+id+'/publications/'+id+'/(platform-status|platform-item|comments-sync)$').test(path)) return method === 'POST' || (path.endsWith('/comments-sync') && method === 'PUT');
   return false;
 }
 
@@ -66,7 +67,7 @@ export function createWebRelay({ staticDirectory = resolve('web-dist'), publicOr
     const requestOrigin = req.get('Origin');
     if (requestOrigin && !allowedOrigins.includes(requestOrigin)) return res.status(403).json({ error: '请从网站的正式地址访问' });
     if (requestOrigin) { res.set('Access-Control-Allow-Origin', requestOrigin); res.vary('Origin'); }
-    if (req.path === '/api/health' && req.method === 'GET') return res.status(closing ? 503 : 200).json({ ok: !closing, mode: 'web-local', storage: 'browser-encrypted', serverStoresWorkspaces: false, asyncJobs: true, version: '1.1.0' });
+    if (req.path === '/api/health' && req.method === 'GET') return res.status(closing ? 503 : 200).json({ ok: !closing, mode: 'web-local', storage: 'browser-encrypted', serverStoresWorkspaces: false, asyncJobs: true, version: '1.2.0' });
     if (req.get('Host') !== origin.host) return res.status(403).json({ error: '请从网站的正式地址访问' });
     if (req.method === 'OPTIONS') { res.set({ 'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, X-Studio-Client, Authorization', 'Access-Control-Max-Age': '600' }); return res.sendStatus(204); }
     if (closing) return res.status(503).json({ error: '联网服务正在更新，请稍后重试' });
@@ -126,7 +127,7 @@ export function createWebRelay({ staticDirectory = resolve('web-dist'), publicOr
       input = envelopeSchema.parse(req.body);
       if (!allowedWebOperation(input.path, input.method)) throw failure('此操作不由联网服务处理', 404);
       if (input.path.startsWith('/projects/') && input.state.projects[0]?.id !== input.path.split('/')[2]) throw failure('请求项目不匹配');
-      state = structuredClone(input.state);
+      state = disableAutomaticPublishing(structuredClone(input.state));
       const store = { get: () => structuredClone(state), mutate(callback) { const next = structuredClone(state); const result = callback(next); state = next; return result; } };
       const modelStore = createModelStore(); modelStore.save(input.routes);
       const preferences = createIntegrationPreferences();

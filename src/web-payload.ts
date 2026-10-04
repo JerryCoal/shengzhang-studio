@@ -31,7 +31,7 @@ export function webPayload(source: State, path: string, body: unknown, projectId
   p.audioData = ''; if (!path.endsWith('/keyframes') && !path.endsWith('/cover')) p.imageData = '';
   p.assets = path === '/tick' ? p.assets.filter(a => a.aiProduction?.phase === 'generating-video') : asset ? [asset] : [];
   p.strategies = strategy ? p.strategies.slice(-1) : asset ? p.strategies.filter(s => s.id === asset.strategyId) : [];
-  p.publications = path === '/tick' ? p.publications.filter(r => ['queued', 'submitted'].includes(r.automation?.status || '') || r.commentSync?.enabled) : publicationId ? p.publications.filter(r => r.id === publicationId) : [];
+  p.publications = path === '/tick' ? p.publications.filter(r => r.commentSync?.enabled) : publicationId ? p.publications.filter(r => r.id === publicationId) : [];
   if (strategy) {
     p.experiences = p.experiences.filter(e => e.active);
     p.insights = p.insights.filter(i => p.experiences.some(e => e.insightId === i.id));

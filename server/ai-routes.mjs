@@ -30,7 +30,7 @@ export function mountAIRoutes(app, store, config, { project, mutate, activeJobs 
     const dsCredential = { ...ds, suffix: local ? ds.suffix : '', local, editable: local && ds.supported, source: ds.configured ? 'vault' : 'none' };
     const providers = { openai: { configured: local && credential.configured && !v.problem, credential, verification: local ? verification : null, apiDiagnostic: local ? config.openaiTransport?.diagnostic() : null }, deepseek: { configured: local && ds.configured && !ds.problem, credential: dsCredential, verification: local ? deepseekVerification : null, apiDiagnostic: local ? config.deepseekTransport?.diagnostic() : null } };
     return { model: strategy.model, openaiConfigured: local && (v.configured || !!config.apiKey) && !v.problem, authEnabled: !!config.password || !!config.profileMode, inputPrice: strategy.inputPrice, outputPrice: strategy.outputPrice,
-      version: '1.1.0', profileMode: !!config.profileMode, routes, models: MODELS, stages: STAGES, priceDate: '2026-09-14', verification: local ? verification : null, apiDiagnostic: local ? config.openaiTransport?.diagnostic() : null,
+      version: '1.2.0', profileMode: !!config.profileMode, routes, models: MODELS, stages: STAGES, priceDate: '2026-09-14', verification: local ? verification : null, apiDiagnostic: local ? config.openaiTransport?.diagnostic() : null,
       credential, providers,
       capabilities: { image: 'gpt-image-2-or-seedream-keyframes', video: 'seedance-and-local', publishing: 'douyin-oauth-and-manual', comments: 'douyin-api-and-import', ai: ['strategy', 'planning', 'copy', 'classification', 'analysis'] } };
   };

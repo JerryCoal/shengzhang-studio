@@ -1,3 +1,4 @@
+import { disableAutomaticPublishing } from './manual-publishing.mjs';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import * as d from './domain.mjs';
@@ -5,15 +6,14 @@ import { canUseCredentials } from './ai-routes.mjs';
 import { requestJSON, integrationError } from './integration-http.mjs';
 
 const ORIGIN = 'https://open.douyin.com';
-const active = ['uploading', 'submitting'];
 const field = z.string().trim().min(1).max(512);
-const pendingRecord = record => ['scheduled', 'exported'].includes(record.status);
 const intervalSchema = z.union([z.literal(5), z.literal(15), z.literal(30), z.literal(60)]);
 const syncDelay = pub => (pub.commentSync?.intervalMinutes || 15) * 60000;
 const validShareUrl = value => { try { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password && ['douyin.com', 'iesdouyin.com'].some(host => url.hostname === host || url.hostname.endsWith('.' + host)) ? url.href : ''; } catch { return ''; } };
 export const douyinAppSchema = z.object({ clientKey: field.regex(/^[A-Za-z0-9_-]+$/), clientSecret: field, redirectUri: z.string().url().max(2048).refine(value => { const url = new URL(value); return !url.username && !url.password && !url.hash && !url.search && (url.protocol === 'https:' || (url.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(url.hostname))); }, '请填写平台注册的 HTTPS 回调地址（本地调试可填写 localhost）') }).strict();
 
 export async function douyinRequest(path, { method = 'GET', token, query = {}, body, format = 'json' } = {}, fetcher) {
+  d.assert(!['/video/upload/', '/video/create/'].includes(new URL(path, ORIGIN).pathname), '自动发布已关闭，请导出素材后在平台手动发布', 410);
   const url = new URL(path, ORIGIN); for (const [key, value] of Object.entries(query)) url.searchParams.set(key, String(value));
   const headers = token ? { 'access-token': token } : {};
   let payload;
@@ -23,7 +23,7 @@ export async function douyinRequest(path, { method = 'GET', token, query = {}, b
     else if (body instanceof FormData) payload = body;
     else { payload = JSON.stringify(body); headers['Content-Type'] = 'application/json'; }
   }
-  const response = await requestJSON(url.href, { method, headers, ...(payload ? { body: payload } : {}), timeout: path === '/video/upload/' ? 180000 : 45000 }, fetcher, '抖音');
+  const response = await requestJSON(url.href, { method, headers, ...(payload ? { body: payload } : {}), timeout: 45000 }, fetcher, '抖音');
   const data = response.data, code = Number(data?.error_code);
   if (!data || !Number.isFinite(code) || code !== 0) {
     const safeCode = Number.isSafeInteger(code) ? code : '未知';
@@ -94,13 +94,13 @@ export function mountDouyin(app, store, config, { project }) {
     res.json(await status());
   });
   app.post('/api/integrations/douyin/authorize', async (req, res) => {
-    local(req); const { accountId, purpose, includeVideoList } = z.object({ accountId: z.string(), purpose: z.enum(['all', 'publish', 'comments']).default('all'), includeVideoList: z.boolean().default(false) }).strict().parse(req.body);
+    local(req); const { accountId, includeVideoList } = z.object({ accountId: z.string(), purpose: z.literal('comments').default('comments'), includeVideoList: z.boolean().default(false) }).strict().parse(req.body);
     d.assert(store.get().accounts.some(a => a.id === accountId && a.platform === 'douyin'), '请选择抖音账号');
     const settings = await load(); d.assert(settings.clientKey, '请先保存抖音应用凭证');
     for (const [key, ticket] of authorizations) if (ticket.expiresAt < Date.now() || ticket.accountId === accountId) authorizations.delete(key);
     const state = randomBytes(32).toString('base64url');
     authorizations.set(state, { accountId, expiresAt: Date.now() + 15 * 60000, redirectUri: settings.redirectUri });
-    const scopes = [...(purpose !== 'comments' ? ['video.create'] : []), 'video.data', ...(purpose !== 'publish' ? ['item.comment'] : []), ...(includeVideoList ? ['video.list'] : [])];
+    const scopes = ['video.data', 'item.comment', ...(includeVideoList ? ['video.list'] : [])];
     const url = new URL('/platform/oauth/connect/', ORIGIN); url.search = new URLSearchParams({ client_key: settings.clientKey, response_type: 'code', scope: scopes.join(','), redirect_uri: settings.redirectUri, state }).toString();
     res.json({ url: url.href, expiresAt: Date.now() + 15 * 60000 });
   });
@@ -121,8 +121,8 @@ export function mountDouyin(app, store, config, { project }) {
       const account = { accessToken: data.access_token, refreshToken: data.refresh_token, openId: data.open_id, scopes: data.scope.split(',').map(s => s.trim()), expiresAt: Date.now() + Number(data.expires_in) * 1000, refreshExpiresAt: Date.now() + Number(data.refresh_expires_in) * 1000, connectionId: d.id() };
       const next = structuredClone(settings); next.accounts[ticket.accountId] = account; await persist(next); return account;
     });
-    paused(ticket.accountId, '账号重新授权后，请重新检查待发布计划');
-    store.mutate(state => { const account = state.accounts.find(a => a.id === ticket.accountId); Object.assign(account, { connected: true, autoPublish: ['video.create', 'video.data'].every(s => connection.scopes.includes(s)), autoComments: connection.scopes.includes('item.comment'), note: '已获平台授权 · 实際发布结果以平台返回为准', connectionId: connection.connectionId }); });
+    paused(ticket.accountId, '账号重新授权后，请重新检查评论同步设置');
+    store.mutate(state => { const account = state.accounts.find(a => a.id === ticket.accountId); Object.assign(account, { connected: true, autoPublish: false, autoComments: connection.scopes.includes('item.comment'), note: '已连接评论查询 · 发布始终由你在平台手动完成', connectionId: connection.connectionId }); });
     res.json(await status());
   });
   // Local callback landing page has no third-party resources, scripts, or logging of the code.
@@ -138,82 +138,37 @@ export function mountDouyin(app, store, config, { project }) {
     res.json({ list: data.list.filter(item => item.is_reviewed === true && item.video_status === 5 && typeof item.item_id === 'string' && validShareUrl(item.share_url)).map(item => ({ itemId: item.item_id, title: String(item.title || '未命名作品').slice(0, 200), url: validShareUrl(item.share_url), createTime: Number(item.create_time) || 0 })), cursor: data.cursor, hasMore: data.has_more });
   });
 
-  app.post('/api/projects/:id/publications/:publicationId/automatic', async (req, res) => {
-    local(req);
-    const input = z.object({ confirmed: z.literal(true), text: z.string().trim().min(1).max(55), autoComments: z.boolean().default(false), syncIntervalMinutes: intervalSchema.default(15) }).strict().parse(req.body);
-    const pub = project(store.get(), req.params.id).publications.find(r => r.id === req.params.publicationId); d.assert(pub, '发布记录不存在', 404);
-    const account = await getToken(pub.accountId, ['video.create', 'video.data', ...(input.autoComments ? ['item.comment'] : [])]);
-    update(req.params.id, pub.id, (_p, fresh) => {
-      d.assert(fresh.platform === 'douyin' && !fresh.sample && pendingRecord(fresh) && /^data:video\/(mp4|webm);base64,/.test(fresh.mediaData), '自动发布目前支持已完成的抖音视频');
-      d.assert(!fresh.automation || ['blocked', 'failed', 'cancelled'].includes(fresh.automation.status), '此作品已安排自动发布，请勿重复提交', 409);
-      d.assert(!fresh.automation?.itemId && fresh.automation?.status !== 'uncertain', '发布结果不明，请先核对平台结果', 409);
-      fresh.automation = { id: d.id(), status: 'queued', text: input.text, consentAt: d.now(), connectionId: account.connectionId, nextPollAt: 0, error: '', autoComments: input.autoComments, syncIntervalMinutes: input.syncIntervalMinutes };
-    });
-    res.json({ result: { queued: true }, state: store.get() });
-  });
+  // Old clients receive a clear refusal; no task or token request is created.
+  app.post('/api/projects/:id/publications/:publicationId/automatic', (_req, res) => res.status(410).json({ error: 'v1.2.0 已关闭自动发布。请导出素材，在平台手动发布后登记作品链接。' }));
   app.post('/api/projects/:id/publications/:publicationId/stop-automatic', (req, res) => {
-    local(req); update(req.params.id, req.params.publicationId, (_p, pub) => { d.assert(pub.automation && ['queued', 'blocked', 'failed'].includes(pub.automation.status) && !pub.automation.itemId, '投稿已开始或结果不明，不能撤回；请先在平台核对', 409); pub.automation.status = 'cancelled'; pub.automation.error = ''; });
-    res.json({ result: { stopped: true }, state: store.get() });
+    local(req); store.mutate(disableAutomaticPublishing); res.json({ result: { stopped: true }, state: store.get() });
   });
-  async function inspect(pid, pubid, account) {
-    const pub = project(store.get(), pid).publications.find(r => r.id === pubid), automation = pub.automation;
-    d.assert(automation?.itemId, '没有平台作品编号可查询');
-    const data = await douyinRequest('/video/data/', { method: 'POST', token: account.accessToken, query: { open_id: account.openId }, body: { item_ids: [automation.itemId] } }, fetcher);
-    const item = data.list?.find(item => item.item_id === automation.itemId);
+  async function inspect(pid, pubid, account, itemId) {
+    const data = await douyinRequest('/video/data/', { method: 'POST', token: account.accessToken, query: { open_id: account.openId }, body: { item_ids: [itemId] } }, fetcher);
+    const item = data.list?.find(item => item.item_id === itemId);
+    d.assert(item?.is_reviewed === true && item.video_status === 5, '平台尚未确认此作品已公开，请在抖音核对后重试');
+    const url = validShareUrl(item.share_url); d.assert(url, '平台返回的作品链接暂不可用，请稍后查询', 502);
     update(pid, pubid, (_p, fresh) => {
-      fresh.automation.nextPollAt = Date.now() + 60000; fresh.automation.error = ''; fresh.automation.failures = 0;
-      if (item?.is_reviewed === true && item.video_status === 5) {
-        let url; try { url = new URL(item.share_url); } catch { throw integrationError('平台审核完成，但作品链接暂不可用，请稍后查询'); }
-        d.assert(url.protocol === 'https:' && ['douyin.com', 'iesdouyin.com'].some(host => url.hostname === host || url.hostname.endsWith('.' + host)) && !url.username && !url.password, '平台返回的作品链接无效', 502);
-        Object.assign(fresh, { status: 'published', url: url.href, confirmationSource: 'douyin-api', publishedAt: d.now(), platformItemId: automation.itemId, platformConnectionId: automation.connectionId });
-        fresh.automation.status = 'published';
-        if (automation.autoComments && !fresh.commentSync) fresh.commentSync = { enabled: true, intervalMinutes: automation.syncIntervalMinutes || 15, nextSyncAt: 0, cursor: 0, error: '', consentAt: automation.consentAt };
-      } else { fresh.automation.status = 'submitted'; fresh.automation.error = item ? `平台尚未确认公开发布（状态 ${Number.isInteger(item.video_status) ? item.video_status : '待审核'}）` : '投稿已提交，等待平台审核结果'; }
+      d.assert(fresh.status !== 'cancelled', '此发布记录已取消', 409);
+      d.assert(!fresh.platformItemId || fresh.platformItemId === itemId, '此记录已关联其他作品', 409);
+      Object.assign(fresh, { status: 'published', url, confirmationSource: 'douyin-api', publishedAt: fresh.publishedAt || d.now(), platformItemId: itemId, platformConnectionId: account.connectionId, manualReviewRequired: false });
     });
-  }
-  async function publish(pid, pubid) {
-    const lock = `publish/${pubid}`; if (locks.has(lock)) return; locks.add(lock);
-    let submitting = false;
-    try {
-      let pub = project(store.get(), pid).publications.find(r => r.id === pubid);
-      d.assert(pub.automation && pendingRecord(pub), '此发布记录已经处理', 409);
-      const account = await getToken(pub.accountId, ['video.create', 'video.data'], pub.automation.connectionId);
-      if (pub.automation.itemId) { await inspect(pid, pubid, account); return; }
-      d.assert(pub.automation.status === 'queued', '发布任务不能重复提交', 409);
-      update(pid, pubid, (_p, fresh) => { d.assert(fresh.automation.status === 'queued' && pendingRecord(fresh), '发布计划已停止', 409); fresh.automation.status = 'uploading'; });
-      const form = new FormData(); form.set('video', new Blob([Buffer.from(pub.mediaData.split(',')[1], 'base64')], { type: pub.mime }), pub.mime === 'video/mp4' ? 'video.mp4' : 'video.webm');
-      const uploaded = await douyinRequest('/video/upload/', { method: 'POST', token: account.accessToken, query: { open_id: account.openId }, body: form }, fetcher);
-      d.assert(typeof uploaded.video?.video_id === 'string', '抖音没有返回上传编号，尚未创建作品', 502);
-      update(pid, pubid, (_p, fresh) => { d.assert(pendingRecord(fresh) && fresh.automation.status === 'uploading', '计划已改变，已停止投稿', 409); Object.assign(fresh.automation, { status: 'submitting', videoId: uploaded.video.video_id }); });
-      submitting = true;
-      const created = await douyinRequest('/video/create/', { method: 'POST', token: account.accessToken, query: { open_id: account.openId }, body: { video_id: uploaded.video.video_id, text: pub.automation.text } }, fetcher);
-      d.assert(typeof created.item_id === 'string' && created.item_id.length > 0, '抖音没有返回作品编号，请到平台核对，禁止重复投稿', 502);
-      update(pid, pubid, (_p, fresh) => { Object.assign(fresh.automation, { status: 'submitted', itemId: created.item_id, nextPollAt: Date.now() + 30000, error: '已投稿，等待审核', submittedAt: d.now() }); });
-    } catch (error) {
-      update(pid, pubid, (_p, fresh) => {
-        if (!fresh.automation || !pendingRecord(fresh)) return;
-        if (fresh.automation.itemId) { fresh.automation.failures = (fresh.automation.failures || 0) + 1; fresh.automation.nextPollAt = Date.now() + 300000; if (fresh.automation.failures >= 8) fresh.automation.status = 'uncertain'; }
-        else if (fresh.automation.status !== 'cancelled') fresh.automation.status = submitting && !error.rejected ? 'uncertain' : 'failed';
-        fresh.automation.error = error.status ? error.message : '平台操作未完成，请核对平台记录。';
-      });
-    } finally { locks.delete(lock); }
   }
   app.post('/api/projects/:id/publications/:publicationId/platform-status', async (req, res) => {
-    local(req); const pub = project(store.get(), req.params.id).publications.find(r => r.id === req.params.publicationId); d.assert(pub?.automation?.itemId, '没有平台作品编号可查询');
-    await publish(req.params.id, pub.id); res.json({ result: { checked: true }, state: store.get() });
+    local(req); const pub = project(store.get(), req.params.id).publications.find(r => r.id === req.params.publicationId);
+    const itemId = pub?.platformItemId || pub?.automation?.itemId; d.assert(itemId, '没有平台作品编号可查询');
+    const account = await getToken(pub.accountId, ['video.data']);
+    await inspect(req.params.id, pub.id, account, itemId); res.json({ result: { checked: true }, state: store.get() });
   });
   // A known item id lets the user reconcile a lost create response without reposting.
   app.post('/api/projects/:id/publications/:publicationId/platform-item', async (req, res) => {
     local(req); const input = z.object({ itemId: z.string().trim().min(1).max(512), confirmed: z.literal(true) }).strict().parse(req.body);
     const pub = project(store.get(), req.params.id).publications.find(r => r.id === req.params.publicationId); d.assert(pub && pub.platform === 'douyin' && !pub.sample, '请选择自己的抖音作品');
-    d.assert(!active.includes(pub.automation?.status) && !locks.has(`comments/${pub.id}`) && !locks.has(`publish/${pub.id}`), '平台正在处理这条作品，请稍后关联', 409);
+    d.assert(!locks.has(`comments/${pub.id}`), '平台正在处理这条作品，请稍后关联', 409);
     d.assert(pub.status !== 'cancelled', '计划已取消，请重新安排');
     d.assert(!pub.platformItemId || pub.platformItemId === input.itemId, '已有作品关联不能更换，以免混合不同作品的评论', 409);
     const account = await getToken(pub.accountId, ['video.data']);
-    const data = await douyinRequest('/video/data/', { method: 'POST', token: account.accessToken, query: { open_id: account.openId }, body: { item_ids: [input.itemId] } }, fetcher);
-    d.assert(data.list?.some(item => item.item_id === input.itemId && item.is_reviewed === true && item.video_status === 5), '授权账号下未查到这条已公开的作品');
-    update(req.params.id, pub.id, (_p, fresh) => { fresh.automation = { ...(fresh.automation || {}), id: fresh.automation?.id || d.id(), status: 'submitted', itemId: input.itemId, connectionId: account.connectionId, error: '', nextPollAt: 0 }; });
-    await inspect(req.params.id, pub.id, account); res.json({ result: { linked: true }, state: store.get() });
+    await inspect(req.params.id, pub.id, account, input.itemId); res.json({ result: { linked: true }, state: store.get() });
   });
 
   async function sync(pid, pubid, automatic = false) {
@@ -250,11 +205,10 @@ export function mountDouyin(app, store, config, { project }) {
   });
   return {
     status,
-    recover() { store.mutate(state => { for (const p of state.projects) for (const r of p.publications) if (r.automation) { if (r.automation.status === 'uploading') { r.automation.status = 'failed'; r.automation.error = '服务在上传期间重启，尚未创建作品，请重新安排。'; } else if (r.automation.status === 'submitting') { r.automation.status = 'uncertain'; r.automation.error = '服务在投稿期间重启，请核对平台结果，不会重复投稿。'; } } }); },
+    recover() { store.mutate(disableAutomaticPublishing); },
     async tick() {
       if (closed) return;
       for (const p of store.get().projects) for (const r of p.publications) {
-        if (pendingRecord(r) && ((r.automation?.status === 'queued' && Date.parse(r.scheduledAt) <= Date.now()) || (r.automation?.status === 'submitted' && r.automation.nextPollAt <= Date.now()))) await publish(p.id, r.id);
         if (r.status === 'published' && r.commentSync?.enabled && r.commentSync.nextSyncAt <= Date.now()) await sync(p.id, r.id, true).catch(() => {});
       }
     },

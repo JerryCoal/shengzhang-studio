@@ -47,6 +47,6 @@ export function IntegrationSettings() {
     </div>
     <div className="platform-boundary"><b>小红书</b><p>目前保留素材导出、手动发布和评论导入。查到的官方分享 SDK 需要在小红书客户端完成发布，尚未找到可据此接入的通用后台发笔记及评论采集接口。</p><a href="https://agora.xiaohongshu.com/doc" target="_blank" rel="noreferrer">查看官方分享文档 ↗</a></div>
     {!editable && <p className="info-box">个人凭证由运行服务的电脑保管。请在该电脑的本地地址完成配置与自动任务授权。</p>}
-    {deleteService && <div className="info-box delete-key"><p>删除{deleteService === 'douyin' ? '抖音凭证会停止后续自动发布和评论同步，平台中已有作品保留。平台授权可另外在抖音中撤销。' : deleteService === 'seedream' ? ' Seedream 密钥后，需重新填写才能使用 Seedream 生图，已保存的关键帧保留。' : ' Seedance 密钥后，需重新填写才能生成视频。'}</p><button className="button danger small" disabled={busy} onClick={() => void run(async () => { await api(`/integrations/${deleteService}`, 'DELETE'); setDeleteService(''); await changed(); notify('本机凭证已删除'); })}>确认删除</button><button className="button small" onClick={() => setDeleteService('')}>保留</button></div>}
+    {deleteService && <div className="info-box delete-key"><p>删除{deleteService === 'douyin' ? '抖音凭证会停止评论同步，平台中已有作品保留。平台授权可另外在抖音中撤销。' : deleteService === 'seedream' ? ' Seedream 密钥后，需重新填写才能使用 Seedream 生图，已保存的关键帧保留。' : ' Seedance 密钥后，需重新填写才能生成视频。'}</p><button className="button danger small" disabled={busy} onClick={() => void run(async () => { await api(`/integrations/${deleteService}`, 'DELETE'); setDeleteService(''); await changed(); notify('本机凭证已删除'); })}>确认删除</button><button className="button small" onClick={() => setDeleteService('')}>保留</button></div>}
   </section>;
 }

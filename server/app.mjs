@@ -1,5 +1,5 @@
 import express from 'express';
-import JSZip from 'jszip';
+import { contentArchive } from './content-export.mjs';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { resolve } from 'node:path';
 import { z } from 'zod';
@@ -108,21 +108,16 @@ export function createApp(store, options = {}) {
   app.locals.integrations = mountIntegrations(app, store, config, { project, mutate, activeJobs });
   app.get('/api/backup', (_req, res) => res.set('Content-Disposition', 'attachment; filename="shengzhang-backup.json"').json(store.get()));
   app.post('/api/projects/:id/export', async (req, res) => {
-    const data = z.object({ kind: z.enum(['asset', 'publication']), id: z.string() }).parse(req.body);
+    const data = z.object({ kind: z.enum(['asset', 'publication']), id: z.string(), expectedRevision: z.number().int().positive().optional() }).parse(req.body);
     const p = project(store.get(), req.params.id);
     const content = (data.kind === 'asset' ? p.assets : p.publications).find(item => item.id === data.id);
     domain.assert(content?.mediaData, '请先制作素材', 400);
+    domain.assert(!data.expectedRevision || data.expectedRevision === (data.kind === 'asset' ? content.revision : content.assetRevision), '成品已更新，请关闭导出面板后重新打开', 409);
     domain.assert(data.kind !== 'asset' || content.status === 'ready', '当前内容需要重新制作');
-    const zip = new JSZip();
-    const extension = content.mime === 'image/png' ? 'png' : content.mime === 'image/jpeg' ? 'jpg' : content.mime === 'video/mp4' ? 'mp4' : 'webm';
-    zip.file(`素材.${extension}`, content.mediaData.split(',')[1], { base64: true });
-    zip.file('标题与正文.txt', `${content.title}\n\n${content.body}`);
-    zip.file('发布说明.txt', `此素材包尚未自动发布。请检查产品事实，在对应平台发布后回填作品链接。${extension === 'webm' ? '\n此视频为 WebM，如果平台不接受，请先转换为 MP4。' : ''}`);
-    const bytes = await zip.generateAsync({ type: 'nodebuffer' });
+    const { data: bytes, filename } = await contentArchive(content);
     for (const [key, value] of downloads) if (value.expiresAt < Date.now()) downloads.delete(key);
     while (downloads.size >= 12) downloads.delete(downloads.keys().next().value);
     const ticket = randomBytes(32).toString('base64url');
-    const filename = `${content.title.replace(/[\\/:*?"<>|]/g, '').slice(0, 40) || '宣传内容'}-素材包.zip`;
     downloads.set(ticket, { bytes, filename, expiresAt: Date.now() + 5 * 60000 });
     res.json({ url: `/downloads/${ticket}`, filename });
   });
@@ -159,7 +154,6 @@ export function createApp(store, options = {}) {
   app.patch('/api/projects/:id/publications/:publicationId', (req, res) => mutate(req, res, p => {
     const pub = p.publications.find(r => r.id === req.params.publicationId); domain.assert(pub, '记录不存在', 404);
     domain.assert(!['published', 'cancelled'].includes(pub.status), '该记录不可修改');
-    domain.assert(!pub.automation || ['cancelled', 'blocked', 'failed'].includes(pub.automation.status), '请先停止自动发布计划；已开始的投稿需在平台核对', 409);
     const data = z.object({ status: z.enum(['exported', 'cancelled']) }).parse(req.body);
     pub.status = data.status; domain.touch(p); return pub;
   }));
