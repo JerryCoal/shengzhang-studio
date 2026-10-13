@@ -1,3 +1,5 @@
+import { selectCommentScope, COMMENT_WORKFLOW_VERSION } from './comment-analysis.mjs';
+import { semanticCandidates, semanticResult } from './semantic-replacement.mjs';
 import { z } from 'zod';
 import { PROMPT_VERSION } from './prompts.mjs';
 import { rulesOf, corpusQuery, searchCorpus, screenCopy } from './workflow.mjs';
@@ -30,9 +32,9 @@ export function mountAIRoutes(app, store, config, { project, mutate, activeJobs 
     const dsCredential = { ...ds, suffix: local ? ds.suffix : '', local, editable: local && ds.supported, source: ds.configured ? 'vault' : 'none' };
     const providers = { openai: { configured: local && credential.configured && !v.problem, credential, verification: local ? verification : null, apiDiagnostic: local ? config.openaiTransport?.diagnostic() : null }, deepseek: { configured: local && ds.configured && !ds.problem, credential: dsCredential, verification: local ? deepseekVerification : null, apiDiagnostic: local ? config.deepseekTransport?.diagnostic() : null } };
     return { model: strategy.model, openaiConfigured: local && (v.configured || !!config.apiKey) && !v.problem, authEnabled: !!config.password || !!config.profileMode, inputPrice: strategy.inputPrice, outputPrice: strategy.outputPrice,
-      version: '1.2.0', profileMode: !!config.profileMode, routes, models: MODELS, stages: STAGES, priceDate: '2026-09-14', verification: local ? verification : null, apiDiagnostic: local ? config.openaiTransport?.diagnostic() : null,
+      version: '1.6.0', profileMode: !!config.profileMode, routes, models: MODELS, stages: STAGES, priceDate: '2026-09-14', verification: local ? verification : null, apiDiagnostic: local ? config.openaiTransport?.diagnostic() : null,
       credential, providers,
-      capabilities: { image: 'gpt-image-2-or-seedream-keyframes', video: 'seedance-and-local', publishing: 'douyin-oauth-and-manual', comments: 'douyin-api-and-import', ai: ['strategy', 'planning', 'copy', 'classification', 'analysis'] } };
+      capabilities: { image: 'gpt-image-2-or-seedream-keyframes', video: 'seedance-and-local', publishing: 'manual-only', comments: 'douyin-api-and-import', ai: ['strategy', 'planning', 'copy', 'classification', 'analysis'] } };
   };
   const changeSettings = async (req, res, work) => {
     requireLocal(req); d.assert(!settingsBusy && activeJobs.size === 0, '模型任务或设置操作正在进行，请完成后再修改配置', 409);
@@ -118,28 +120,52 @@ export function mountAIRoutes(app, store, config, { project, mutate, activeJobs 
     const a = p.assets.find(a => a.id === req.params.assetId); d.assert(a, '内容不存在', 404);
     d.assert(a.revision === req.body.expectedRevision, '内容已更新，请刷新后再生成', 409);
     const s = p.strategies.find(s => s.id === a.strategyId); d.assert(s?.status === 'confirmed', '请先确认策略');
+    if (req.body.reviewOnly === true) {
+      const draft = z.object({ title: z.string().trim().min(1).max(200), body: z.string().max(8000) }).parse(req.body.draft);
+      const current = store.get();
+      d.assert(req.body.rulesRevision === (current.rulesRevision || 0), '词库已更新，请重新检查', 409);
+      const mode = z.enum(['words','semantic']).parse(req.body.reviewMode || 'words');
+      if (mode === 'semantic') {
+        const matches = semanticCandidates(draft, rulesOf(current));
+        d.assert(matches.length, '没有命中语义替换词条；请先在设置中添加词条并选择“语义替换（价格场景）”');
+        d.assert(matches.length <= 40, '单次最多判断 40 处语义候选，请缩短这份文案后再试');
+        return { task: { channel: a.channel }, rulesRevision: current.rulesRevision || 0,
+          copyReview: { mode, ...draft, matches: matches.map(({ id, field, original, start, end, context })=>({id,field,original,start,end,context})) } };
+      }
+      const screened = screenCopy(draft, rulesOf(current));
+      d.assert(screened.review.remaining.some(m => m.action !== 'semantic'), '没有待改写词条，请先使用本地检查');
+      return { brief: s.briefSnapshot || p.brief, task: { channel: a.channel }, rulesRevision: current.rulesRevision || 0,
+        copyReview: { title: screened.value.title, body: screened.value.body, matches: screened.review.remaining.filter(m=>m.action !== 'semantic') } };
+    }
     const instruction = z.string().max(2000).parse(req.body.instruction || '');
     const retrievalQuery = corpusQuery(p, `${a.title} ${instruction}`);
     return { brief: s.briefSnapshot || p.brief, strategy: { title: s.title, core: s.core, direction: s.direction, prompt: s.prompt }, task: { channel: a.channel, kind: a.kind, title: a.title, body: a.body, prompt: a.prompt }, instruction, retrievalQuery, corpusReferences: searchCorpus(p, retrievalQuery) };
   }, (p, value, model, payload, state) => {
     const a = p.assets.find(a => a.id === req.params.assetId);
+    if (payload.copyReview?.mode === 'semantic') {
+      const result = semanticResult({ title: payload.copyReview.title, body: payload.copyReview.body }, rulesOf(state), value.decisions);
+      return { ...result, sourceRevision: a.revision, rulesRevision: state.rulesRevision || 0 };
+    }
     const screened = screenCopy(value, rulesOf(state));
+    if (payload.copyReview) return { candidate: screened.value, review: screened.review, sourceRevision: a.revision, rulesRevision: state.rulesRevision || 0 };
     d.updateAsset(p, a.id, { title: screened.value.title, body: screened.value.body, expectedRevision: a.revision }, rulesOf(state));
     Object.assign(a, { prompt: screened.value.prompt, scenes: screened.value.scenes, copyReview: screened.review, copyModel: model, status: 'queued', retrievalQuery: payload.retrievalQuery, corpusReferences: payload.corpusReferences }); return a;
   }));
   app.post('/api/projects/:id/comments/classify', (req, res) => execute(req, res, 'classification', p => {
-    const comments = p.comments.filter(c => !c.irrelevant && !c.correctedAt && !c.classificationModel).slice(0, 60).map(c => ({ id: c.id, text: c.text }));
-    d.assert(comments.length, '没有待分类评论；人工校正与已分类评论会保留'); return { comments };
-  }, (p, value, model) => { for (const item of value.comments) Object.assign(p.comments.find(c => c.id === item.id), { tags: [...new Set(item.tags)], sentiment: item.sentiment, classificationModel: model }); return { count: value.comments.length }; }));
+    const candidates = selectCommentScope(p, req.body).filter(c => !c.correctedAt && !c.classificationModel).slice(0, 30);
+    const comments = []; let bytes = 0;
+    for (const c of candidates) { const row = { id: c.id, text: c.text, work: p.publications.find(r => r.id === c.publicationId)?.title || '' }; bytes += Buffer.byteLength(JSON.stringify(row)); if (bytes > 75000) break; comments.push(row); }
+    d.assert(comments.length, '没有待分类评论；人工校正与已分类评论会保留'); return { product: p.brief.product, goal: p.brief.goal, comments };
+  }, (p, value, model) => { for (const item of value.comments) Object.assign(p.comments.find(c => c.id === item.id), { tags: [...new Set(item.tags)], sentiment: item.sentiment, classificationModel: model, classification: { version: COMMENT_WORKFLOW_VERSION, method: 'ai', at: d.now(), reason: item.reason, evidence: item.evidence, needsReview: item.needsReview || item.tags.includes('其他') } }); return { count: value.comments.length }; }));
   app.post('/api/projects/:id/analysis', (req, res) => {
     const { mode } = z.object({ mode: z.enum(['demo', 'openai']).default('demo') }).parse(req.body || {});
-    if (mode === 'demo') return mutate(req, res, (p, state) => { const result = d.analyzeComments(p); d.activity(state, '评论复盘已完成', `${result.length} 条建议 · 本地规则分析`, p.id); return result; });
+    if (mode === 'demo') return mutate(req, res, (p, state) => { const result = d.analyzeComments(p, req.body); d.activity(state, '评论复盘已完成', `${result.length} 条建议 · 本地规则分析`, p.id); return result; });
     return execute(req, res, 'analysis', p => {
-      const comments = p.comments.filter(c => !c.irrelevant).map(c => ({ id: c.id, text: c.text, tags: c.tags, sample: c.sample }));
+      const comments = selectCommentScope(p, req.body).map(c => ({ id: c.id, text: c.text, tags: c.tags, sentiment: c.sentiment, sample: c.sample, correctedAt: c.correctedAt || null, publicationId: c.publicationId, reviewNote: c.reviewNote || '' }));
       d.assert(comments.length > 0 && comments.length <= 200, 'AI 复盘当前支持 1–200 条有效评论，更多评论请使用本地规则分析'); return { brief: p.brief, comments };
     }, (p, value, model, payload) => {
       const analysisId = d.id(), comments = p.comments.filter(c => payload.comments.some(item => item.id === c.id)), times = comments.map(c => c.importedAt).sort();
-      const insights = value.insights.map(item => { const evidenceIds = [...new Set(item.evidenceIds)]; return { ...item, evidenceIds, id: d.id(), analysisId, publicationIds: [...new Set(comments.filter(c => evidenceIds.includes(c.id)).map(c => c.publicationId))], sampleSize: comments.length, count: evidenceIds.length, provisional: comments.length < 30, status: 'pending', createdAt: d.now(), windowStart: times[0], windowEnd: times.at(-1), source: MODELS[model].provider, model, scope: '仅限本项目已导入的有效评论；导入时间不代表评论发表时间；观察不等于因果。' }; });
+      const insights = value.insights.map(item => { const evidenceIds = [...new Set(item.evidenceIds)]; return { ...item, evidenceIds, id: d.id(), analysisId, inputCommentIds: comments.map(c => c.id), workflowVersion: COMMENT_WORKFLOW_VERSION, publicationIds: [...new Set(comments.filter(c => evidenceIds.includes(c.id)).map(c => c.publicationId))], sampleSize: comments.length, count: evidenceIds.length, provisional: comments.length < 30, status: 'pending', createdAt: d.now(), windowStart: times[0], windowEnd: times.at(-1), source: MODELS[model].provider, model, scope: '仅限本次选中的已导入有效评论；导入时间不代表发表时间，评论条数不等于人数、销量；观察不等于因果。' }; });
       p.insights.push(...insights); return insights;
     });
   });

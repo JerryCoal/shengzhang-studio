@@ -1,0 +1,5 @@
+const $=id=>document.getElementById(id);let state={},sending=false;
+const actions=['prepare','upload','fill','submit','copy-title','copy-body','save','reload'];
+function render(next){state=next;$('heading').textContent=`${next.platform==='douyin'?'抖音':'小红书'} · ${next.title||'发布助手'}`;$('message').textContent=next.message||'';$('message').title=next.message||'';for(const id of actions)$(id).disabled=sending||next.busy||(['upload','prepare'].includes(id)&&next.uploaded)||(id==='submit'&&(!next.canSubmit||!next.uploaded||!next.filled||next.attempted));$('upload').textContent=next.uploaded?'已选择素材':'单独上传';$('submit').textContent=next.receipt?'已收到提交回执':next.attempted?'已尝试 · 请核对':'确认提交发布';}
+for(const id of [...actions,'finish'])$(id).addEventListener('click',async()=>{if(sending&&id!=='finish')return;sending=true;render(state);try{const next=await window.creatorDraft.command(id);if(next)render(next);}catch{render({...state,message:'操作未完成，请核对平台页面；可使用复制文案与另存素材。'});}finally{sending=false;render(state);}});
+window.creatorDraft.onProgress(render);void window.creatorDraft.command('status').then(render);

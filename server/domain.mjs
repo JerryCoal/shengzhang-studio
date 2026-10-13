@@ -1,4 +1,6 @@
+import { COMMENT_CATEGORIES, COMMENT_WORKFLOW_VERSION, classifyComment, selectCommentScope } from './comment-analysis.mjs';
 import { z } from 'zod';
+import { importCapturedComments } from './comment-import.mjs';
 import { strategyPrompt, taskPrompt } from './prompts.mjs';
 import { reviewObject, defaultRules, corpusQuery, searchCorpus, corpusPrompt } from './workflow.mjs';
 
@@ -146,18 +148,11 @@ export function confirmPublication(p, publicationId, input) {
   record.manualReviewRequired = false; record.status = 'published'; record.url = url.href; record.confirmationSource = 'user'; record.publishedAt = now(); touch(p);
   return record;
 }
-export const categories = ['购买咨询', '价格顾虑', '使用疑问', '体验反馈', '内容建议', '其他'];
-export function classify(text) {
-  const tags = [];
-  if (/买|购买|链接|下单|哪里有/.test(text)) tags.push('购买咨询');
-  if (/价|贵|便宜|优惠|折扣|多少钱/.test(text)) tags.push('价格顾虑');
-  if (/尺寸|大小|多大|携带|怎么|如何|能不能|可以|克|毫升|重量/.test(text)) tags.push('使用疑问');
-  if (/喜欢|不错|好喝|用了|难用|失望|漏|坏|差|投诉/.test(text)) tags.push('体验反馈');
-  if (/希望|建议|拍|演示|展示|想看/.test(text)) tags.push('内容建议');
-  return { tags: tags.length ? tags : ['其他'], sentiment: /贵|差|失望|难用|坏|漏|投诉/.test(text) ? 'negative' : /喜欢|不错|好喝|赞/.test(text) ? 'positive' : 'neutral' };
-}
+export const categories = COMMENT_CATEGORIES;
+export const classify = classifyComment;
 const normalize = value => value.normalize('NFKC').replace(/\s+/g, '').toLowerCase();
 export function importComments(p, input) {
+  if (input?.source === 'browser-page') return importCapturedComments(p, input, { assert, id, now, classify, touch });
   const data = z.object({ publicationId: z.string(), text: z.string().trim().min(1).max(120000), source: z.enum(['paste', 'file']).default('paste') }).parse(input);
   const publication = p.publications.find(r => r.id === data.publicationId);
   assert(publication?.status === 'published', '请先登记作品的发布结果，再导入对应评论');
@@ -185,19 +180,19 @@ const suggestions = {
   '内容建议': '下一轮增加评论中提到的场景演示，观察相关问题是否减少。',
   '其他': '先补充样本与上下文，暂不据此调整核心宣传方向。',
 };
-export function analyzeComments(p) {
-  const sample = p.comments.filter(c => !c.irrelevant);
+export function analyzeComments(p, input = {}) {
+  const sample = selectCommentScope(p, input);
   assert(sample.length > 0, '请先导入有效评论');
   const analysisId = id();
   const insights = categories.flatMap(tag => {
     const evidence = sample.filter(c => c.tags.includes(tag));
     if (!evidence.length) return [];
-    return [{ id: id(), analysisId, category: tag, title: tag === '使用疑问' ? '把用户的问题，变成下一条内容' : `${tag}值得进一步验证`,
+    return [{ id: id(), analysisId, inputCommentIds: sample.map(c => c.id), workflowVersion: COMMENT_WORKFLOW_VERSION, category: tag, title: tag === '使用疑问' ? '把用户的问题，变成下一条内容' : `${tag}值得进一步验证`,
       observation: `${sample.length} 条有效评论中，有 ${evidence.length} 条涉及${tag}。`,
       recommendation: suggestions[tag], evidenceIds: evidence.map(c => c.id), publicationIds: [...new Set(evidence.map(c => c.publicationId))],
       sampleSize: sample.length, count: evidence.length, provisional: sample.length < 30, status: 'pending', createdAt: now(),
-      windowStart: sample.map(c => c.importedAt).sort()[0], windowEnd: now(), source: 'rules',
-      scope: '仅限本项目已导入评论；导入时间不代表评论发表时间，不推断因果关系。' }];
+      windowStart: sample.map(c => c.importedAt).sort()[0], windowEnd: sample.map(c => c.importedAt).sort().at(-1), source: 'rules',
+      scope: '仅限本次选中的已导入有效评论；按导入时间记录窗口，不代表平台全部评论、人数或成交，不推断因果。' }];
   });
   p.insights.push(...insights); touch(p);
   return insights;

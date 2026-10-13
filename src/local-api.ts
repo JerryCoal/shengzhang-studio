@@ -1,3 +1,5 @@
+import { applyRuleClassification, correctComment } from '../server/comment-analysis.mjs';
+import { saveMetricSnapshot } from '../server/operating-data.mjs';
 import { z } from 'zod';
 import * as d from '../server/domain.mjs';
 import { configureTrends, selectTrends, changeTrendTag } from '../server/trends.mjs';
@@ -9,7 +11,7 @@ import type { State, Integrations, Settings, Project } from './types';
 import { defaultSeedream } from '../server/seedream-config.mjs';
 
 const unavailable = '静态体验版未连接在线服务。请在本地完整版中配置 AI 或平台授权；此处不会发出请求或收取费用。';
-const settings: Settings = { ...modelSettings, openaiConfigured: false, authEnabled: true, version: '1.2.0 · 本地静态版', verification: null,
+const settings: Settings = { ...modelSettings, openaiConfigured: false, authEnabled: true, version: '1.6.0 · 本地静态版', verification: null,
   credential: { local: false, editable: false, supported: false, configured: false, source: 'none', suffix: '', protection: '', problem: '静态版不接收 API 密钥。请在本地完整版中配置 AI 服务。' } } as Settings;
 const integrations: Integrations = { local: false, imageProvider: 'openai', seedream: { ...defaultSeedream, configured: false, supported: false, suffix: '', problem: unavailable }, seedance: { region: 'volcengine', model: '', reservationUsd: 2, outputPriceUsd: 0, configured: false, supported: false, suffix: '', problem: unavailable }, douyin: { configured: false, supported: false, redirectUri: '', accounts: [] } };
 function project(state: State, id: string) { const p = state.projects.find(p => p.id === id); d.assert(p, '项目不存在'); return p; }
@@ -84,12 +86,14 @@ export async function localAPI<T>(path: string, method: string, input: unknown):
         if (action === 'confirm' && method === 'POST') return d.confirmPublication(p, itemId, body);
         if (!action && method === 'PATCH') { const pub = p.publications.find(r => r.id === itemId); d.assert(pub && !['published', 'cancelled'].includes(pub.status), '此记录不可修改'); pub.status = z.enum(['exported', 'cancelled']).parse(body.status); d.touch(p); return pub; }
       }
+      if (kind === 'metrics' && method === 'POST') { const result = saveMetricSnapshot(p, body); d.touch(p); return result; }
       if (kind === 'comments') {
+        if (itemId === 'classify-rules' && method === 'POST') { const result = applyRuleClassification(p, body); d.touch(p); return result; }
         if (itemId === 'import' && method === 'POST') { const r = d.importComments(p, body); d.activity(state, '评论已导入', `${r.added} 条新增`, p.id); return r; }
         if (itemId === 'sample' && method === 'POST') return sampleComments(p);
-        if (!action && method === 'PATCH') { const c = p.comments.find(c => c.id === itemId); d.assert(c, '评论不存在'); const data = z.object({ tags: z.array(z.enum(d.categories)).min(1).optional(), sentiment: z.enum(['positive', 'neutral', 'negative']).optional(), irrelevant: z.boolean().optional() }).parse(body); Object.assign(c, data, { correctedAt: d.now() }); d.touch(p); return c; }
+        if (!action && method === 'PATCH') { const result = correctComment(p, itemId, body); d.touch(p); return result; }
       }
-      if (kind === 'analysis' && method === 'POST') return d.analyzeComments(p);
+      if (kind === 'analysis' && method === 'POST') return d.analyzeComments(p, body);
       if (kind === 'insights' && method === 'PATCH') return d.decideInsight(p, itemId, body);
       throw new Error(unavailable);
     }) as T;

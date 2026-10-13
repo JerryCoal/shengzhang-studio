@@ -1,5 +1,8 @@
-const { app, BrowserWindow, Menu, Tray, nativeImage, shell, dialog, ipcMain, session } = require('electron');
+const { app, BrowserWindow, WebContentsView, Menu, Tray, nativeImage, shell, dialog, ipcMain, session, clipboard } = require('electron');
+const { createCreatorController } = require('./creator-window.cjs');
 const { createDouyinAuthController } = require('./douyin-auth.cjs');
+const { createCommentCollector } = require('./comment-collector.cjs');
+const { createPlatformSessions } = require('./platform-sessions.cjs');
 const { fork, execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const { join } = require('node:path');
@@ -14,12 +17,44 @@ const reportFile = join(dataRoot, 'startup-status.json');
 const report = event => writeFileSync(reportFile, JSON.stringify({ ...event, at: new Date().toISOString() }));
 let window, tray, backend, website = '', quitting = false, shutdownRequested = false, proxyEnabled = false;
 const douyinAuth = createDouyinAuthController({ BrowserWindow, session, getParent: () => window });
+const commentCollector = createCommentCollector({ BrowserWindow, WebContentsView, session, Menu, dialog, ipcMain, getParent: () => window });
+const creator = createCreatorController({ BrowserWindow, WebContentsView, session, ipcMain, dialog, clipboard, getParent: () => window, tempRoot: () => app.getPath('temp') });
+const platformSessions = createPlatformSessions(session, async token => {
+  const result = await fetch(website + '/api/profiles/session', {headers:{'X-Studio-Client':'studio-v1',Authorization:'Bearer '+token},signal:AbortSignal.timeout(8000)});
+  if (!result.ok) throw Error('工作台登录已失效，请重新登录');
+});
 function trustedRenderer(event) { try { return event.sender === window?.webContents && event.senderFrame === window.webContents.mainFrame && new URL(event.senderFrame.url).origin === website; } catch { return false; } }
 ipcMain.handle('studio:douyin-authorize', async (event, url) => {
   if (!trustedRenderer(event)) throw new Error('请从工作台开始授权');
   try { return await douyinAuth.open(url); } catch { return { error: '无法打开抖音授权窗口，请重新准备授权或使用官方链接。' }; }
 });
 ipcMain.handle('studio:douyin-cancel', event => { if (trustedRenderer(event)) douyinAuth.cancel(); });
+ipcMain.handle('studio:comments-open', async (event, url) => {
+  if (!trustedRenderer(event)) throw new Error('请从工作台开始评论采集');
+  try {
+    commentCollector.cancel();creator.cancel();
+    const {commentSource}=await import('./comment-source.mjs');
+    const platform=commentSource(typeof url==='string'?url:url?.url).platform;
+    const sharedSession=await platformSessions.acquire(platform,url?.sessionToken);
+    return await commentCollector.open(url,{sharedSession});
+  } catch(e) { return { error:e.message || '无法打开作品，请检查链接后重试。' }; }
+});
+ipcMain.handle('studio:comments-cancel', event => { if (trustedRenderer(event)) commentCollector.cancel(); });
+ipcMain.handle('studio:creator-open', async (event, draft) => {
+  if (!trustedRenderer(event)) throw Error('请从工作台打开发布助手');
+  try {
+    commentCollector.cancel();creator.cancel();
+    const sharedSession=await platformSessions.acquire(draft?.platform,draft?.sessionToken);
+    const canTrack=typeof draft.projectId==='string'&&/^[\w-]{1,100}$/.test(draft.projectId)&&typeof draft.publicationId==='string'&&/^[\w-]{1,100}$/.test(draft.publicationId);
+    const saveDelivery=canTrack?async body=>{
+      const response=await fetch(`${website}/api/projects/${encodeURIComponent(draft.projectId)}/publications/${encodeURIComponent(draft.publicationId)}/delivery`,{method:'POST',headers:{'Content-Type':'application/json','X-Studio-Client':'studio-v1',Authorization:'Bearer '+draft.sessionToken},body:JSON.stringify({...body,...(body.action==='start'?{platform:draft.platform}:{})}),signal:AbortSignal.timeout(10000)});
+      if(!response.ok){const error=await response.json().catch(()=>({}));throw Error(error.error||'发布记录未能保存，已停止提交');}
+    }:null;
+    return await creator.open(draft,{sharedSession,saveDelivery});
+  } catch(e) { return { error:e.message || '无法打开发布助手' }; }
+});
+ipcMain.handle('studio:creator-cancel', event => { if (trustedRenderer(event)) creator.cancel(); });
+ipcMain.handle('studio:platform-lock', async event => {if (!trustedRenderer(event)) return;commentCollector.cancel();creator.cancel();await platformSessions.clear();});
 function safeExternal(url) { try { const target = new URL(url); if (['https:', 'http:'].includes(target.protocol) && !target.username && !target.password) void shell.openExternal(target.href); } catch {} }
 async function proxyEnvironment() {
   const env = { ...process.env, NO_PROXY: 'localhost,127.0.0.1,::1', NODE_USE_ENV_PROXY: '1' };
@@ -56,7 +91,7 @@ else {
       website = await startBackend();
       const icon = nativeImage.createFromPath(join(__dirname, 'dist', 'icon-192.png'));
       window = new BrowserWindow({ width: 1440, height: 940, minWidth: 760, minHeight: 620, show: false, title: '生长 · AI 运营工作台', backgroundColor: '#f6f7f2', icon, webPreferences: { preload: join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true } });
-      window.webContents.on('did-start-navigation', (_event, _url, _inPlace, mainFrame) => { if (mainFrame) douyinAuth.cancel(); });
+      window.webContents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => { if (mainFrame && !inPlace) { douyinAuth.cancel(); commentCollector.cancel(); creator.cancel(); void platformSessions.clear(); } });
       window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
       window.webContents.session.setPermissionCheckHandler(() => false);
       window.webContents.setWindowOpenHandler(({ url }) => { safeExternal(url); return { action: 'deny' }; });
@@ -81,6 +116,8 @@ else {
 }
 app.on('before-quit', event => {
   douyinAuth.cancel();
+  commentCollector.cancel();
+  creator.cancel();
   if (shutdownRequested || !backend || backend.exitCode !== null) { quitting = true; return; }
   event.preventDefault(); quitting = true; shutdownRequested = true; window?.hide();
   const timeout = setTimeout(() => { backend.kill(); app.exit(0); }, 45000);

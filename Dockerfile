@@ -6,6 +6,9 @@ RUN pnpm install --frozen-lockfile
 COPY index.html tsconfig.json vite.config.ts capacitor.config.ts ./
 COPY public ./public
 COPY src ./src
+COPY server ./server
+COPY scripts/compile-copy-skills.mjs ./scripts/compile-copy-skills.mjs
+COPY skills ./skills
 RUN pnpm run build && pnpm prune --prod
 
 FROM node:24-bookworm-slim
@@ -14,7 +17,7 @@ WORKDIR /app
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY package.json ./
-COPY server ./server
+COPY --from=build /app/server ./server
 RUN mkdir -p /app/data && chown -R node:node /app/data
 USER node
 EXPOSE 4318

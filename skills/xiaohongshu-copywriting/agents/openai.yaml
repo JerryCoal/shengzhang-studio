@@ -1,0 +1,4 @@
+interface:
+  display_name: "小红书文案创作"
+  short_description: "基于项目事实生成小红书标题、正文和标签，并衔接自定义词库检查"
+  default_prompt: "使用 $xiaohongshu-copywriting，根据我提供的项目资料创作小红书标题、正文与相关标签，并单独指出缺失的关键信息。"

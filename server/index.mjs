@@ -18,6 +18,7 @@ const app = createApp(store, {
   seedanceVault: createVault(resolve(dataDirectory, 'private/seedance.dpapi.json')),
   seedreamVault: createVault(resolve(dataDirectory, 'private/seedream.dpapi.json')),
   douyinVault: createVault(resolve(dataDirectory, 'private/douyin.dpapi.json')),
+  feishuVault: createVault(resolve(dataDirectory, 'private/feishu.dpapi.json')),
   integrationPreferences: createIntegrationPreferences(resolve(dataDirectory, 'integration-settings.json')),
   modelStore: createModelStore(resolve(dataDirectory, 'model-settings.json')),
   apiKey: process.env.OPENAI_API_KEY || '', password: process.env.APP_PASSWORD || '',

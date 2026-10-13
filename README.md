@@ -2,19 +2,21 @@
 
 **从一个想法，到持续生长的品牌。**
 
+**最新测试版：v1.6.0 · Windows x64。** 本次公开此前 v1.3.x–v1.6.0 的累计升级：可维护敏感词与 AI 语义检查、飞书发布计划、评论采集和分析、运营数据空间，以及用户确认后提交的官方页面发布助手。详见 [更新记录](docs/RELEASE-1.6.0.md) 与 [使用说明](docs/UPGRADE-1.6.0.md)。
+
 生长 STUDIO 将品牌资料、项目语料、热点筛选、宣传策略、文案与封面、视频、发布记录和评论复盘连接在同一个工作区。面向独立创作者、小团队和早期品牌，让整理过的资料与反馈继续用于下一次创作。
 
-**当前正式版：v1.2.0 · Windows x64。** 本版彻底关闭自动投送，统一手动发布，完善创作导出与操作引导。Windows 应用内置后端和运行环境，解压即可运行，无需另装 Node.js。
-
-**v1.2.0 更新重点：** 关闭后台上传与自动投稿、停用旧任务，提供原格式 / PNG / JPG 导出、单独素材与文案下载、结构化 ZIP 和官方创作中心入口。发布不需要开放平台权限。详见 [更新记录](docs/RELEASE-1.2.0.md) 与 [升级说明](docs/UPGRADE-1.2.0.md)。评论接口作为独立可选能力保留，真实账号联调仍待完成。
+**版本选择：** v1.6.0 是 Pre-release 测试版，真实平台账号的完整发布与采集尚待联调；v1.2.0 是继续保留的正式版。Windows 包内置后端与运行环境，完整解压即可运行，无需另装 Node.js。[验证范围](docs/PLATFORM-ASSIST-VALIDATION-1.6.0.md)
 
 ## 下载与打开
 
 | 入口 | 地址 / 说明 |
 | --- | --- |
-| **下载 v1.2.0 Windows 完整版** | [Shengzhang-Studio-1.2.0-windows-x64.zip](https://github.com/JerryCoal/shengzhang-studio/releases/download/v1.2.0/Shengzhang-Studio-1.2.0-windows-x64.zip) |
+| **下载 v1.6.0 Windows 测试版** | [Shengzhang-Studio-1.6.0-windows-x64.zip](https://github.com/JerryCoal/shengzhang-studio/releases/download/v1.6.0/Shengzhang-Studio-1.6.0-windows-x64.zip) |
+| v1.6.0 发布说明与校验文件 | [v1.6.0 Pre-release](https://github.com/JerryCoal/shengzhang-studio/releases/tag/v1.6.0) · [SHA-256](https://github.com/JerryCoal/shengzhang-studio/releases/download/v1.6.0/Shengzhang-Studio-1.6.0-windows-x64.zip.sha256) |
+| **下载 v1.2.0 正式版** | [Shengzhang-Studio-1.2.0-windows-x64.zip](https://github.com/JerryCoal/shengzhang-studio/releases/download/v1.2.0/Shengzhang-Studio-1.2.0-windows-x64.zip) |
 | 正式版发布说明 | [v1.2.0 Release](https://github.com/JerryCoal/shengzhang-studio/releases/tag/v1.2.0) |
-| 最新发布入口 | [Releases / latest](https://github.com/JerryCoal/shengzhang-studio/releases/latest) |
+| 最新正式版入口（不含测试版） | [Releases / latest](https://github.com/JerryCoal/shengzhang-studio/releases/latest) |
 | 文件完整性校验 | [SHA-256 校验文件](https://github.com/JerryCoal/shengzhang-studio/releases/download/v1.2.0/Shengzhang-Studio-1.2.0-windows-x64.zip.sha256) |
 | 历史下载 | [所有已发布版本](https://github.com/JerryCoal/shengzhang-studio/releases) |
 | 网页入口 | [GitHub Pages](https://jerrycoal.github.io/shengzhang-studio/)；在线 AI 和平台功能需要可用后端，不能用静态托管代替后端 |
@@ -28,9 +30,17 @@
 
 升级时，先在旧版托盘菜单选择 **退出并停止后台任务**，再打开完整解压后的新版。同一台电脑、同一 Windows 账户下，数据继续保存在 `%LOCALAPPDATA%\ShengzhangStudio`，不需要复制数据库到新版文件夹。仅关闭窗口会缩到托盘。
 
-详细操作见 [v1.2.0 升级说明](docs/UPGRADE-1.2.0.md)、[抖音开通指南](docs/DOUYIN-SETUP.md) 和 [Windows 使用说明](docs/WINDOWS-APP.md)。
+详细操作见 [v1.6.0 使用说明](docs/UPGRADE-1.6.0.md)、[飞书接入指南](docs/FEISHU-SETUP.md)、[抖音开通指南](docs/DOUYIN-SETUP.md) 和 [Windows 使用说明](docs/WINDOWS-APP.md)。
 
-### v1.2.0：从创作导出到手动发布
+### v1.6.0：发布、采集与复盘
+
+1. 发布中心选择成品和关联账号，打开官方发布助手；在内嵌平台页面登录并进入编辑页。
+2. 点击「自动上传与填写」，核对实际账号、素材、封面、话题和可见范围，再确认提交。
+3. 助手保存可识别回执；结果不明时锁定重试。核对平台审核状态后，再登记为已发布。
+4. 评论分析页采集自有作品评论，预览导入后进行本地初筛、AI 分类和人工核对，采用有依据的复盘建议。
+5. 运营数据页点击「从作品采集」，保存带时间和来源的指标快照；发布计划可按项目选择同步飞书多维表格。
+
+### v1.2.0 正式版：从创作导出到手动发布
 
 1. 制作并检查成品，点击 **导出与发布**。图片可选 PNG、JPG 或原格式，视频保留真实 MP4 / WebM 格式。
 2. 下载 ZIP 素材包（须解压）、单独素材或 TXT；标题和正文可分别复制。
@@ -52,7 +62,7 @@ flowchart TD
     E --> F[人工核对并确认策略版本]
     F --> G[生成文案与分镜，筛选敏感词]
     G --> H[制作封面或视频]
-    H --> I[检查并导出成品，在官方平台手动发布和回填链接]
+    H --> I[导出或桌面助手准备，确认提交并核对回执]
     I --> J[导入或同步评论]
     J --> K[复盘并采用有依据的建议]
     K --> E
@@ -66,8 +76,9 @@ flowchart TD
 | 4. 形成策略 | 选择免费模板或文本 AI，核对主题、表达与 Prompt | 查询语料和已采用经验；确认后锁定版本并创建制作任务；修改已确认策略会另存草稿 |
 | 5. 编写内容 | 用标签、语料引用补充要求，生成或编辑文案与分镜 | 按步骤组织提示词，在生成末尾按可维护词库筛选、替换敏感词；保留引用与命中记录 |
 | 6. 制作画面 | 选择本地模板、Seedream 封面或 AI 视频 | 封面：预览提示词 → 候选生成 → 人工采用。视频：生成首尾帧 → 检查 → 提交 Seedance → 保存结果 |
-| 7. 发布与记录 | 保存待办，导出素材，在官方平台手动上传并登记链接 | 保存成品快照；所有平台均手动发布，到点不会自动投送；用户确认或只读查询核对已公开作品后才登记成功 |
-| 8. 评论与复盘 | 导入评论或同步自有抖音作品评论，核对并采用建议 | 去重、分类并保留原文依据；采用的经验进入下一轮策划 |
+| 7. 发布与记录 | 保存待办，导出素材或使用桌面助手；核对后确认提交并登记链接 | 保存成品快照和可识别回执；结果不明不自动重试，计划时间不会触发无人值守发布 |
+| 8. 评论与复盘 | 采集 / 导入自有作品评论，核对分类并采用建议 | 评论按作品去重，保留父子关系和原文依据；人工分类优先，采用的经验进入下一轮策划 |
+| 9. 排期与指标 | 按需同步飞书计划，采集或补录作品指标 | 保留时间与来源、缺失值及快照；汇总不重复累计 |
 
 ### 封面与视频怎么做
 
@@ -96,17 +107,18 @@ Seedream 提示「模型或者接入点不存在」时，点击设置页模型�
 | 小红书 AI 封面 | 火山方舟 Seedream | 北京区域已开通模型或可用接入点；图片密钥独立保存 |
 | 视频首尾帧 | GPT Image 2 / Seedream | 对应图片服务权限与额度 |
 | AI 视频 | Seedance（火山方舟 / BytePlus） | 对应区域密钥和支持首尾帧的模型或接入点 |
-| 抖音 / 小红书发布 | 导出成品 → 官方创作中心手动发布 → 回填链接 | 普通发布账号即可；不需要开放平台应用或自动投稿权限 |
+| 抖音 / 小红书发布 | Windows 官方页面助手或素材导出；用户确认后提交 | 需要平台账号登录；页面自动化不是官方投稿 API 授权，真实联调待完成 |
 | 可选抖音评论同步 | 抖音开放平台只读接口 | 已有应用、获批查询与评论权限及账号授权；新应用资格需官方确认，真实账号联调待完成 |
-| 小红书发布与评论 | 素材导出、手动发布、评论导入 | 当前未接入通用后台自动发布或自动抓取评论接口 |
+| 小红书 / 抖音网页评论与指标 | 页面响应解析、自动滚动和预览导入 | Windows 应用、自有作品链接；仅采集实际可见 / 返回数据，不保证全量 |
+| 飞书多维表格 | 发布计划单向同步、冲突检测与状态回填 | 企业自建应用、表格权限及用户配置，详见接入指南 |
 
-Windows 版的用户、工作区和凭证在本机按用户加密保存；API 与平台凭证还使用 Windows 当前账户的 DPAPI 保护。勾选自动登录后，下次可点击用户进入，也可取消记住。密码无法找回；工作区备份为明文且不含 API 密钥，请自行保管。
+Windows 版的用户、工作区和凭证在本机按用户加密保存；API 与可选平台接口凭证还使用 Windows 当前账户的 DPAPI 保护；官方网页助手的登录会话仅在内存中复用。勾选自动登录后，下次可点击用户进入，也可取消记住。密码无法找回；工作区备份为明文且不含 API 密钥，请自行保管。
 
 调用 AI 或平台接口时，当前操作所需的资料与凭证会发送给对应服务商。**本地存储不等于完全离线调用。** 模型费用由用户自己的服务商账户承担，应用预算预留不是服务商账单的硬上限。
 
 Windows 菜单「工作台 → 在浏览器中打开」提供连接本机后端的完整网页，与桌面窗口共用本机数据。独立联网网页版的浏览器加密工作区和后端代码保留，但当前没有承诺持续可用的公网后端；不同浏览器与设备不会自动同步。详见 [联网网页版说明](docs/WEB-LOCAL-DATA.md)。
 
-## 截至 v1.2.0 的版本迭代
+## 截至 v1.6.0 的版本迭代
 
 以下区分 GitHub 已发布版本与此前仅本地交付的迭代；未将本地版本描述成已存在的历史 Release。
 
@@ -126,14 +138,18 @@ Windows 菜单「工作台 → 在浏览器中打开」提供连接本机后端�
 | **v1.0.0 · 正式版** | **整合以上功能，公开完整项目源码，统一版本号、流程文档和正式下载入口** | [说明](docs/UPGRADE-1.0.0.md) / [正式版下载](https://github.com/JerryCoal/shengzhang-studio/releases/tag/v1.0.0) |
 | **v1.1.0 · 正式版** | **抖音六步开通指南、应用内授权与浏览器回退、授权作品选择、审核公开后自动采集评论、可选同步频率；修复评论分页和平台授权过期处理** | [更新记录](docs/RELEASE-1.1.0.md) / [正式版下载](https://github.com/JerryCoal/shengzhang-studio/releases/tag/v1.1.0) |
 | **v1.2.0 · 正式版** | **停用自动投送与旧任务；统一手动发布，增强 PNG / JPG / 原格式导出、独立文案与结构化素材包，完善创作中心入口和操作指引** | [更新记录](docs/RELEASE-1.2.0.md) / [下载](https://github.com/JerryCoal/shengzhang-studio/releases/tag/v1.2.0) |
+| v1.3.0–v1.3.4 · 本地迭代，本次合入 | 词库格式、规则优先替换、AI 语义检查、小红书文案规则、官方网页评论采集与自动滚动 | [敏感词升级](docs/UPGRADE-1.3.0.md) / [评论采集](docs/UPGRADE-1.3.4.md) |
+| v1.4.0–v1.4.1 · 本地迭代，本次合入 | 官方页面草稿助手、结构化评论、飞书多维表格发布计划 | [发布助手](docs/UPGRADE-1.4.0.md) / [飞书同步](docs/UPGRADE-1.4.1.md) |
+| v1.5.0 · 本地迭代，本次合入 | 评论初筛、AI 分类与人工复核，新增运营数据空间与累计指标快照 | [说明](docs/UPGRADE-1.5.0.md) |
+| **v1.6.0 · 测试版** | **确认后提交与回执、防重复投稿、父子评论与日期、作品指标采集、平台内存会话复用** | [更新记录](docs/RELEASE-1.6.0.md) / [测试版下载](https://github.com/JerryCoal/shengzhang-studio/releases/tag/v1.6.0) |
 
 此前源码中的「0.5.0 联网网页版」是并行部署方案的标识，不是桌面 v0.4.7 之后单独发布的正式版本。相关代码在 v1.0.0 中统一版本号，公网部署状态见上文。
 
 ## 当前适用范围
 
 - Windows x64 提供完整解压包，尚无签名安装器或自动升级程序。
-- 已验证本地业务、模拟服务商接口与桌面启动。外部模型能否使用取决于账户权限、模型版本、余额及网络；平台投稿统一由用户手动完成；可选评论接口仍待真实联调。
-- AI 视频轮询与可选评论同步需保持应用运行、电脑联网且不休眠。所有发布均为手动流程；新闻仅覆盖选定来源返回的条目。
+- 已验证本地业务、模拟服务商接口与桌面启动。外部模型能否使用取决于账户权限、模型版本、余额及网络；发布助手最终提交需要用户确认；真实平台全流程与可选评论接口仍待真实联调。
+- AI 视频轮询与可选评论同步需保持应用运行、电脑联网且不休眠。桌面发布与采集需保持窗口运行；不执行无人值守定时投稿，新闻仅覆盖选定来源返回的条目。
 - Android / iOS 工程保留，尚未签名、真机验证或上架；当前不提供可直接安装的手机正式版。
 - 适合个人与小团队本地工作区，未提供团队权限、云端同步或大规模任务队列。
 
@@ -169,7 +185,7 @@ pnpm run build:windows
 node scripts/package-windows.mjs
 ```
 
-当前源码输出 `outputs/Shengzhang-Studio-1.2.0-windows-x64.zip`，构建所用 Node 一起打包。仓库不包含第三方运行组件压缩包、用户数据、测试产物或个人密钥。原生工程构建前需执行 `pnpm native:sync`，再使用 Android Studio 或 macOS/Xcode。
+当前源码输出 `outputs/Shengzhang-Studio-1.6.0-windows-x64.zip`，构建所用 Node 一起打包。仓库不包含第三方运行组件压缩包、用户数据、测试产物或个人密钥。原生工程构建前需执行 `pnpm native:sync`，再使用 Android Studio 或 macOS/Xcode。
 
 ```text
 src/          页面、输入辅助、浏览器工作区、图文与视频制作
@@ -183,4 +199,4 @@ android/      安卓工程（待签名与真机验证）
 ios/          iOS 工程（待签名与真机验证）
 ```
 
-更多文档：[提示词与输入辅助](docs/PROMPT-WORKFLOW.md) · [生成与平台连接](docs/GENERATION-AND-PLATFORMS.md) · [部署说明](docs/DEPLOYMENT.md)。历史文档描述对应版本，当前功能与下载以本 README 和 v1.2.0 发布说明为准。
+更多文档：[提示词与输入辅助](docs/PROMPT-WORKFLOW.md) · [生成与平台连接](docs/GENERATION-AND-PLATFORMS.md) · [部署说明](docs/DEPLOYMENT.md)。历史文档描述对应版本，当前功能与下载以本 README 和 v1.6.0 发布说明为准。

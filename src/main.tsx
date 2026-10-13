@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import './styles.css';
 import './readability.css';
 import './workflow.css';
+import './sensitive-checker.css';
 import './guide.css';
 import './input-assist.css';
 import './trends.css';

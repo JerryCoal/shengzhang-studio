@@ -13,7 +13,7 @@ export default function BackendAuth() {
   useEffect(() => { if (status === 'profiles' && !username) void loadRemembered().catch(() => {}); }, [status, username]);
   useEffect(() => {
     let active = true;
-    const locked = () => { sessionStorage.removeItem('studio-session'); setUsername(''); };
+    const locked = () => { void window.studioDesktop?.resetPlatformConnections?.(); sessionStorage.removeItem('studio-session'); setUsername(''); };
     window.addEventListener('studio-auth-required', locked);
     void (async () => {
       try {
@@ -36,7 +36,7 @@ export default function BackendAuth() {
     const result = await api<{ token: string; username: string }>(`/profiles/${mode}`, 'POST', { username: name, password, remember });
     sessionStorage.setItem('studio-session', result.token); setUsername(result.username); return result.username;
   };
-  const logout = async () => { await api('/profiles/logout', 'POST'); sessionStorage.removeItem('studio-session'); localStorage.removeItem('studio-project'); setUsername(''); };
+  const logout = async () => { await window.studioDesktop?.resetPlatformConnections?.(); await api('/profiles/logout', 'POST'); sessionStorage.removeItem('studio-session'); localStorage.removeItem('studio-project'); setUsername(''); };
   const quick = async (id: string) => { const value = await api<{ token: string; username: string }>('/profiles/quick', 'POST', { id }); sessionStorage.setItem('studio-session', value.token); setUsername(value.username); return value.username; };
   const forget = async (id: string) => { await api(`/profiles/remembered/${id}`, 'DELETE'); await loadRemembered(); };
   return <LocalAuth backend={{ username, authenticate, logout, remembered, rememberSupported, quick, forget }}/>;

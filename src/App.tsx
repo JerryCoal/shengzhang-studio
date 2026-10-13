@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { BookOpen, ArrowUpRight, Bell, ChevronDown, CircleHelp, FolderOpen, LayoutDashboard, Leaf, Loader2, Menu, MessageSquareText, Search, Settings2, Sparkles, Sprout, Upload, Video, X } from 'lucide-react';
+import { BarChart3, BookOpen, ArrowUpRight, Bell, ChevronDown, CircleHelp, FolderOpen, LayoutDashboard, Leaf, Loader2, Menu, MessageSquareText, Search, Settings2, Sparkles, Sprout, Upload, Video, X } from 'lucide-react';
 import { api, IS_STATIC, IS_WEB, LOCAL_DATA, type Mutation } from './api';
 import { Context } from './context';
 import type { Page, Settings, State } from './types';
@@ -9,6 +9,7 @@ import { CorpusPage } from './pages/Corpus';
 import { TrendsPage } from './pages/Trends';
 import { StudioPage } from './pages/Studio';
 import { PublishPage, CommentsPage, PlanningPage, SettingsPage } from './pages/Operations';
+import { AnalyticsPage } from './pages/AnalyticsPage';
 
 const navigation = [
   { page: 'dashboard', label: '工作台', icon: LayoutDashboard },
@@ -19,6 +20,7 @@ const navigation = [
   { page: 'studio', label: '内容制作', icon: Video },
   { page: 'publish', label: '发布中心', icon: Upload },
   { page: 'comments', label: '评论与复盘', icon: MessageSquareText },
+  { page: 'analytics', label: '运营数据', icon: BarChart3 },
   { page: 'planning', label: '下期策划', icon: Sprout },
 ] as const;
 const validPages: Page[] = [...navigation.map(n => n.page), 'settings', 'help'];
@@ -55,7 +57,7 @@ export default function App({ localUser, onLocalLogout }: { localUser?: string; 
   }, []);
   const project = state?.projects.find(p => p.id === selectedId) || state?.projects[0];
   const progressVersion = state?.projects.map(p => `${p.id}:${p.revision}`).join('|');
-  const hasBackgroundWork = state?.projects.some(p => p.assets.some(a => a.aiCover?.phase === 'generating' || ['generating-frame', 'submitting-video', 'generating-video'].includes(a.aiProduction?.phase || '')) || p.publications.some(r => r.commentSync?.enabled));
+  const hasBackgroundWork = state?.projects.some(p => p.feishuPlan?.autoSync || p.assets.some(a => a.aiCover?.phase === 'generating' || ['generating-frame', 'submitting-video', 'generating-video'].includes(a.aiProduction?.phase || '')) || p.publications.some(r => r.commentSync?.enabled));
   useEffect(() => {
     if (!hasBackgroundWork || login) return;
     let checking = false;
@@ -82,7 +84,7 @@ export default function App({ localUser, onLocalLogout }: { localUser?: string; 
           {IS_STATIC && <div className="static-notice"><Leaf size={16}/><span>静态体验版 · 当前数据仅在此浏览器中加密保存。AI 生成与可选评论同步需本地完整版；发布请导出后手动完成。</span><a className="text-button green" href="https://github.com/JerryCoal/shengzhang-studio/releases/latest" target="_blank" rel="noreferrer">下载 Windows 完整版 ↗</a><button className="text-button local-user-button" disabled={busy} onClick={onLocalLogout} aria-label="退出当前本地用户"><span>{localUser}</span> · 退出</button></div>}
           {!IS_STATIC && localUser && <div className="static-notice"><Leaf size={16}/><span>{IS_WEB ? '联网网页版 · 数据仅在此浏览器加密保存 · 自动任务需保持网页打开' : 'Windows 完整版 · 本地加密保存 · 保持应用运行以执行后台任务'}</span><button className="text-button local-user-button" disabled={busy} onClick={() => void run(async () => { await onLocalLogout?.(); })}><span>{localUser}</span> · 退出</button></div>}
           {!['dashboard', 'projects', 'settings', 'help'].includes(page) && state.projects.length > 0 && <div className="project-context"><span className="project-context-icon"><FolderOpen size={16}/></span><label htmlFor="active-project">当前项目</label><select id="active-project" value={project?.id} onChange={e => go(page, e.target.value)}>{state.projects.map(p => <option key={p.id} value={p.id}>{p.brief.name}{p.sample ? '（示例）' : ''}</option>)}</select><span className="context-separator"/><span className="muted">{project?.brief.brand}</span></div>}
-          <PracticeCoach page={page}/><PageHelp page={page}/>{page === 'help' && <GuidePage/>}{page === 'dashboard' && <DashboardPage/>}{page === 'projects' && <ProjectsPage search={search}/>}{page === 'corpus' && <CorpusPage key={project?.id}/>} {page === 'trends' && <TrendsPage/>} {page === 'strategy' && <StrategyPage key={project?.id}/>}{page === 'studio' && <StudioPage key={project?.id}/>}{page === 'publish' && <PublishPage key={project?.id}/>}{page === 'comments' && <CommentsPage key={project?.id}/>}{page === 'planning' && <PlanningPage key={project?.id}/>}{page === 'settings' && <SettingsPage/>}
+          <PracticeCoach page={page}/><PageHelp page={page}/>{page === 'help' && <GuidePage/>}{page === 'dashboard' && <DashboardPage/>}{page === 'projects' && <ProjectsPage search={search}/>}{page === 'corpus' && <CorpusPage key={project?.id}/>} {page === 'trends' && <TrendsPage/>} {page === 'strategy' && <StrategyPage key={project?.id}/>}{page === 'studio' && <StudioPage key={project?.id}/>}{page === 'publish' && <PublishPage key={project?.id}/>}{page === 'comments' && <CommentsPage key={project?.id}/>}{page === 'analytics' && <AnalyticsPage key={project?.id}/>}{page === 'planning' && <PlanningPage key={project?.id}/>}{page === 'settings' && <SettingsPage/>}
           <footer className="main-footer"><Leaf size={13}/> 从一个想法，到持续生长的品牌。<span>生长 STUDIO</span></footer>
         </main>
       </div>

@@ -1,3 +1,5 @@
+import { validateSemanticRule } from './semantic-replacement.mjs';
+import { scanCopy, copyFields, applyFixed, actionOf } from './sensitive-checker.mjs';
 import { z } from 'zod';
 import { disableAutomaticPublishing } from './manual-publishing.mjs';
 
@@ -21,38 +23,35 @@ export function normalizeWorkflow(state) {
   for (const project of state.projects) project.corpus ??= [];
   return disableAutomaticPublishing(state);
 }
-const ruleSchema = z.object({ id: z.string().min(1).max(80), term: z.string().trim().min(1).max(60), replacement: z.string().trim().max(120), enabled: z.boolean() });
+const ruleSchema = z.object({ id: z.string().min(1).max(80), term: z.string().trim().min(1).max(60).regex(/^[^\r\n\u0000]+$/), replacement: z.string().trim().max(120).regex(/^[^\r\n\u0000]*$/), enabled: z.boolean(), action: z.enum(['replace', 'rewrite', 'allow', 'semantic']).default('replace'), risk: z.string().regex(/^[A-Za-z0-9_-]{1,20}$/).default('A') });
 export function saveRules(state, input) {
   const data = z.object({ rules: z.array(ruleSchema).max(500), expectedRevision: z.number().int().min(0) }).parse(input);
   if ((state.rulesRevision || 0) !== data.expectedRevision) fail('词库已在另一处更新，请刷新后重试', 409);
   const ids = new Set(), terms = new Set();
   for (const rule of data.rules) {
+    validateSemanticRule(rule);
     const term = rule.term.toLocaleLowerCase();
     if (ids.has(rule.id) || terms.has(term)) fail('请合并重复的词条'); ids.add(rule.id); terms.add(term);
-    if (rule.enabled && data.rules.some(r => r.enabled && rule.replacement.toLocaleLowerCase().includes(r.term.toLocaleLowerCase()))) fail(`“${rule.term}”的替换结果仍包含已启用词条，请修改以避免循环替换`);
+    if (rule.enabled && ['replace', 'semantic'].includes(actionOf(rule)) && scanCopy({ body: rule.replacement }, data.rules).length) fail(`“${rule.term}”的替换结果仍包含已启用词条，请修改以避免循环替换`);
   }
   state.contentRules = data.rules; state.rulesRevision = (state.rulesRevision || 0) + 1;
   return { rules: state.contentRules, revision: state.rulesRevision };
 }
-const escape = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 export function screenCopy(input, rules = defaultRules()) {
-  const selected = rules.filter(r => r.enabled).sort((a, b) => b.term.length - a.term.length);
-  const pattern = selected.length ? new RegExp(selected.map(r => escape(r.term)).join('|'), 'giu') : null;
-  const map = new Map(selected.map(r => [r.term.toLocaleLowerCase(), r]));
-  const hits = [], value = { ...input };
-  const replace = (text, field) => pattern ? String(text || '').replace(pattern, original => {
-    const rule = map.get(original.toLocaleLowerCase()) || selected.find(r => new RegExp(`^${escape(r.term)}$`, 'iu').test(original));
-    const hit = hits.find(h => h.ruleId === rule.id && h.field === field && h.original === original);
-    if (hit) hit.count++; else hits.push({ ruleId: rule.id, field, original, replacement: rule.replacement, count: 1 });
-    return rule.replacement;
-  }) : String(text || '');
+  const matches = scanCopy(input, rules), source = copyFields(input), value = { ...input }, hits = [];
   const limits = { title: 200, core: 2000, direction: 4000, body: 8000, prompt: 24000 };
-  for (const field of ['title', 'core', 'direction', 'body', 'prompt']) if (typeof input[field] === 'string') {
-    value[field] = replace(input[field], field);
-    if (value[field].length > Math.max(limits[field], input[field].length)) fail('替换后的文案过长，请缩短替换词或原文后重试');
+  for (const [field, text] of Object.entries(source)) {
+    const result = applyFixed(text, matches.filter(m => m.field === field));
+    if (result.length > Math.max(limits[field] || 24000, text.length)) fail('替换后的文案过长，请缩短替换词或原文后重试');
+    if (field.startsWith('分镜')) { value.scenes ||= [...input.scenes]; if (value.scenes === input.scenes) value.scenes = [...input.scenes]; value.scenes[Number(field.slice(2)) - 1] = result; }
+    else value[field] = result;
   }
-  if (Array.isArray(input.scenes)) value.scenes = input.scenes.map((s, i) => replace(s, `分镜${i + 1}`));
-  return { value, review: { at: now(), hits, checked: true, rulesCount: selected.length } };
+  for (const match of matches.filter(m => m.action === 'replace')) {
+    const hit = hits.find(h => h.ruleId === match.ruleId && h.field === match.field && h.original === match.original);
+    if (hit) hit.count++; else hits.push({ ruleId: match.ruleId, field: match.field, original: match.original, replacement: match.replacement, count: 1 });
+  }
+  const remaining = scanCopy(value, rules);
+  return { value, review: { at: now(), hits, checked: true, rulesCount: rules.filter(r => r.enabled).length, matches, remaining, source: matches.length ? source : {}, status: remaining.length ? 'needs-review' : 'clean' } };
 }
 export function reviewObject(object, rules) {
   const { value, review } = screenCopy(object, rules);

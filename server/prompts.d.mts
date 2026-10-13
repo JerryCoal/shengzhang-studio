@@ -4,7 +4,7 @@ export type PromptStage = 'strategy' | 'planning' | 'copy' | 'cover' | 'first_fr
 export const promptStages: Record<PromptStage, {title:string; input:string; output:string; rule:string}>;
 export const COVER_STYLES: Record<string, string>;
 export const COVER_LAYOUTS: Record<string, string>;
-export function textInstructions(stage: PromptStage): string;
+export function textInstructions(stage: PromptStage, payload?: { task?: { channel?: string }; copyReview?: unknown }): string;
 export function strategyPrompt(brief: Brief): string;
 export function taskPrompt(brief: Brief, strategy: Strategy, channel: string): string;
 export function mediaPrompt(project: Project, asset: Asset, input: {purpose: PromptStage; prompt?: string; query?: string; style?:string; layout?:string; textMode?:string}, rules?: ContentRule[]): WorkflowTrace & {prompt:string; promptVersion:string; retrievalQuery:string};

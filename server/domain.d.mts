@@ -16,5 +16,5 @@ export function updateAsset(project: Project, id: string, input: unknown, rules?
 export function schedulePublication(project: Project, accounts: State['accounts'], input: unknown): Publication;
 export function confirmPublication(project: Project, id: string, input: unknown): Publication;
 export function importComments(project: Project, input: unknown): { added: number; duplicates: number };
-export function analyzeComments(project: Project): Insight[];
+export function analyzeComments(project: Project, input?: unknown): Insight[];
 export function decideInsight(project: Project, id: string, input: unknown): Insight;

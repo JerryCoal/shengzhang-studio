@@ -1,3 +1,4 @@
+import { HighlightedCopy } from '../components/CopyCheckPanel';
 import { InputAssist } from '../components/InputAssist';
 import { useState } from 'react';
 import { BookOpen, FileText, Search, Upload, Trash2 } from 'lucide-react';
@@ -14,9 +15,10 @@ export function RetrievalResults({ results }: { results: CorpusReference[] }) {
 export function CopyReviewNote({ review }: { review?: CopyReview }) {
   if (!review) return null;
   const hits = review.hits.length ? review.hits : review.previousHits || [];
-  return <details className="copy-review"><summary>{hits.length ? `敏感词筛选完成 · ${hits.reduce((n, h) => n + h.count, 0)} 处替换记录` : `敏感词筛选完成 · 未命中 ${review.rulesCount} 条启用词条`}</summary><p>按当前词库进行文字匹配；替换后请检查语义和产品事实，不代表平台审核结果。</p>{hits.map((hit, i) => <div key={i}><b>{hit.original}</b> → <span>{hit.replacement || '删除该词'}</span><small>{hit.field} · {hit.count} 处</small></div>)}</details>;
+  const pending = review.remaining || [];
+  return <details className="copy-review"><summary>{pending.length ? '上次自检 · ' + pending.length + ' 处命中或语义候选' : hits.length ? '敏感词自检 · 有固定替换记录' : '上次检查未命中'}</summary><p>按词库匹配并复检，请核对语义。到“编辑与自检”处理当前文案；以下原文位置为本次检查快照。</p>{Object.entries(review.source || {}).map(([field, text]) => <div key={field}><b>{field === 'body' ? '正文' : field === 'title' ? '标题' : field}</b><HighlightedCopy text={text} matches={(review.matches || []).filter(m => m.field === field)}/></div>)}{hits.map((hit, i) => <div key={i}><b>{hit.original}</b> → <span>{hit.replacement || '删除该词'}</span><small>{hit.field} · {hit.count} 处</small></div>)}{pending.map((hit, i) => <p key={'pending-' + i}>待复核：{hit.original} · {hit.field} · {hit.action === 'semantic' ? '价格语义候选，需在编辑与自检中判断' : hit.action === 'rewrite' ? '需要上下文改写' : '替换后仍命中'} · {hit.risk}</p>)}</details>;
 }
-export function GenerationWorkflow() { return <div className="generation-workflow" aria-label="生成工作流程"><span>1 检索项目语料</span><span>2 生成策略与文案</span><span>3 筛选并替换敏感词</span><span>4 检查成品</span></div>; }
+export function GenerationWorkflow() { return <div className="generation-workflow" aria-label="生成工作流程"><span>1 检索项目语料</span><span>2 生成策略与文案</span><span>3 本地筛查与固定替换</span><span>4 复检，疑难词按需 AI 改写</span></div>; }
 
 export function CorpusPage() {
   const { project, mutate, run, busy, notify } = useStudio();

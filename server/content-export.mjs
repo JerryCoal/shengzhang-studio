@@ -20,6 +20,7 @@ export function exportDetails(content) {
   const stem = `${safeFilename(content.title)}-${label}-R${revision}`;
   const mediaName = `${stem}-${content.mime.startsWith('image/') ? '封面' : '视频'}.${extension}`;
   const warnings = [];
+  if (content.copyReview?.remaining?.length) warnings.push(`上次文案自检仍有 ${content.copyReview.remaining.length} 处待复核，请在“编辑与自检”中确认后再发布。`);
   if (extension === 'webm') warnings.push('当前视频是 WebM。若平台不接受，请用视频编辑器转为 MP4（建议 H.264 视频 / AAC 音频）；不要只修改文件后缀。');
   if (extension === 'webp') warnings.push('当前图片是 WebP。如平台不接受，可在导出面板选择 PNG 或 JPG。');
   if (Array.from(content.title || '').length > 20 && platform === 'xiaohongshu') warnings.push('标题较长，建议在平台填写前精简；具体字数限制以发布页面提示为准。原文会完整导出。');

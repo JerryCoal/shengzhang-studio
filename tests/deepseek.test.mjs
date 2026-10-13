@@ -44,7 +44,7 @@ test('all five text stages use DeepSeek with corpus retrieval, validation and se
     const body = JSON.parse(init.body), input = JSON.parse(body.messages[1].content); calls.push(body);
     assert.equal(body.response_format.type, 'json_object'); assert.equal(body.stream, false); assert.match(body.messages[0].content, /json/);
     if (input.task) return completion({ title: '必须替换测试词', body: '真实便携信息', prompt: '镜头说明', scenes: ['开场', '演示', '结尾'] });
-    if (input.comments && !input.brief) return completion({ comments: input.comments.map(c => ({ id: c.id, tags: ['使用疑问'], sentiment: 'neutral' })) });
+    if (input.comments && !input.brief) return completion({ comments: input.comments.map(c => ({ id: c.id, tags: ['使用疑问'], sentiment: 'neutral', reason: '评论提到使用问题', evidence: c.text, needsReview: false })) });
     if (input.comments) return completion({ insights: [{ category: '使用疑问', title: '补充介绍', observation: '评论提出疑问', recommendation: '补充事实说明', evidenceIds: [input.comments[0].id] }] });
     assert.ok(input.corpusReferences.some(r => r.text.includes('露营轻量杯')));
     return completion({ title: '必须替换测试词', core: '真实事实', direction: '露营使用场景', prompt: '拍摄真实产品' });

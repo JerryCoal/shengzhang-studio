@@ -1,0 +1,11 @@
+import type { Comment, Project } from '../src/types';
+export const COMMENT_WORKFLOW_VERSION: string;
+export const COMMENT_CATEGORIES: [string, ...string[]];
+export const CATEGORY_GUIDE: Record<string,string>;
+export function classifyComment(text: string): Pick<Comment,'tags'|'sentiment'|'classification'>;
+export function needsCommentReview(comment: Comment): boolean;
+export function selectCommentScope(project: Project, input?: unknown): Comment[];
+export function applyRuleClassification(project: Project, input?: unknown): { count:number; needsReview:number; version:string };
+export function correctComment(project:Project,id:string,input:unknown): Comment;
+export function commentSummary(comments:Comment[]): { total:number; valid:number; excluded:number; needsReview:number; reviewed:number; aiPending:number; topics:{name:string;count:number}[]; sentiment:{name:string;count:number}[] };
+export function commentReport(project:Project,comments:Comment[]): object;

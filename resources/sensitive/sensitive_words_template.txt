@@ -1,0 +1,13 @@
+# UTF-8；敏感词|处理方式|推荐替换|风险类型；可选第五列 enabled（true/false）
+# 示例仅供复核；删除、改写后需检查语法和产品事实
+最好|replace|更适合|A
+百分百|replace|尽可能|A
+第一|rewrite||A
+治愈|rewrite||M
+根治|rewrite||M
+官方认证|rewrite||Q
+加微信|rewrite||P
+[笑哭R]|allow||E
+❤️|allow||E
+# 语义替换示例，导入保存才启用；可按你的偏好改写替换词
+元|semantic|圆|PRICE

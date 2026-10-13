@@ -106,7 +106,7 @@ test('AI classification protects corrected comments; analysis validates evidence
   let invalid = false;
   const { req, p, store } = await fixture(t, { apiKey: secret, fetcher: async (_, init) => {
     const body = JSON.parse(init.body), payload = JSON.parse(body.input);
-    if (body.text.format.name.endsWith('classification')) { assert.equal(body.model, 'gpt-5.4-nano'); assert.equal(payload.comments.length, 9); return output({ comments: payload.comments.map(c => ({ id: c.id, tags: ['使用疑问'], sentiment: 'neutral' })) }); }
+    if (body.text.format.name.endsWith('classification')) { assert.equal(body.model, 'gpt-5.4-nano'); assert.equal(payload.comments.length, 9); return output({ comments: payload.comments.map(c => ({ id: c.id, tags: ['使用疑问'], sentiment: 'neutral', reason: '评论中提到使用相关问题', evidence: c.text, needsReview: false })) }); }
     assert.equal(body.model, 'gpt-5.4-mini'); return output({ insights: [{ category: '使用疑问', title: '需要说明', observation: '有用户询问使用方式', recommendation: '增加操作示范，观察后续反馈', evidenceIds: [invalid ? 'invented' : payload.comments[0].id] }] });
   } });
   await req(`/projects/${p.id}/comments/sample`, 'POST'); const c = store.get().projects[0].comments[0];

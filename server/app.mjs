@@ -1,3 +1,6 @@
+import { applyRuleClassification, correctComment } from './comment-analysis.mjs';
+import { saveMetricSnapshot } from './operating-data.mjs';
+import { updatePlatformDelivery } from './platform-delivery.mjs';
 import express from 'express';
 import { contentArchive } from './content-export.mjs';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
@@ -151,11 +154,16 @@ export function createApp(store, options = {}) {
   app.post('/api/projects/:id/publications/:publicationId/confirm', (req, res) => mutate(req, res, (p, state) => {
     const pub = domain.confirmPublication(p, req.params.publicationId, req.body); domain.activity(state, '作品发布结果已登记', `${pub.title} · 用户回填确认`, p.id); return pub;
   }));
+  app.post('/api/projects/:id/publications/:publicationId/delivery', (req,res)=>mutate(req,res,p=>{const result=updatePlatformDelivery(p,req.params.publicationId,req.body);domain.touch(p);return result;}));
   app.patch('/api/projects/:id/publications/:publicationId', (req, res) => mutate(req, res, p => {
     const pub = p.publications.find(r => r.id === req.params.publicationId); domain.assert(pub, '记录不存在', 404);
     domain.assert(!['published', 'cancelled'].includes(pub.status), '该记录不可修改');
-    const data = z.object({ status: z.enum(['exported', 'cancelled']) }).parse(req.body);
-    pub.status = data.status; domain.touch(p); return pub;
+    const data = z.object({ status: z.enum(['exported', 'cancelled']).optional(), scheduledAt: z.string().datetime({ offset: true }).optional(), expectedScheduledAt: z.string().optional() }).strict().parse(req.body);
+    domain.assert(data.status || data.scheduledAt, '请选择要修改的计划信息');
+    if (data.scheduledAt) domain.assert(data.expectedScheduledAt === pub.scheduledAt, '计划时间已在另一处修改，请刷新后重试', 409);
+    if (data.status) pub.status = data.status;
+    if (data.scheduledAt) pub.scheduledAt = data.scheduledAt;
+    domain.touch(p); return pub;
   }));
   app.post('/api/projects/:id/comments/import', (req, res) => mutate(req, res, (p, state) => {
     const result = domain.importComments(p, req.body); domain.activity(state, '评论已导入', `${result.added} 条新增，${result.duplicates} 条重复已跳过`, p.id); return result;
@@ -170,11 +178,9 @@ export function createApp(store, options = {}) {
     }
     return domain.importComments(p, { publicationId: pub.id, source: 'paste', text: '这个一包多大呀，可以放进随身小包吗？\n户外冲泡要带多少水？\n希望可以拍一个露营冲泡演示\n包装好喜欢，想知道怎么买\n一盒多少钱，有试喝装吗？\n可以展示一下实物大小吗\n上次喝了感觉不错，坚果风味喜欢\n价格有点贵，想了解和普通挂耳的区别\n希望拍一下实际装包的过程\n下雨天在家喝也很有氛围' });
   }));
-  app.patch('/api/projects/:id/comments/:commentId', (req, res) => mutate(req, res, p => {
-    const c = p.comments.find(c => c.id === req.params.commentId); domain.assert(c, '评论不存在', 404);
-    const data = z.object({ tags: z.array(z.enum(domain.categories)).min(1).optional(), sentiment: z.enum(['positive', 'neutral', 'negative']).optional(), irrelevant: z.boolean().optional() }).parse(req.body);
-    Object.assign(c, data, { correctedAt: domain.now() }); domain.touch(p); return c;
-  }));
+  app.post('/api/projects/:id/comments/classify-rules', (req, res) => mutate(req, res, p => { const result = applyRuleClassification(p, req.body); domain.touch(p); return result; }));
+  app.patch('/api/projects/:id/comments/:commentId', (req, res) => mutate(req, res, p => { const result = correctComment(p, req.params.commentId, req.body); domain.touch(p); return result; }));
+  app.post('/api/projects/:id/metrics', (req, res) => mutate(req, res, p => { const result = saveMetricSnapshot(p, req.body); domain.touch(p); return result; }));
   app.patch('/api/projects/:id/insights/:insightId', (req, res) => mutate(req, res, p => domain.decideInsight(p, req.params.insightId, req.body)));
   app.patch('/api/accounts/:accountId', (req, res) => {
     const data = z.object({ name: z.string().trim().min(1).max(100) }).parse(req.body);
