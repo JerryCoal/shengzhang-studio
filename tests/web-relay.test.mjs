@@ -21,6 +21,24 @@ async function fixture(t, fetcher, extra = {}) {
 }
 const envelope = (path, state = seedState(), credentials = { openai: 'sk-test-web-only-1234567890123456' }, body = {}) => ({ path, method: 'POST', body, state, credentials, routes: DEFAULT_ROUTES, authorizations: [] });
 
+test('web relay uses only supplied Qwen credentials and never exposes local MCP routes', async t => {
+  const key='sk-qwen-browser-test-only-123456789', calls=[];
+  const f=await fixture(t, async (url,init)=>{
+    calls.push(url); assert.equal(init.headers.Authorization,`Bearer ${key}`);
+    if(url.endsWith('/models'))return Response.json({data:[{id:'qwen-plus'},{id:'qwen-flash'}]});
+    assert.equal(JSON.parse(init.body).enable_thinking,false);
+    return Response.json({choices:[{finish_reason:'stop',message:{content:JSON.stringify({title:'语料策略',core:'依据真实资料',direction:'展示使用场景',prompt:'拍摄产品'})}}],usage:{prompt_tokens:100,completion_tokens:80}});
+  });
+  const check=await f.request(envelope('/settings/providers/qwen/credential/check',undefined,{qwen:key}));
+  assert.equal(check.value.status,200); assert(!JSON.stringify(check.value).includes(key));
+  const state=seedState(), input=envelope(`/projects/${state.projects[0].id}/strategies`,state,{qwen:key},{mode:'openai'});
+  input.routes={...DEFAULT_ROUTES,strategy:'qwen-plus'};
+  const generated=await f.request(input); assert.equal(generated.value.status,200); assert.equal(generated.value.state.projects[0].strategies.at(-1).source,'qwen');
+  assert(!JSON.stringify(generated.value).includes(key));
+  for(const path of ['/mcp/settings','/mcp/xiaohongshu/check',`/projects/${state.projects[0].id}/publications/test/mcp/publish`]) assert.equal((await f.request({...input,path})).status,404);
+  assert.equal(calls.length,2);
+});
+
 test('web relay returns Seedream frames to the browser without retaining or echoing its key', async t => {
   const key = 'seedream-browser-test-secret', calls = [];
   const f = await fixture(t, async (url, init) => { calls.push(url); assert.equal(init.headers.Authorization, `Bearer ${key}`); return Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }], usage: { generated_images: 1 } }); });

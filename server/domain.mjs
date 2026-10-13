@@ -152,7 +152,7 @@ export const categories = COMMENT_CATEGORIES;
 export const classify = classifyComment;
 const normalize = value => value.normalize('NFKC').replace(/\s+/g, '').toLowerCase();
 export function importComments(p, input) {
-  if (input?.source === 'browser-page') return importCapturedComments(p, input, { assert, id, now, classify, touch });
+  if (['browser-page', 'mcp'].includes(input?.source)) return importCapturedComments(p, input, { assert, id, now, classify, touch });
   const data = z.object({ publicationId: z.string(), text: z.string().trim().min(1).max(120000), source: z.enum(['paste', 'file']).default('paste') }).parse(input);
   const publication = p.publications.find(r => r.id === data.publicationId);
   assert(publication?.status === 'published', '请先登记作品的发布结果，再导入对应评论');

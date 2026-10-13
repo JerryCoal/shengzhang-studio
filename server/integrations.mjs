@@ -5,6 +5,7 @@ import { assert } from './domain.mjs';
 import { mountMediaGeneration, seedanceSettingsSchema, defaultSeedance } from './media-generation.mjs';
 import { mountDouyin } from './douyin.mjs';
 import { mountFeishuSync } from './feishu-sync.mjs';
+import { mountMCPPlatforms } from './mcp-platforms.mjs';
 import { z } from 'zod';
 import { defaultSeedream, seedreamSettingsSchema, seedreamConnectionSchema } from './seedream-config.mjs';
 
@@ -24,6 +25,7 @@ export function mountIntegrations(app, store, config, helpers) {
   const media = mountMediaGeneration(app, store, config, helpers, preferences);
   const douyin = mountDouyin(app, store, config, helpers);
   const feishu = mountFeishuSync(app, store, config, helpers);
+  const mcp = mountMCPPlatforms(app, store, config, helpers);
   const local = req => assert(canUseCredentials(req, config), '请从已解锁的工作区设置连接', 403);
   const publicStatus = async req => {
     const local = canUseCredentials(req, config), v = config.seedanceVault?.status();
@@ -59,6 +61,6 @@ export function mountIntegrations(app, store, config, helpers) {
   return {
     tick,
     start() { media.recover(); douyin.recover(); feishu.recover(); timer = setInterval(tick, 10000); timer.unref(); },
-    async close() { clearInterval(timer); douyin.close(); feishu.close(); await currentTick; await media.close(); },
+    async close() { clearInterval(timer); douyin.close(); feishu.close(); mcp.close(); await currentTick; await media.close(); },
   };
 }

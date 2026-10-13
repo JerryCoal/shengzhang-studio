@@ -1,0 +1,15 @@
+.mcp-settings { margin-bottom: 20px; }
+.mcp-settings h2 { display: flex; align-items: center; gap: 8px; }
+.mcp-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 18px; }
+.mcp-card { min-width: 0; padding: 22px; background: #fafbf8; border: 1px solid #e2e8de; border-radius: 16px; display: flex; flex-direction: column; gap: 15px; }
+.mcp-card .field { margin: 0; min-width: 0; }
+.mcp-card input,.mcp-card select { width: 100%; min-width: 0; }
+.mcp-card .checkbox-row input { width: auto; }
+.mcp-card p { margin: 0; overflow-wrap: anywhere; }
+.mcp-card li { margin: 9px 0; line-height: 1.7; }
+.mcp-card ol { padding-left: 20px; }
+.mcp-qr { width: 220px; max-width: 100%; align-self: center; border: 10px solid #fff; border-radius: 12px; }
+.mcp-capabilities { display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px; }
+.mcp-capabilities span { border-radius: 8px; background: #eee; padding: 5px 9px; color: #687568; }
+.mcp-capabilities .available { background: #edf3e5; color: #405f27; }
+@media(max-width:1050px) { .mcp-grid { grid-template-columns: 1fr; } .mcp-card { padding: 16px; } }

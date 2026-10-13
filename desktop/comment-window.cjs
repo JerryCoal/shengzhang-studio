@@ -21,7 +21,7 @@ function createCommentCollector({ BrowserWindow, WebContentsView, session, Menu,
     if (!active || event.sender !== active.child.webContents || event.senderFrame !== active.child.webContents.mainFrame || event.senderFrame.url !== toolbarURL) throw Error('请从评论采集面板操作');
     return active.command(payload?.action, payload?.options);
   });
-  async function open(value, {sharedSession} = {}) {
+  async function open(value, {sharedSession,automatic=false} = {}) {
     cancel(); const ticket = generation;
     const { commentSource, sameCommentWork } = await import('./comment-source.mjs');
     const expected = commentSource(typeof value === 'string' ? value : value?.url);
@@ -41,14 +41,14 @@ function createCommentCollector({ BrowserWindow, WebContentsView, session, Menu,
       let buffer = createCommentBuffer(captureOptions(value)), source = null, mode = 'page';
       let done = false, running = false, busy = false, rounds = 0, runRounds = 0, stable = 0, runId = 0, nextTimer, closingPrompt = false, lastAction = '';
       let reason = '', message = '在下方官方页面登录、打开评论区，再点击“开始自动采集”。';
-      let networkCount = 0;
+      let networkCount = 0, autoTimer;
       const network = watchCommentResponses(page, actualWork);
       const snapshot = () => ({ ...buffer.stats(), hasMetrics:!!network.metrics(), platform, running, busy, rounds, networkCount, structured:network.available(), locked: buffer.stats().count > 0, reason, message });
       const publish = () => { if(!done && !child.webContents.isDestroyed()) { child.webContents.send('studio:comment-progress', snapshot()); child.setTitle(`${label}评论采集 · ${buffer.stats().count} 条 · 生长`); } };
       const pause = (text, why='paused') => { running=false; runId++; clearTimeout(nextTimer); reason=why; message=text; publish(); };
       const result = () => ({ rows:buffer.rows(), metrics:network.metrics(), sourceUrl:source?.canonical || (network.metrics()?actualWork().canonical:undefined), platform, mode, includeReplies:buffer.stats().includeReplies, limited:true, skipped:buffer.stats().skipped, rounds, networkCount, stopReason:reason, notice:message });
       const finish = value => {
-        if(done)return;done=true;running=false;runId++;clearTimeout(nextTimer);clearTimeout(expiry);
+        if(done)return;done=true;running=false;runId++;clearTimeout(nextTimer);clearTimeout(expiry);clearTimeout(autoTimer);
         network.close();
         isolated.webRequest.onBeforeRequest(null);isolated.removeListener('will-download',blockDownload);
         if(!page.isDestroyed()) page.close();
@@ -108,7 +108,7 @@ function createCommentCollector({ BrowserWindow, WebContentsView, session, Menu,
           message=`本轮新增 ${added} 条；${action.action==='expand'?'正在展开回复':'正在滚动评论区并等待加载'}。`;
           nextTimer=setTimeout(()=>void tick(token),intervalMs);
         } catch(e) { if(!done&&token===runId)pause(e.message||'页面读取失败，已保留当前结果。','error'); }
-        finally { busy=false;publish(); }
+        finally { busy=false;publish();if(automatic&&!running&&['limit','no-new','round-limit','page-end'].includes(reason))finish(result()); }
       }
       async function command(action, options) {
         if(done)return null;
@@ -139,6 +139,7 @@ function createCommentCollector({ BrowserWindow, WebContentsView, session, Menu,
         if(action==='detail') {try {const actual=actualWork();if(platform==='douyin'&&actual.canonical)await page.loadURL(actual.canonical);}catch{message='请先打开正确的作品链接';publish();}return snapshot();}
         throw Error('未知采集操作');
       }
+      page.on('did-finish-load',()=>{if(automatic&&!done&&!running){clearTimeout(autoTimer);autoTimer=setTimeout(()=>void command('start'),2000);}});
       current={child,finish,command};
       child.setMenu(Menu.buildFromTemplate([{label:'评论采集',submenu:[{label:'开始 / 继续自动采集',click:()=>void command('start')},{label:'暂停采集',click:()=>void command('pause')},{label:'返回预览',click:()=>void command('finish')},{type:'separator'},{label:'打开独立作品页（抖音）',enabled:platform==='douyin',click:()=>void command('detail')},{label:'取消并关闭',click:()=>finish({cancelled:true})}]}]));
       child.webContents.setWindowOpenHandler(()=>({action:'deny'}));

@@ -12,6 +12,7 @@ import { mountAIRoutes } from './ai-routes.mjs';
 import { mountTrendRoutes } from './trend-routes.mjs';
 import { createOpenAITransport } from './openai-errors.mjs';
 import { createDeepSeekTransport } from './deepseek.mjs';
+import { createQwenTransport } from './qwen.mjs';
 import { mountIntegrations } from './integrations.mjs';
 import { consumeEditorDraft, rulesOf, saveRules, importCorpus, changeCorpus, searchCorpus, saveEditorDraft, reviewObject } from './workflow.mjs';
 
@@ -20,7 +21,9 @@ export function createApp(store, options = {}) {
   const config = { apiKey: '', password: '', secret: randomBytes(32).toString('hex'), allowedOrigins: [], ...options };
   const openaiTransport = createOpenAITransport(config.fetcher);
   const deepseekTransport = createDeepSeekTransport(openaiTransport.fetch);
-  config.fetcher = deepseekTransport.fetch;
+  const qwenTransport = createQwenTransport(deepseekTransport.fetch);
+  config.fetcher = qwenTransport.fetch;
+  config.qwenTransport = app.locals.qwenTransport = qwenTransport;
   config.deepseekTransport = app.locals.deepseekTransport = deepseekTransport;
   config.openaiTransport = app.locals.openaiTransport = openaiTransport;
   const sessionHash = value => createHmac('sha256', config.secret).update(value).digest('hex');

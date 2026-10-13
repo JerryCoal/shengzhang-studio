@@ -19,6 +19,7 @@ async function fixture(t, { realVault = false, waitForAI } = {}) {
   async function start() {
     app = createProfileApp({ dataDirectory: directory, staticDirectory: resolve('dist'), vaultSupported: true, transform: realVault ? undefined : async (_, value) => Buffer.from(value), workspaceOptions: { fetcher: async (url, init) => {
       requests.push({ url, key: init.headers.Authorization || init.headers.authorization });
+      if (url === 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions') return Response.json({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ title: 'Qwen profile result', core: 'Facts only', direction: 'New plan', prompt: 'Use verified facts' }) } }], usage: { prompt_tokens: 100, completion_tokens: 100 } });
       if (url === 'https://api.deepseek.com/chat/completions') return Response.json({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ title: 'DeepSeek profile result', core: 'Facts only', direction: 'New plan', prompt: 'Use verified facts' }) } }], usage: { prompt_tokens: 100, completion_tokens: 100 } });
       if (url.endsWith('/models')) return Response.json({ data: [{ id: 'gpt-5.4' }] });
       if (waitForAI) await waitForAI();
@@ -37,6 +38,30 @@ async function fixture(t, { realVault = false, waitForAI } = {}) {
   return { request, hostProbe, directory, requests, restart: async () => { await stop(); await start(); }, download: path => fetch(base + path) };
 }
 const credentials = username => ({ username, password });
+
+test('Qwen and MCP credentials are encrypted per profile, excluded from backups, and survive restart', async t => {
+  const f = await fixture(t), qwenKey = 'sk-qwen-local-test-only-987654321', mcpKey = 'mcp-local-test-only-12345';
+  let a = (await f.request('/profiles/register', 'POST', credentials('mcp-a'))).data;
+  const b = (await f.request('/profiles/register', 'POST', credentials('mcp-b'))).data;
+  assert.equal((await f.request('/settings/providers/qwen/credential', 'PUT', { apiKey: qwenKey }, a.token)).status, 200);
+  assert.equal((await f.request('/mcp/xiaohongshu', 'PUT', { mode:'external', endpoint:'http://127.0.0.1:18060/mcp', apiKey:mcpKey }, a.token)).status, 200);
+  const settings = (await f.request('/settings', 'GET', undefined, a.token)).data;
+  await f.request('/settings/models', 'PUT', { ...settings.routes, strategy:'qwen-plus' }, a.token);
+  assert.equal((await f.request('/settings', 'GET', undefined, b.token)).data.providers.qwen.configured, false);
+  assert.equal((await f.request('/mcp/settings', 'GET', undefined, b.token)).data.platforms[0].mode, 'builtin');
+  for (const file of readdirSync(f.directory, { recursive:true }).filter(name => name.endsWith('.json'))) {
+    const raw = readFileSync(join(f.directory,file),'utf8'); assert(!raw.includes(qwenKey)); assert(!raw.includes(mcpKey));
+  }
+  await f.restart(); a = (await f.request('/profiles/login', 'POST', credentials('mcp-a'))).data;
+  const restored = (await f.request('/mcp/settings', 'GET', undefined, a.token)).data;
+  assert.equal(restored.platforms[0].tokenConfigured, true); assert.equal(restored.platforms[0].endpoint, 'http://127.0.0.1:18060/mcp');
+  const p = (await f.request('/state', 'GET', undefined, a.token)).data.projects[0];
+  const result = await f.request(`/projects/${p.id}/strategies`, 'POST', { mode:'openai' }, a.token);
+  assert.equal(result.status,200); assert.equal(result.data.result.source,'qwen'); assert.equal(f.requests.at(-1).key,`Bearer ${qwenKey}`);
+  for (const path of ['/settings','/state','/backup','/mcp/settings']) {
+    const raw = JSON.stringify((await f.request(path,'GET',undefined,a.token)).data); assert(!raw.includes(qwenKey)); assert(!raw.includes(mcpKey));
+  }
+});
 
 test('guide state is persisted across desktop restart and isolated by profile', async t => {
   const f = await fixture(t);

@@ -6,6 +6,7 @@ import { rulesOf, corpusQuery, searchCorpus, screenCopy } from './workflow.mjs';
 import * as d from './domain.mjs';
 import { MODELS, STAGES, createModelStore, stageConfig } from './models.mjs';
 import { estimateReservation, generateStage, tokenCost, verifyModels } from './ai.mjs';
+import { verifyQwen } from './qwen.mjs';
 import { verifyDeepSeek } from './deepseek.mjs';
 
 const loopback = address => ['127.0.0.1', '::1', '::ffff:127.0.0.1', 'localhost', '[::1]'].includes(address);
@@ -22,19 +23,21 @@ export function mountAIRoutes(app, store, config, { project, mutate, activeJobs 
   const requireLocal = req => d.assert(canUseCredentials(req, config), '请从已解锁的工作区使用自己的 API 密钥', 403);
   const models = config.modelStore || createModelStore();
   const vault = config.vault;
-  let verification = null, deepseekVerification = null, settingsBusy = false;
+  let verification = null, deepseekVerification = null, qwenVerification = null, settingsBusy = false;
   const vaultStatus = () => vault?.status() || { supported: false, configured: false, suffix: '', protection: '', problem: '' };
-  const getKey = async (req, provider = 'openai') => { requireLocal(req); const selected = provider === 'deepseek' ? config.deepseekVault : vault; const status = selected?.status() || {}; d.assert(!status.problem, status.problem, 503); const key = status.configured ? await selected.getKey() : provider === 'openai' ? config.apiKey : ''; d.assert(key, `请先在设置页保存 ${provider === 'deepseek' ? 'DeepSeek' : 'OpenAI'} API 密钥`); return key; };
+  const getKey = async (req, provider = 'openai') => { requireLocal(req); const selected = provider === 'qwen' ? config.qwenVault : provider === 'deepseek' ? config.deepseekVault : vault; const status = selected?.status() || {}; d.assert(!status.problem, status.problem, 503); const key = status.configured ? await selected.getKey() : provider === 'openai' ? config.apiKey : ''; d.assert(key, `请先在设置页保存 ${provider === 'qwen' ? 'Qwen' : provider === 'deepseek' ? 'DeepSeek' : 'OpenAI'} API 密钥`); return key; };
   const settings = req => {
     const v = vaultStatus(), local = canUseCredentials(req, config), routes = models.get(), strategy = stageConfig('strategy', routes);
     const credential = { ...v, configured: v.configured || !!config.apiKey, suffix: local ? v.suffix : '', local, editable: local && v.supported, source: v.configured ? 'vault' : config.apiKey ? 'environment' : 'none' };
     const ds = config.deepseekVault?.status() || { supported: false, configured: false, suffix: '', problem: '', protection: '' };
     const dsCredential = { ...ds, suffix: local ? ds.suffix : '', local, editable: local && ds.supported, source: ds.configured ? 'vault' : 'none' };
     const providers = { openai: { configured: local && credential.configured && !v.problem, credential, verification: local ? verification : null, apiDiagnostic: local ? config.openaiTransport?.diagnostic() : null }, deepseek: { configured: local && ds.configured && !ds.problem, credential: dsCredential, verification: local ? deepseekVerification : null, apiDiagnostic: local ? config.deepseekTransport?.diagnostic() : null } };
+    const q = config.qwenVault?.status() || { supported: false, configured: false, suffix: '', problem: '', protection: '' };
+    providers.qwen = { configured: local && q.configured && !q.problem, credential: { ...q, suffix: local ? q.suffix : '', local, editable: local && q.supported, source: q.configured ? 'vault' : 'none' }, verification: local ? qwenVerification : null, apiDiagnostic: local ? config.qwenTransport?.diagnostic() : null };
     return { model: strategy.model, openaiConfigured: local && (v.configured || !!config.apiKey) && !v.problem, authEnabled: !!config.password || !!config.profileMode, inputPrice: strategy.inputPrice, outputPrice: strategy.outputPrice,
-      version: '1.6.0', profileMode: !!config.profileMode, routes, models: MODELS, stages: STAGES, priceDate: '2026-09-14', verification: local ? verification : null, apiDiagnostic: local ? config.openaiTransport?.diagnostic() : null,
+      version: '1.7.0', profileMode: !!config.profileMode, routes, models: MODELS, stages: STAGES, priceDate: '2026-09-14', verification: local ? verification : null, apiDiagnostic: local ? config.openaiTransport?.diagnostic() : null,
       credential, providers,
-      capabilities: { image: 'gpt-image-2-or-seedream-keyframes', video: 'seedance-and-local', publishing: 'manual-only', comments: 'douyin-api-and-import', ai: ['strategy', 'planning', 'copy', 'classification', 'analysis'] } };
+      capabilities: { image: 'gpt-image-2-or-seedream-keyframes', video: 'seedance-and-local', publishing: 'confirmed-mcp-and-manual', comments: 'mcp-page-douyin-api-and-import', ai: ['strategy', 'planning', 'copy', 'classification', 'analysis'] } };
   };
   const changeSettings = async (req, res, work) => {
     requireLocal(req); d.assert(!settingsBusy && activeJobs.size === 0, '模型任务或设置操作正在进行，请完成后再修改配置', 409);
@@ -67,6 +70,13 @@ export function mountAIRoutes(app, store, config, { project, mutate, activeJobs 
   app.post('/api/settings/providers/deepseek/credential/check', (req, res) => changeSettings(req, res, async () => {
     deepseekVerification = null; deepseekVerification = await verifyDeepSeek(await getKey(req, 'deepseek'), config.fetcher);
   }));
+  app.put('/api/settings/providers/qwen/credential', (req, res) => changeSettings(req, res, async () => {
+    d.assert(config.qwenVault?.status().supported, '此平台尚未提供安全保险箱');
+    const { apiKey } = z.object({ apiKey: z.string().trim().regex(/^sk-[A-Za-z0-9_-]{16,509}$/, '请填写有效的百炼北京地域 API Key') }).strict().parse(req.body);
+    await config.qwenVault.save(apiKey); qwenVerification = null; config.qwenTransport?.reset();
+  }));
+  app.delete('/api/settings/providers/qwen/credential', (req, res) => changeSettings(req, res, async () => { d.assert(config.qwenVault, '没有 Qwen 保险箱'); config.qwenVault.remove(); qwenVerification = null; config.qwenTransport?.reset(); }));
+  app.post('/api/settings/providers/qwen/credential/check', (req, res) => changeSettings(req, res, async () => { qwenVerification = null; qwenVerification = await verifyQwen(await getKey(req, 'qwen'), config.fetcher); }));
   app.put('/api/settings/models', (req, res) => changeSettings(req, res, async () => { models.save(req.body); verification = null; }));
 
   async function execute(req, res, stage, prepare, commit) {

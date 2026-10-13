@@ -18,9 +18,9 @@ const pendingMessage = '有一项联网请求尚未确认。请核对服务商�
 function settingsOf(state: State): Settings {
   const saved = privateOf(state), model = saved.routes.strategy;
   const credential = (provider: TextProvider): Settings['credential'] => ({ supported: true, editable: true, local: true, configured: !!saved.credentials[provider], suffix: saved.credentials[provider]?.slice(-4) || '', source: saved.credentials[provider] ? 'vault' : 'none', protection: '浏览器 · 登录密码 AES-GCM 加密', problem: '' });
-  return { ...catalog, routes: saved.routes, model, ...catalog.models[model as keyof typeof catalog.models], authEnabled: true, version: '1.6.0 · 联网网页版', browserStorage: true,
+  return { ...catalog, routes: saved.routes, model, ...catalog.models[model as keyof typeof catalog.models], authEnabled: true, version: '1.7.0 · 联网网页版', browserStorage: true,
     openaiConfigured: !!saved.credentials.openai, verification: saved.verification, apiDiagnostic: saved.apiDiagnostic,
-    providers: { openai: { configured: !!saved.credentials.openai, credential: credential('openai'), verification: saved.verification, apiDiagnostic: saved.apiDiagnostic }, deepseek: { configured: !!saved.credentials.deepseek, credential: credential('deepseek'), verification: saved.deepseekVerification || null, apiDiagnostic: saved.deepseekDiagnostic } },
+    providers: { qwen: { configured: !!saved.credentials.qwen, credential: credential('qwen'), verification: saved.qwenVerification || null, apiDiagnostic: saved.qwenDiagnostic }, openai: { configured: !!saved.credentials.openai, credential: credential('openai'), verification: saved.verification, apiDiagnostic: saved.apiDiagnostic }, deepseek: { configured: !!saved.credentials.deepseek, credential: credential('deepseek'), verification: saved.deepseekVerification || null, apiDiagnostic: saved.deepseekDiagnostic } },
     pendingWebRequest: saved.pending, recoveredWebResults: saved.recovery?.length || 0,
     credential: { supported: true, editable: true, local: true, configured: !!saved.credentials.openai, suffix: saved.credentials.openai?.slice(-4) || '', source: saved.credentials.openai ? 'vault' : 'none', protection: '浏览器 · 登录密码 AES-GCM 加密', problem: '' },
   } as Settings;
@@ -53,6 +53,7 @@ function requestProvider(saved: WebPrivate, path: string, body: unknown): TextPr
   if (path.endsWith('/cover')) return 'seedream';
   if (path.endsWith('/keyframes')) return (body as { provider?: ImageProvider })?.provider || saved.imageProvider || 'openai';
   if (path === '/settings/credential/check') return 'openai';
+  if (path === '/settings/providers/qwen/credential/check') return 'qwen';
   if (path === '/settings/providers/deepseek/credential/check') return 'deepseek';
   const model = textModel(saved, path, body);
   return model ? catalog.models[model as keyof typeof catalog.models]?.provider as TextProvider || 'openai' : undefined;
@@ -63,8 +64,8 @@ async function relay(path: string, method: string, body: unknown, projectId?: st
     const started = await changeLocalState(state => {
       state.webPrivate ||= defaults();
       if (state.webPrivate.pending) throw new Error(pendingMessage);
-      const provider = requestProvider(state.webPrivate, path, body), limited = provider === 'deepseek' ? state.webPrivate.deepseekDiagnostic : provider === 'openai' ? state.webPrivate.apiDiagnostic : null;
-      if (limited?.kind === 'rate_limit' && limited.model === textModel(state.webPrivate, path, body) && limited.retryAt && Date.parse(limited.retryAt) > Date.now()) throw new Error(`${providerLabel(provider === 'deepseek' ? 'deepseek' : 'openai')} 仍在限流等待期，请 ${Math.ceil((Date.parse(limited.retryAt) - Date.now()) / 1000)} 秒后再试。本次未发送新请求。`);
+      const provider = requestProvider(state.webPrivate, path, body), limited = provider === 'qwen' ? state.webPrivate.qwenDiagnostic : provider === 'deepseek' ? state.webPrivate.deepseekDiagnostic : provider === 'openai' ? state.webPrivate.apiDiagnostic : null;
+      if (limited?.kind === 'rate_limit' && limited.model === textModel(state.webPrivate, path, body) && limited.retryAt && Date.parse(limited.retryAt) > Date.now()) throw new Error(`${providerLabel(provider === 'qwen' ? 'qwen' : provider === 'deepseek' ? 'deepseek' : 'openai')} 仍在限流等待期，请 ${Math.ceil((Date.parse(limited.retryAt) - Date.now()) / 1000)} 秒后再试。本次未发送新请求。`);
       const pending = { id: crypto.randomUUID(), path, projectId, at: new Date().toISOString() };
       state.webPrivate.pending = pending; return pending;
     });
@@ -75,6 +76,7 @@ async function relay(path: string, method: string, body: unknown, projectId?: st
     const seedance = /\/(seedance|video-status|generation-reset|tick)$/.test(path);
     const douyin = path.includes('/douyin/') || path.includes('/publications/') || path === '/tick';
     if (openai && saved.credentials.openai) credentials.openai = saved.credentials.openai;
+    if (provider === 'qwen' && saved.credentials.qwen) credentials.qwen = saved.credentials.qwen;
     if (deepseek && saved.credentials.deepseek) credentials.deepseek = saved.credentials.deepseek;
     if (provider === 'seedream' && saved.credentials.seedream) credentials.seedream = saved.credentials.seedream;
     if (seedance && saved.credentials.seedance) credentials.seedance = saved.credentials.seedance;
@@ -114,6 +116,8 @@ async function relay(path: string, method: string, body: unknown, projectId?: st
       if (douyin) current.authorizations = response.authorizations || [];
       if (path === '/settings/credential/check') current.verification = response.response.verification || null;
       if (openai) current.apiDiagnostic = response.apiDiagnostic || (path === '/settings/credential/check' && current.apiDiagnostic?.endpoint !== 'models' ? current.apiDiagnostic : null);
+      if (provider === 'qwen') current.qwenDiagnostic = response.qwenDiagnostic || null;
+      if (path === '/settings/providers/qwen/credential/check') current.qwenVerification = response.response.providers?.qwen?.verification || null;
       if (deepseek) current.deepseekDiagnostic = response.deepseekDiagnostic || (path.endsWith('/credential/check') && current.deepseekDiagnostic?.endpoint !== 'models' ? current.deepseekDiagnostic : null);
       if (path === '/settings/providers/deepseek/credential/check') current.deepseekVerification = response.response.providers?.deepseek?.verification || null;
       delete current.pending;
@@ -151,6 +155,10 @@ export async function webAPI<T>(path: string, method = 'GET', body?: unknown): P
   if (path === '/settings/models' && method === 'PUT') {
     const schema = z.object(Object.fromEntries(catalog.stages.map(s => [s.id, z.enum(Object.keys(catalog.models) as [string, ...string[]])]))).strict();
     await saveConnection(saved => { saved.routes = schema.parse(body) as WebPrivate['routes']; saved.verification = null; }); return settingsOf(await readLocalState()) as T;
+  }
+  if (path === '/settings/providers/qwen/credential' && ['PUT', 'DELETE'].includes(method)) {
+    await saveConnection(saved => { if (method === 'DELETE') delete saved.credentials.qwen; else saved.credentials.qwen = z.object({ apiKey: z.string().trim().regex(/^sk-[A-Za-z0-9_-]{16,509}$/) }).strict().parse(body).apiKey; saved.qwenVerification = null; saved.qwenDiagnostic = null; });
+    return settingsOf(await readLocalState()) as T;
   }
   if (path === '/settings/providers/deepseek/credential' && ['PUT', 'DELETE'].includes(method)) {
     await saveConnection(saved => { if (method === 'DELETE') delete saved.credentials.deepseek; else saved.credentials.deepseek = z.object({ apiKey: z.string().trim().regex(/^sk-[A-Za-z0-9_-]{16,509}$/) }).strict().parse(body).apiKey; saved.deepseekVerification = null; saved.deepseekDiagnostic = null; });
@@ -197,7 +205,7 @@ export async function webAPI<T>(path: string, method = 'GET', body?: unknown): P
     }
     const state = await readLocalState(); return { version: state.projects.map(p => `${p.id}:${p.revision}`).join('|') } as T;
   }
-  const online = path === '/settings/credential/check' || path === '/settings/providers/deepseek/credential/check' || path.startsWith('/integrations/douyin/') || /^\/projects\/[^/]+\/(assets\/[^/]+\/(copy|cover|cover-apply|cover-reset|keyframes|seedance|video-status|generation-reset)|publications\/[^/]+\/(platform-status|platform-item|comments-sync)|comments\/classify)$/.test(path) || (body as { mode?: string })?.mode === 'openai';
+  const online = path === '/settings/providers/qwen/credential/check' || path === '/settings/credential/check' || path === '/settings/providers/deepseek/credential/check' || path.startsWith('/integrations/douyin/') || /^\/projects\/[^/]+\/(assets\/[^/]+\/(copy|cover|cover-apply|cover-reset|keyframes|seedance|video-status|generation-reset)|publications\/[^/]+\/(platform-status|platform-item|comments-sync)|comments\/classify)$/.test(path) || (body as { mode?: string })?.mode === 'openai';
   if (online) return await relay(path, method, body, path.startsWith('/projects/') ? path.split('/')[2] : undefined) as T;
   const result = await localAPI<unknown>(path, method, body);
   if (result && typeof result === 'object') {

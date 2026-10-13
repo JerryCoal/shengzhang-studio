@@ -1,4 +1,8 @@
 const { app, BrowserWindow, WebContentsView, Menu, Tray, nativeImage, shell, dialog, ipcMain, session, clipboard } = require('electron');
+const { startDesktopMCP } = require('./mcp-server.cjs');
+const { randomBytes } = require('node:crypto');
+const mcpSecret = randomBytes(32).toString('base64url');
+let mcpServer;
 const { createCreatorController } = require('./creator-window.cjs');
 const { createDouyinAuthController } = require('./douyin-auth.cjs');
 const { createCommentCollector } = require('./comment-collector.cjs');
@@ -29,19 +33,18 @@ ipcMain.handle('studio:douyin-authorize', async (event, url) => {
   try { return await douyinAuth.open(url); } catch { return { error: '无法打开抖音授权窗口，请重新准备授权或使用官方链接。' }; }
 });
 ipcMain.handle('studio:douyin-cancel', event => { if (trustedRenderer(event)) douyinAuth.cancel(); });
-ipcMain.handle('studio:comments-open', async (event, url) => {
-  if (!trustedRenderer(event)) throw new Error('请从工作台开始评论采集');
+async function openComments(url, automatic = false) {
   try {
     commentCollector.cancel();creator.cancel();
     const {commentSource}=await import('./comment-source.mjs');
     const platform=commentSource(typeof url==='string'?url:url?.url).platform;
     const sharedSession=await platformSessions.acquire(platform,url?.sessionToken);
-    return await commentCollector.open(url,{sharedSession});
+    return await commentCollector.open(url,{sharedSession,automatic});
   } catch(e) { return { error:e.message || '无法打开作品，请检查链接后重试。' }; }
-});
+}
+ipcMain.handle('studio:comments-open', (event,url)=>{if(!trustedRenderer(event))throw Error('请从工作台开始评论采集');return openComments(url);});
 ipcMain.handle('studio:comments-cancel', event => { if (trustedRenderer(event)) commentCollector.cancel(); });
-ipcMain.handle('studio:creator-open', async (event, draft) => {
-  if (!trustedRenderer(event)) throw Error('请从工作台打开发布助手');
+async function openCreator(draft, automatic = false) {
   try {
     commentCollector.cancel();creator.cancel();
     const sharedSession=await platformSessions.acquire(draft?.platform,draft?.sessionToken);
@@ -50,9 +53,10 @@ ipcMain.handle('studio:creator-open', async (event, draft) => {
       const response=await fetch(`${website}/api/projects/${encodeURIComponent(draft.projectId)}/publications/${encodeURIComponent(draft.publicationId)}/delivery`,{method:'POST',headers:{'Content-Type':'application/json','X-Studio-Client':'studio-v1',Authorization:'Bearer '+draft.sessionToken},body:JSON.stringify({...body,...(body.action==='start'?{platform:draft.platform}:{})}),signal:AbortSignal.timeout(10000)});
       if(!response.ok){const error=await response.json().catch(()=>({}));throw Error(error.error||'发布记录未能保存，已停止提交');}
     }:null;
-    return await creator.open(draft,{sharedSession,saveDelivery});
+    return await creator.open(draft,{sharedSession,saveDelivery,automatic});
   } catch(e) { return { error:e.message || '无法打开发布助手' }; }
-});
+}
+ipcMain.handle('studio:creator-open',(event,draft)=>{if(!trustedRenderer(event))throw Error('请从工作台打开发布助手');return openCreator(draft);});
 ipcMain.handle('studio:creator-cancel', event => { if (trustedRenderer(event)) creator.cancel(); });
 ipcMain.handle('studio:platform-lock', async event => {if (!trustedRenderer(event)) return;commentCollector.cancel();creator.cancel();await platformSessions.clear();});
 function safeExternal(url) { try { const target = new URL(url); if (['https:', 'http:'].includes(target.protocol) && !target.username && !target.password) void shell.openExternal(target.href); } catch {} }
@@ -71,7 +75,7 @@ async function proxyEnvironment() {
 async function startBackend() {
   const env = await proxyEnvironment();
   proxyEnabled = !!(env.HTTPS_PROXY || env.HTTP_PROXY);
-  backend = fork(join(__dirname, 'backend.cjs'), [], { execPath: join(process.resourcesPath, 'runtime', 'node.exe'), execArgv: ['--use-env-proxy'], cwd: __dirname, env: { ...env, PORT: '0', STUDIO_DATA_DIR: join(dataRoot, 'data'), STUDIO_STATIC_DIR: join(__dirname, 'dist') }, windowsHide: true, silent: true });
+  backend = fork(join(__dirname, 'backend.cjs'), [], { execPath: join(process.resourcesPath, 'runtime', 'node.exe'), execArgv: ['--use-env-proxy'], cwd: __dirname, env: { ...env, STUDIO_MCP_ENDPOINT: mcpServer.endpoint, STUDIO_MCP_SECRET: mcpSecret, PORT: '0', STUDIO_DATA_DIR: join(dataRoot, 'data'), STUDIO_STATIC_DIR: join(__dirname, 'dist') }, windowsHide: true, silent: true });
   backend.stdout.resume();
   backend.stderr.on('data', () => { /* Never persist request bodies or credentials in diagnostics. */ });
   backend.on('exit', code => { if (!quitting) { report({ status: 'backend-stopped', code }); if (!smoke) void dialog.showMessageBox({ type: 'error', message: '本地服务已停止', detail: '请退出并重新打开应用。项目数据仍保存在这台电脑。' }); app.quit(); } });
@@ -88,6 +92,15 @@ else {
   app.on('second-instance', showWindow);
   app.whenReady().then(async () => {
     try {
+      mcpServer = await startDesktopMCP({ token: mcpSecret, execute: async (name, args) => {
+        if (!args || typeof args.sessionToken !== 'string' || !args.sessionToken) throw Error('请登录工作区');
+        // Recheck profile identity immediately before each browser action.
+        const response = await fetch(website + '/api/profiles/session', {headers:{'X-Studio-Client':'studio-v1',Authorization:'Bearer '+args.sessionToken},signal:AbortSignal.timeout(8000)});
+        if (!response.ok) throw Error('工作区登录已失效');
+        if (name === 'studio_publish') return openCreator(args, true);
+        if (name === 'studio_comments') return openComments(args, true);
+        throw Error('未知工具');
+      }});
       website = await startBackend();
       const icon = nativeImage.createFromPath(join(__dirname, 'dist', 'icon-192.png'));
       window = new BrowserWindow({ width: 1440, height: 940, minWidth: 760, minHeight: 620, show: false, title: '生长 · AI 运营工作台', backgroundColor: '#f6f7f2', icon, webPreferences: { preload: join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true } });
@@ -115,6 +128,7 @@ else {
   });
 }
 app.on('before-quit', event => {
+  mcpServer?.close();
   douyinAuth.cancel();
   commentCollector.cancel();
   creator.cancel();

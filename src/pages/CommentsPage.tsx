@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { ArrowRight, CheckCheck, ClipboardPaste, Download, Filter, ListChecks, MessageSquareText, Pencil, Search } from 'lucide-react';
 import { useStudio } from '../context';
-import { download } from '../api';
+import { MCPCommentsDialog } from '../components/MCPCommentsDialog';
+import { download, LOCAL_DATA } from '../api';
 import type { Comment, Insight } from '../types';
 import { Channel, date, Empty, Field, Modal, NeedProject, PageTitle, Pill } from '../components';
 import { COMMENT_CATEGORIES, CATEGORY_GUIDE, commentReport, commentSummary, needsCommentReview } from '../../server/comment-analysis.mjs';
@@ -33,6 +34,7 @@ function QuotedText({ comment }: { comment: Comment }) {
 }
 export function CommentsPage() {
   const { project, mutate, run, busy, notify, go } = useStudio();
+  const [mcpOpen, setMcpOpen] = useState(false);
   const [importOpen,setImportOpen] = useState(false), [edit,setEdit] = useState<Comment|null>(null), [tab,setTab] = useState('comments');
   const [search,setSearch] = useState(''), [category,setCategory] = useState('all'), [work,setWork] = useState('all'), [platform,setPlatform] = useState('all'), [review,setReview] = useState('all'), [mood,setMood] = useState('all');
   const [from,setFrom] = useState(''), [to,setTo] = useState(''), [samples,setSamples] = useState(!!project?.sample), [page,setPage] = useState(1), [analysisId,setAnalysisId] = useState('');
@@ -49,7 +51,7 @@ export function CommentsPage() {
   const afterAnalysis = (value: unknown) => { const items = value as Insight[]; if (Array.isArray(items) && items[0]) setAnalysisId(items[0].analysisId); setTab('insights'); };
   return <div className="operations-lab">
     <PageTitle eyebrow="FEEDBACK WORKFLOW" title="把评论，变成下一步行动。" subtitle="先归类、再核对，让每一次内容调整都能找到原文依据。">
-      <button className="button" onClick={() => go('analytics')}><ArrowRight size={16}/>运营数据</button><button className="button primary" onClick={() => setImportOpen(true)}><ClipboardPaste size={16}/>导入评论</button>
+      <button className="button" onClick={() => go('analytics')}><ArrowRight size={16}/>运营数据</button><button className="button primary" onClick={() => setImportOpen(true)}><ClipboardPaste size={16}/>导入评论</button>{!LOCAL_DATA && <button className="button primary" onClick={() => setMcpOpen(true)}>MCP 获取评论</button>}
     </PageTitle>
     <ol className="workflow-ribbon" aria-label="评论分析工作流程">
       {[['01','导入与去重',`${totals.total} 条原文`],['02','规则与 AI 分类',`${totals.aiPending} 条可做 AI 分类`],['03','人工核对',`${totals.needsReview} 条建议核对`],['04','采用并验证',`${p.experiences.filter(e => e.active).length} 条品牌经验`]].map(([n,title,detail]) => <li key={n}><span>{n}</span><div><b>{title}</b><small>{detail}</small></div></li>)}
@@ -93,6 +95,7 @@ export function CommentsPage() {
       <div className="section-heading"><div><h2>有依据的观察，有选择的采用</h2><p className="small-note">先查看引用原文，再决定是否带入下一轮创作。</p></div><button className="button" onClick={()=>go('planning')}><CheckCheck size={15}/>查看已采用经验</button></div>
       {selectedRun?<><div className="panel review-run"><Field label="复盘记录"><select value={selectedRun.analysisId} onChange={e=>setAnalysisId(e.target.value)}>{runs.map(i=><option key={i.analysisId} value={i.analysisId}>{date(i.createdAt,true)} · {i.source==='rules'?'本地规则':i.model} · {i.sampleSize} 条样本</option>)}</select></Field><div><b>本次记录：{selectedRun.sampleSize} 条有效评论</b><p className="small-note">{selectedRun.scope} 本记录保留生成时的分析范围，不随当前筛选改变。</p></div></div><div className="insight-grid">{insights.map(i=><InsightCard key={i.id} insight={i}/>)}</div></>:<div className="panel"><Empty title="从当前样本生成第一份复盘" text="回到分类工作台筛选评论，核对重要分类后，选择本地规则复盘或 AI 语义复盘。"><button className="button primary" onClick={()=>setTab('comments')}>去选择评论</button></Empty></div>}
     </section>}
+    {mcpOpen && <MCPCommentsDialog onClose={() => setMcpOpen(false)}/>}
     {importOpen && <CommentImportDialog onClose={()=>setImportOpen(false)}/>} {edit && <CommentEditor comment={edit} onClose={()=>setEdit(null)}/>}
   </div>;
 }

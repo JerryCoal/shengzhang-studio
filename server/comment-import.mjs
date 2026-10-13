@@ -10,7 +10,7 @@ const rowSchema = z.object({
   timeLabel: z.string().max(100).default(''),
   isReply: z.boolean().default(false),
 }).strict();
-const schema = z.object({ publicationId: z.string(), source: z.literal('browser-page'), sourceUrl: z.string().max(8192), confirmed: z.literal(true), mode: z.enum(['page', 'selection']), rows: z.array(rowSchema).min(1).max(1000) }).strict();
+const schema = z.object({ publicationId: z.string(), source: z.enum(['browser-page', 'mcp']), sourceUrl: z.string().max(8192), confirmed: z.literal(true), mode: z.enum(['page', 'selection']), rows: z.array(rowSchema).min(1).max(1000) }).strict();
 const normalized = value => value.normalize('NFKC').replace(/\s+/g, '').toLowerCase();
 
 export function importCapturedComments(p, input, { assert, id, now, classify, touch }) {
@@ -33,7 +33,7 @@ export function importCapturedComments(p, input, { assert, id, now, classify, to
       duplicates++;
       // Imported raw text and human classifications are immutable on repeated collection.
       if (row.platformCommentId && !old.platformCommentId) { old.platformCommentId = row.platformCommentId; ids.set(row.platformCommentId, old); }
-      if (old.source === 'browser-page') {
+      if (['browser-page', 'mcp'].includes(old.source)) {
         if (row.likes !== null) old.likes = row.likes;
         if (row.parentCommentId) old.parentCommentId = row.parentCommentId;
         if (row.commentAt) old.commentAt = row.commentAt;
@@ -41,7 +41,7 @@ export function importCapturedComments(p, input, { assert, id, now, classify, to
       }
       continue;
     }
-    const comment = { id: id(), publicationId: pub.id, strategyId: pub.strategyId, accountName: pub.accountName, platform: pub.platform, text: row.text, ...classify(row.text), source: 'browser-page', sourceUrl: source.canonical, collectionMode: data.mode, importedAt: now(), commentAt: null, likes: row.likes, timeLabel: row.timeLabel, isReply: row.isReply, irrelevant: false, sample: false, ...(row.platformCommentId ? { platformCommentId: row.platformCommentId } : {}) };
+    const comment = { id: id(), publicationId: pub.id, strategyId: pub.strategyId, accountName: pub.accountName, platform: pub.platform, text: row.text, ...classify(row.text), source: data.source, sourceUrl: source.canonical, collectionMode: data.mode, importedAt: now(), commentAt: null, likes: row.likes, timeLabel: row.timeLabel, isReply: row.isReply, irrelevant: false, sample: false, ...(row.platformCommentId ? { platformCommentId: row.platformCommentId } : {}) };
     if(row.commentAt)comment.commentAt=row.commentAt;
     if(row.parentCommentId)comment.parentCommentId=row.parentCommentId;
     p.comments.push(comment); texts.set(key,comment); if(row.platformCommentId) ids.set(row.platformCommentId,comment); added++;

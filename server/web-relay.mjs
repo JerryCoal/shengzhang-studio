@@ -22,7 +22,7 @@ const stateSchema = z.object({
 const envelopeSchema = z.object({
   path: z.string().max(350), method: z.enum(['GET', 'POST', 'PUT', 'DELETE']), body: z.unknown().optional(),
   state: stateSchema,
-  credentials: z.object({ openai: z.string().max(512).optional(), deepseek: z.string().max(512).optional(), seedance: z.string().max(512).optional(), seedream: z.string().max(512).optional(), douyin: z.string().max(100000).optional() }).strict(),
+  credentials: z.object({ openai: z.string().max(512).optional(), deepseek: z.string().max(512).optional(), qwen: z.string().max(512).optional(), seedance: z.string().max(512).optional(), seedream: z.string().max(512).optional(), douyin: z.string().max(100000).optional() }).strict(),
   routes: routesSchema,
   seedance: z.unknown().optional(), seedream: z.unknown().optional(), imageProvider: z.enum(['openai', 'seedream']).optional(),
   authorizations: z.array(z.tuple([z.string().max(100), z.object({ accountId: identifier, expiresAt: z.number().finite(), redirectUri: z.string().url().max(2048) }).strict()])).max(10).default([]),
@@ -32,6 +32,7 @@ const envelopeSchema = z.object({
 export function allowedWebOperation(path, method) {
   if (path === '/tick') return method === 'POST';
   if (path === '/settings/credential/check') return method === 'POST';
+  if (path === '/settings/providers/qwen/credential/check') return method === 'POST';
   if (path === '/settings/providers/deepseek/credential/check') return method === 'POST';
   if (/^\/integrations\/douyin\/(authorize|complete|videos)$/.test(path)) return method === 'POST';
   if (!path.startsWith('/projects/')) return false;
@@ -67,7 +68,7 @@ export function createWebRelay({ staticDirectory = resolve('web-dist'), publicOr
     const requestOrigin = req.get('Origin');
     if (requestOrigin && !allowedOrigins.includes(requestOrigin)) return res.status(403).json({ error: '请从网站的正式地址访问' });
     if (requestOrigin) { res.set('Access-Control-Allow-Origin', requestOrigin); res.vary('Origin'); }
-    if (req.path === '/api/health' && req.method === 'GET') return res.status(closing ? 503 : 200).json({ ok: !closing, mode: 'web-local', storage: 'browser-encrypted', serverStoresWorkspaces: false, asyncJobs: true, version: '1.6.0' });
+    if (req.path === '/api/health' && req.method === 'GET') return res.status(closing ? 503 : 200).json({ ok: !closing, mode: 'web-local', storage: 'browser-encrypted', serverStoresWorkspaces: false, asyncJobs: true, version: '1.7.0' });
     if (req.get('Host') !== origin.host) return res.status(403).json({ error: '请从网站的正式地址访问' });
     if (req.method === 'OPTIONS') { res.set({ 'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, X-Studio-Client, Authorization', 'Access-Control-Max-Age': '600' }); return res.sendStatus(204); }
     if (closing) return res.status(503).json({ error: '联网服务正在更新，请稍后重试' });
@@ -113,7 +114,7 @@ export function createWebRelay({ staticDirectory = resolve('web-dist'), publicOr
         await workspace?.locals.integrations.close();
         // Return modified credentials only when the platform has refreshed/exchanged tokens.
         const response = { ...payload }, hasState = Object.hasOwn(response, 'state'); delete response.state;
-        json.call(res.status(200), { status, response, hasState, state, apiDiagnostic: workspace?.locals.openaiTransport.diagnostic() || null, deepseekDiagnostic: workspace?.locals.deepseekTransport.diagnostic() || null, credentials: input.credentials.douyin ? { douyin: input.credentials.douyin } : {}, authorizations: [...authorizations] });
+        json.call(res.status(200), { status, response, hasState, state, apiDiagnostic: workspace?.locals.openaiTransport.diagnostic() || null, deepseekDiagnostic: workspace?.locals.deepseekTransport.diagnostic() || null, qwenDiagnostic: workspace?.locals.qwenTransport.diagnostic() || null, credentials: input.credentials.douyin ? { douyin: input.credentials.douyin } : {}, authorizations: [...authorizations] });
       } catch { if (!res.headersSent) json.call(res.status(500), { error: '本次请求未能完成，请核对服务商记录后再试' }); }
       finally {
         req.body = undefined; state = undefined;
@@ -137,7 +138,7 @@ export function createWebRelay({ staticDirectory = resolve('web-dist'), publicOr
       for (const [key, value] of input.authorizations) if (value.expiresAt > Date.now()) authorizations.set(key, value);
       workspace = createApp(store, { ...workspaceOptions, apiKey: '', password: '', allowedOrigins,
         authorizeCredentials: request => request === req, modelStore, integrationPreferences: preferences, authorizations,
-        vault: memoryVault(input.credentials, 'openai'), deepseekVault: memoryVault(input.credentials, 'deepseek'), seedanceVault: memoryVault(input.credentials, 'seedance'), seedreamVault: memoryVault(input.credentials, 'seedream'), douyinVault: memoryVault(input.credentials, 'douyin'),
+        vault: memoryVault(input.credentials, 'openai'), deepseekVault: memoryVault(input.credentials, 'deepseek'), qwenVault: memoryVault(input.credentials, 'qwen'), seedanceVault: memoryVault(input.credentials, 'seedance'), seedreamVault: memoryVault(input.credentials, 'seedream'), douyinVault: memoryVault(input.credentials, 'douyin'),
       });
       if (input.path === '/tick') { await workspace.locals.integrations.tick(); await finish({ result: { checked: true } }); return; }
       req.url = `/api${input.path}`; req.method = input.method; req.body = input.body || {};

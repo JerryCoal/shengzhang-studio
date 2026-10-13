@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { CATEGORY_GUIDE } from './comment-analysis.mjs';
 import { openAIResponseError, openAINetworkError } from './openai-errors.mjs';
 import { generateDeepSeek, deepseekInstructions } from './deepseek.mjs';
+import { generateQwen } from './qwen.mjs';
 import { assert, strategyTextSchema, categories } from './domain.mjs';
 import { textInstructions } from './prompts.mjs';
 const string = { type: 'string' };
@@ -34,7 +35,7 @@ const definitionFor = (stage, payload = {}) => stage === 'copy' && payload.copyR
 export function estimateReservation(payload, config) {
   const definition = definitionFor(config.id || 'strategy', payload);
   const base = textInstructions(config.id || 'strategy', payload) + definition.instructions;
-  const instructions = config.provider === 'deepseek' ? deepseekInstructions(base, definition) : base;
+  const instructions = ['deepseek', 'qwen'].includes(config.provider) ? deepseekInstructions(base, definition) : base;
   const inputUpperBound = Buffer.byteLength(instructions + JSON.stringify(payload), 'utf8') + 2500;
   return (inputUpperBound * config.inputPrice + (config.maxTokens || 4500) * config.outputPrice) / 1e6;
 }
@@ -57,6 +58,7 @@ export async function generateStage(payload, config, fetcher = fetch) {
   assert(config.apiKey, '请先在设置页保存 API 密钥', 400);
   const definition = definitionFor(config.id, payload);
   if (config.provider === 'deepseek') return generateDeepSeek(payload, config, definition, textInstructions(config.id, payload) + definition.instructions, fetcher);
+  if (config.provider === 'qwen') return generateQwen(payload, config, definition, textInstructions(config.id, payload) + definition.instructions, fetcher);
   const response = await officialRequest('responses', config.apiKey, { method: 'POST', body: JSON.stringify({ model: config.model, store: false, reasoning: { effort: config.effort }, max_output_tokens: config.maxTokens, instructions: textInstructions(config.id, payload) + definition.instructions, input: JSON.stringify(payload), text: { format: { type: 'json_schema', name: `marketing_${config.id}`, strict: true, schema: definition.schema } } }) }, fetcher);
   let result; try { result = await response.json(); } catch { throw Object.assign(new Error('模型响应无法读取，请重试。'), { status: 502 }); }
   const usage = result.usage;

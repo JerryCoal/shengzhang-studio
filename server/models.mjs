@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { atomicJSON } from './vault.mjs';
 export const MODELS = {
+  'qwen-plus': { provider: 'qwen', label: 'Qwen Plus', inputPrice: 0.12, outputPrice: 0.3, priceNote: '北京地域非思考模式、短上下文预算估算；人民币价格按约 7 元/美元折算，仅用于预算提醒', description: '适合中文策略、文案与复盘；使用非思考模式保证结构化输出' },
+  'qwen-flash': { provider: 'qwen', label: 'Qwen Flash', inputPrice: 0.022, outputPrice: 0.22, priceNote: '北京地域非思考模式、短上下文预算估算；人民币价格按约 7 元/美元折算，仅用于预算提醒', description: '低成本处理评论分类与日常文案' },
   'gpt-5.4': { provider: 'openai', label: 'GPT-5.4', inputPrice: 2.5, outputPrice: 15, description: '适合复杂策划、约束协调和迭代判断' },
   'gpt-5.4-mini': { provider: 'openai', label: 'GPT-5.4 mini', inputPrice: 0.75, outputPrice: 4.5, description: '平衡内容质量、速度和费用' },
   'gpt-5.4-nano': { provider: 'openai', label: 'GPT-5.4 nano', inputPrice: 0.2, outputPrice: 1.25, description: '适合标签、情绪等简单结构化任务' },
