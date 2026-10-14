@@ -64,7 +64,7 @@ export function makeDraft(p, changes = {}, instruction = '', source = 'demo', ru
   }
   const retrievalQuery = query || corpusQuery(p, instruction);
   const corpusReferences = searchCorpus(p, retrievalQuery);
-  if (!['openai', 'deepseek'].includes(source)) base.prompt = (base.prompt + corpusPrompt(corpusReferences)).slice(0, 16000);
+  if (!['openai', 'deepseek', 'qwen'].includes(source)) base.prompt = (base.prompt + corpusPrompt(corpusReferences)).slice(0, 16000);
   reviewObject(base, rules);
   const draft = { ...base, retrievalQuery, corpusReferences, briefSnapshot: structuredClone(brief), id: id(), version: Math.max(0, ...p.strategies.map(s => s.version)) + 1,
     status: 'draft', source, createdAt: now(), confirmedAt: null, feedbackIds: accepted.map(e => e.id), tasks: [],
@@ -114,7 +114,7 @@ export function updateAsset(p, assetId, input, rules = defaultRules()) {
     assert(data.mime === 'image/png' ? hex(bytes.slice(0, 8)) === '89504e470d0a1a0a' : data.mime === 'image/jpeg' ? hex(bytes.slice(0, 3)) === 'ffd8ff' : data.mime === 'video/webm' ? hex(bytes.slice(0, 4)) === '1a45dfa3' : bytes.slice(4, 8) === 'ftyp', '文件内容与格式不一致');
   }
   const titleChanged = asset.title !== data.title;
-  if (asset.status === 'ready') asset.history.unshift({ title: asset.title, body: asset.body, mediaData: asset.mediaData, mime: asset.mime, revision: asset.revision, at: now() });
+  if (asset.status === 'ready') asset.history.unshift({ title: asset.title, body: asset.body, mediaData: asset.mediaData, mime: asset.mime, revision: asset.revision, at: now(), ...(asset.skillTrace ? { skillTrace: structuredClone(asset.skillTrace) } : {}), ...(asset.researchReferences ? { researchReferences: structuredClone(asset.researchReferences) } : {}) });
   asset.history = asset.history.slice(0, 5);
   asset.title = data.title; asset.body = data.body;
   asset.copyReview = data.copyReview.hits.length ? data.copyReview : { ...data.copyReview, previousHits: asset.copyReview?.hits?.length ? asset.copyReview.hits : asset.copyReview?.previousHits || [] };

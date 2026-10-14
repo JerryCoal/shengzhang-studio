@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { z } from 'zod';
 import { createApp } from './app.mjs';
 import { createModelStore, routesSchema } from './models.mjs';
+import { qwenConnectionSchema } from './qwen-connection.mjs';
 import { createIntegrationPreferences } from './integrations.mjs';
 import { briefSchema } from './domain.mjs';
 import { createWebJobs } from './web-jobs.mjs';
@@ -11,19 +12,26 @@ import { createWebJobs } from './web-jobs.mjs';
 const failure = (message, status = 400) => Object.assign(new Error(message), { status });
 const identifier = z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/);
 const rows = (max = 1000) => z.array(z.record(z.string(), z.unknown())).max(max);
+function hasLocalResearch(value) {
+  if (!value || typeof value !== 'object') return false;
+  if (Array.isArray(value)) return value.some(hasLocalResearch);
+  return Object.hasOwn(value, 'researchReferences') || Object.values(value).some(hasLocalResearch);
+}
 const stateSchema = z.object({
   schemaVersion: z.literal(1), accounts: rows(20), activities: rows(100),
   contentRules: rows(500).optional(), rulesRevision: z.number().int().nonnegative().optional(),
+  qwenConnection: qwenConnectionSchema.optional(),
   projects: z.array(z.object({ id: identifier, brief: briefSchema, revision: z.number().int().nonnegative(),
     strategies: rows(100), assets: rows(100), publications: rows(200), comments: rows(10000),
     insights: rows(500), experiences: rows(500), usage: rows(2000), corpus: rows(50).optional(),
-  }).passthrough()).max(1),
-}).strict();
+  }).passthrough().refine(p => !['ragIndex', 'ragEnabled', 'ragConsent', 'ragUsage', 'ragPreviousCny', 'ragRevision', 'research', 'researchUsage', 'researchPreviousCny'].some(key => key in p), '本地语义索引和研究库不可上传到中转服务')).max(1),
+}).strict().refine(value => !hasLocalResearch(value), '本地研究引用不可上传到中转服务');
 const envelopeSchema = z.object({
   path: z.string().max(350), method: z.enum(['GET', 'POST', 'PUT', 'DELETE']), body: z.unknown().optional(),
   state: stateSchema,
-  credentials: z.object({ openai: z.string().max(512).optional(), deepseek: z.string().max(512).optional(), qwen: z.string().max(512).optional(), seedance: z.string().max(512).optional(), seedream: z.string().max(512).optional(), douyin: z.string().max(100000).optional() }).strict(),
+  credentials: z.object({ openai: z.string().max(512).optional(), deepseek: z.string().max(512).optional(), qwen: z.string().max(4096).optional(), seedance: z.string().max(512).optional(), seedream: z.string().max(512).optional(), douyin: z.string().max(100000).optional() }).strict(),
   routes: routesSchema,
+  qwenConnection: qwenConnectionSchema.optional(),
   seedance: z.unknown().optional(), seedream: z.unknown().optional(), imageProvider: z.enum(['openai', 'seedream']).optional(),
   authorizations: z.array(z.tuple([z.string().max(100), z.object({ accountId: identifier, expiresAt: z.number().finite(), redirectUri: z.string().url().max(2048) }).strict()])).max(10).default([]),
 }).strict();
@@ -68,7 +76,7 @@ export function createWebRelay({ staticDirectory = resolve('web-dist'), publicOr
     const requestOrigin = req.get('Origin');
     if (requestOrigin && !allowedOrigins.includes(requestOrigin)) return res.status(403).json({ error: '请从网站的正式地址访问' });
     if (requestOrigin) { res.set('Access-Control-Allow-Origin', requestOrigin); res.vary('Origin'); }
-    if (req.path === '/api/health' && req.method === 'GET') return res.status(closing ? 503 : 200).json({ ok: !closing, mode: 'web-local', storage: 'browser-encrypted', serverStoresWorkspaces: false, asyncJobs: true, version: '1.7.0' });
+    if (req.path === '/api/health' && req.method === 'GET') return res.status(closing ? 503 : 200).json({ ok: !closing, mode: 'web-local', storage: 'browser-encrypted', serverStoresWorkspaces: false, asyncJobs: true, version: '1.17.0' });
     if (req.get('Host') !== origin.host) return res.status(403).json({ error: '请从网站的正式地址访问' });
     if (req.method === 'OPTIONS') { res.set({ 'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, X-Studio-Client, Authorization', 'Access-Control-Max-Age': '600' }); return res.sendStatus(204); }
     if (closing) return res.status(503).json({ error: '联网服务正在更新，请稍后重试' });
@@ -129,6 +137,7 @@ export function createWebRelay({ staticDirectory = resolve('web-dist'), publicOr
       if (!allowedWebOperation(input.path, input.method)) throw failure('此操作不由联网服务处理', 404);
       if (input.path.startsWith('/projects/') && input.state.projects[0]?.id !== input.path.split('/')[2]) throw failure('请求项目不匹配');
       state = disableAutomaticPublishing(structuredClone(input.state));
+      if (input.qwenConnection) state.qwenConnection = input.qwenConnection;
       const store = { get: () => structuredClone(state), mutate(callback) { const next = structuredClone(state); const result = callback(next); state = next; return result; } };
       const modelStore = createModelStore(); modelStore.save(input.routes);
       const preferences = createIntegrationPreferences();

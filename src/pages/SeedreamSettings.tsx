@@ -6,14 +6,15 @@ import { Field, Modal, Pill } from '../components';
 import { SeedreamHelp, SEEDREAM_HELP_TITLE } from '../SeedreamHelp';
 import type { Integrations, SeedreamSettings as Configuration } from '../types';
 import { SEEDREAM_MODELS } from '../../server/seedream-config.mjs';
+import { VisibleWatermarkOption } from '../components/ImageWatermarkReview';
 
 export function SeedreamSettings({ value, changed, onDelete }: { value: Integrations; changed: () => Promise<void>; onDelete: () => void }) {
   const { run, busy, notify } = useStudio();
-  const [config, setConfig] = useState<Configuration>(value.seedream), [key, setKey] = useState('');
+  const [config, setConfig] = useState<Configuration>({ ...value.seedream, watermark: value.seedream.watermark ?? true }), [key, setKey] = useState('');
   const [showHelp, setShowHelp] = useState(false);
   const helpButton = useRef<HTMLButtonElement>(null);
   const closeHelp = () => { setShowHelp(false); requestAnimationFrame(() => helpButton.current?.focus()); };
-  useEffect(() => { const { family, model, reservationUsd, imagePriceUsd } = value.seedream; setConfig({ family, model, reservationUsd, imagePriceUsd }); }, [value.seedream]);
+  useEffect(() => { const { family, model, reservationUsd, imagePriceUsd } = value.seedream; setConfig({ family, model, reservationUsd, imagePriceUsd, watermark: value.seedream.watermark ?? true }); }, [value.seedream]);
   const editable = value.local && !busy;
   return <article className="service-card">
     <div className="service-title"><ImagePlus size={21}/><h3>Seedream 封面与关键帧</h3><Pill color={value.seedream.configured ? 'green' : 'gray'}>{value.seedream.configured ? '密钥已保存 · 待实测' : '待配置'}</Pill></div>
@@ -24,6 +25,7 @@ export function SeedreamSettings({ value, changed, onDelete }: { value: Integrat
       <button ref={helpButton} type="button" className="text-button seedream-help-link" aria-haspopup="dialog" onClick={() => setShowHelp(true)}><CircleHelp size={14} aria-hidden="true"/>是不是提示“模型或者接入点不存在”</button>
       <Field label="Seedream API Key" hint={value.seedream.configured ? `已加密保存 · 末尾 ${value.seedream.suffix}；留空保留当前密钥` : IS_WEB ? '按当前用户加密保存在此浏览器，生成时临时解密。' : '按当前用户加密保存在本机，项目备份不包含密钥。'}><input type="password" autoComplete="off" maxLength={512} disabled={!editable || !value.seedream.supported} value={key} onChange={e => setKey(e.target.value)} placeholder={value.seedream.configured ? '留空保留现有密钥' : '填写火山方舟 API Key'}/></Field>
       <div className="service-fields"><Field label="每张图预算预留（美元）"><input type="number" required min={.01} max={100} step={.01} disabled={!editable} value={config.reservationUsd} onChange={e => setConfig({ ...config, reservationUsd: Number(e.target.value) })}/></Field><Field label="图片单价（美元 / 张）"><input type="number" required min={0} max={100} step={.001} disabled={!editable} value={config.imagePriceUsd} onChange={e => setConfig({ ...config, imagePriceUsd: Number(e.target.value) })}/></Field></div>
+      <VisibleWatermarkOption checked={config.watermark} onChange={watermark => setConfig({ ...config, watermark })} disabled={!editable} defaultSetting/>
       <p className="small-note">小红书封面为 1728 × 2304（3:4），视频关键帧为 1440 × 2560（9:16）。请按账户型号和分辨率填写单价，人民币需换算；填 0 时保留预算预留。每次按预留与单价中较高者检查项目预算，实际以账单为准。</p>
       <button className="button primary full" disabled={!editable || !config.model.trim() || (!value.seedream.configured && !key.trim())}><LockKeyhole size={16}/>保存图片连接</button>
     </form>

@@ -1,0 +1,28 @@
+.corpus-rag { margin-bottom: 20px; padding: 20px; }
+.corpus-rag-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.corpus-rag-heading > div { flex: 1; min-width: 180px; }
+.corpus-rag h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 17px; }
+.corpus-rag-heading p { margin: 8px 0 0; font-size: 13px; line-height: 1.7; color: #69776b; }
+.corpus-rag-badge, .retrieval-method { display: inline-block; padding: 4px 8px; border-radius: 7px; background: #edf4ed; color: #42634b; font-size: 12px; line-height: 1.6; }
+.corpus-rag-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 16px 0 10px; }
+.corpus-rag-metrics > div { min-width: 0; padding: 12px; border-radius: 10px; background: #f7f9f5; }
+.corpus-rag-metrics dt { color: #748071; font-size: 12px; line-height: 1.7; }
+.corpus-rag-metrics dd { margin: 5px 0 0; color: #354f3b; font-size: 14px; overflow-wrap: anywhere; line-height: 1.7; }
+.corpus-rag .small-note { line-height: 1.8; overflow-wrap: anywhere; }
+.corpus-rag-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+.corpus-rag-actions .text-button, .corpus-rag-error .text-button, .corpus-rag-hint a { display: inline-flex; align-items: center; gap: 5px; }
+.corpus-rag-hint { font-size: 13px; line-height: 1.8; color: #766341; }
+.corpus-rag-hint a { margin-left: 8px; color: #355f49; }
+.corpus-rag-confirm { padding: 15px; margin-top: 16px; border: 1px solid #cdddc9; border-radius: 12px; background: #f5f9f2; font-size: 13px; line-height: 1.8; overflow-wrap: anywhere; }
+.corpus-rag-confirm p { margin: 7px 0 0; }
+.corpus-rag-error { margin: 12px 0; padding: 12px; border-radius: 10px; background: #fff4ee; color: #88452b; font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
+.corpus-rag-error p { margin: 0 0 6px; }
+.retrieval-status { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; margin: 14px 0 10px; }
+.retrieval-status .small-note { margin: 0; }
+@media (max-width: 760px) {
+  .corpus-rag { padding: 16px; }
+  .corpus-rag-metrics { grid-template-columns: 1fr; gap: 8px; }
+  .corpus-rag-metrics > div { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .corpus-rag-metrics dd { margin: 0; }
+  .corpus-rag-confirm .button { white-space: normal; }
+}

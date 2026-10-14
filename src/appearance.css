@@ -1,0 +1,50 @@
+.appearance-settings{max-width:980px}
+pre,.creative-skill-details pre{font-size:12px}
+.appearance-settings .section-heading h2{display:flex;align-items:center;gap:9px}
+.appearance-sizes{border:0;margin:24px 0;padding:0;min-width:0}
+.appearance-sizes legend{font-size:14px;font-weight:600;margin-bottom:12px;color:#365140}
+.appearance-sizes>div{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.appearance-sizes label{display:flex;align-items:center;gap:10px;padding:15px 14px;border:1px solid #dbe5d8;border-radius:12px;cursor:pointer;background:#fff;min-width:0}
+.appearance-sizes label.selected{border-color:#41775b;background:#eff6ee;box-shadow:0 0 0 1px #41775b inset}
+.appearance-sizes label span{display:grid;gap:5px;flex:1;min-width:0}
+.appearance-sizes b{font-size:15px;color:#39523d}
+.appearance-sizes small{font-size:11px;color:#697b66}
+.appearance-emphasis{display:flex;align-items:flex-start;gap:12px;padding:18px;border:1px solid #dbe5d8;border-radius:12px;background:#f7f9f4;cursor:pointer}
+.appearance-emphasis input{margin-top:5px;flex-shrink:0}
+.appearance-emphasis span{display:grid;gap:7px;min-width:0}
+.appearance-emphasis b{font-size:14px;color:#365140}
+.appearance-emphasis small{font-size:12px;color:#64735f;line-height:1.8}
+.appearance-save-status{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:48px;padding:10px 0;font-size:12px;color:#47745b}
+.appearance-save-status.error{color:#964c36}
+.appearance-preview{padding:22px;border:1px solid #dbe5d8;border-radius:12px;margin:12px 0 16px;background:#fff}
+.appearance-preview h3{font-size:19px;color:#436047;margin:12px 0}
+.appearance-preview p{font-size:14px;line-height:1.9;color:#62745d;white-space:pre-wrap;overflow-wrap:anywhere}
+.appearance-preview small{font-size:12px;line-height:1.8;color:#6b7a64}
+.appearance-preview .info-box{display:flex;flex-wrap:wrap;gap:5px;margin:16px 0}
+.copy-keyword{font-weight:800;color:#163d29}
+.copy-keyword-preview{margin:18px 0;padding:14px 16px;border:1px solid #dce7d8;border-radius:10px;background:#f7faf5}
+.copy-keyword-preview summary{font-size:13px;color:#365b41;cursor:pointer}
+.copy-keyword-preview h4{margin:14px 0 8px;font-size:15px}
+.copy-keyword-preview p{font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow-y:auto;line-height:1.9}
+html[data-studio-emphasis=true] :is(.page-title h1,.section-heading h2,.section-heading h3,.settings-card h2,.appearance-preview h3,.field>span,.appearance-sizes legend,.appearance-emphasis b,.generation-workflow>span,.research-steps b,.publishing-steps h3,.mcp-setup-steps b,.guide-topic summary b,.background-task h3,.strategy-card .prompt-toggle){font-weight:800;color:#183c2a}
+html[data-studio-emphasis=true] :is(.button.primary,.nav-item.active,.pill,.info-box b,.background-work-notice b){font-weight:800}
+html[data-studio-emphasis=true] :is(.info-box b,.appearance-preview b,.research-findings dt,.setting-row b){color:#183c2a}
+html[data-studio-emphasis=true] :is(.error-box,.research-warning,.mcp-error) b{color:inherit}
+/* Larger text should wrap without changing the dimensions of produced media. */
+html[data-studio-text-size]:not([data-studio-text-size="1"]) .topbar{min-height:74px;height:auto;gap:12px;padding-block:12px;flex-wrap:wrap}
+html[data-studio-text-size]:not([data-studio-text-size="1"]) .top-actions{flex-wrap:wrap;min-width:0}
+html[data-studio-text-size]:not([data-studio-text-size="1"]) .settings-tabs{flex-wrap:wrap;overflow:visible}
+html[data-studio-text-size]:not([data-studio-text-size="1"]) .settings-tabs button{flex:1 1 160px;white-space:normal}
+html[data-studio-text-size]:not([data-studio-text-size="1"]) :is(.modal-head,.modal-actions,.page-title,.setting-row,.section-heading,.static-notice){flex-wrap:wrap}
+html[data-studio-text-size]:not([data-studio-text-size="1"]) :is(.field input,.field select,.select,.searchbox input){height:auto;min-height:44px;line-height:1.6}
+html[data-studio-text-size]:not([data-studio-text-size="1"]) :is(.button,.nav-item,.workspace-switch,.project-context,.setting-row,.modal-head){min-height:min-content}
+html[data-studio-text-size]:not([data-studio-text-size="1"]) :is(.field,.setting-row,.page-title>div,.project-context,.modal-body,.ready-copy){min-width:0;overflow-wrap:anywhere}
+html[data-studio-text-size]:not([data-studio-text-size="1"]) .button{white-space:normal;line-height:1.6}
+html[data-studio-text-size]:not([data-studio-text-size="1"]) :is(.nav-item span,.workspace-switch b,.workspace-switch small){white-space:normal;overflow-wrap:anywhere}
+html[data-studio-text-size]:not([data-studio-text-size="1"]) .nav-item .nav-ai{white-space:nowrap;flex-shrink:0}
+html[data-studio-text-size]:not([data-studio-text-size="1"]) .brand{padding-inline:4px;gap:8px}
+html[data-studio-text-size]:not([data-studio-text-size="1"]) .brand strong{white-space:nowrap;letter-spacing:1px}
+html[data-studio-text-size]:not([data-studio-text-size="1"]) .brand small{letter-spacing:0}
+html[data-studio-text-size]:not([data-studio-text-size="1"]) :is(.brand-mark,.workspace-avatar){flex-shrink:0}
+html[data-studio-text-size]:not([data-studio-text-size="1"]) .sidebar .growth-note{display:none}
+@media(max-width:650px){.appearance-sizes>div{grid-template-columns:repeat(2,minmax(0,1fr))}.appearance-preview{padding:16px}.appearance-sizes label{padding:12px 10px;gap:7px}.appearance-sizes label>svg{display:none}html[data-studio-text-size]:not([data-studio-text-size="1"]) .top-actions{margin-left:auto}html[data-studio-text-size]:not([data-studio-text-size="1"]) .breadcrumb{display:none}html[data-studio-text-size]:not([data-studio-text-size="1"]) .settings-tabs button{flex-basis:calc(50% - 6px);padding:10px 6px}}

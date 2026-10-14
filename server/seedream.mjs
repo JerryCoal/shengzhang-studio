@@ -12,7 +12,7 @@ export function seedreamCost(usage, settings) {
 export async function generateSeedreamKeyframe({ apiKey, prompt, references = [], settings, size = SEEDREAM_SIZE }, fetcher = fetch) {
   settings = seedreamSettingsSchema.parse(settings); validateSeedreamReferences(references);
   if (![SEEDREAM_SIZE, SEEDREAM_COVER_SIZE].includes(size)) throw integrationError('不支持的图片尺寸', 400, { noCharge: true });
-  const body = { model: settings.model, prompt, size, response_format: 'b64_json', watermark: true,
+  const body = { model: settings.model, prompt, size, response_format: 'b64_json', watermark: settings.watermark,
     ...(references.length ? { image: references } : {}),
     ...(settings.family === '5.0-pro' ? {} : { sequential_image_generation: 'disabled', stream: false }),
   };

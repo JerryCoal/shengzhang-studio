@@ -7,4 +7,4 @@ export const COVER_LAYOUTS: Record<string, string>;
 export function textInstructions(stage: PromptStage, payload?: { task?: { channel?: string }; copyReview?: unknown }): string;
 export function strategyPrompt(brief: Brief): string;
 export function taskPrompt(brief: Brief, strategy: Strategy, channel: string): string;
-export function mediaPrompt(project: Project, asset: Asset, input: {purpose: PromptStage; prompt?: string; query?: string; style?:string; layout?:string; textMode?:string}, rules?: ContentRule[]): WorkflowTrace & {prompt:string; promptVersion:string; retrievalQuery:string};
+export function mediaPrompt(project: Project, asset: Asset, input: {purpose: PromptStage; prompt?: string; query?: string; style?:string; layout?:string; textMode?:string; duration?:number; generateAudio?:boolean; hasProductReference?:boolean}, rules?: ContentRule[]): WorkflowTrace & {prompt:string; promptVersion:string; retrievalQuery:string; skillVersions: import('./ai-skill-registry.mjs').SkillVersion[]};

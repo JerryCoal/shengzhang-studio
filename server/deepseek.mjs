@@ -66,9 +66,13 @@ export async function verifyDeepSeek(key, fetcher) {
     note: '已读取 DeepSeek 官方模型列表与余额快照，未发起付费生成。余额与权限仍以实际调用时为准。' };
 }
 function schemaExample(schema) {
+  if (Array.isArray(schema.enum) && schema.enum.length) return schema.enum[0];
   if (schema.type === 'object') return Object.fromEntries(Object.entries(schema.properties).map(([k, v]) => [k, schemaExample(v)]));
   if (schema.type === 'array') return [schemaExample(schema.items)];
-  return schema.enum?.[0] || '根据输入填写';
+  if (schema.type === 'boolean') return false;
+  if (schema.type === 'number' || schema.type === 'integer') return 0;
+  if (schema.type === 'null') return null;
+  return '根据输入填写';
 }
 export function deepseekInstructions(instructions, definition) {
   return `${instructions}\n仅输出 json 对象。字段与约束：${JSON.stringify(definition.schema)}\n格式示例（只参考结构，不抄示例内容）：${JSON.stringify(schemaExample(definition.schema))}`;

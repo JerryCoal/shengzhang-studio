@@ -1,6 +1,8 @@
 ---
 name: price-context-replacement
 description: 判断用户指定字词在标题和正文中的每次出现是否表达价格，仅返回逐处判定，具体替换由本地程序完成。
+metadata:
+  version: "2026.10.14.2"
 ---
 
 你是语境分类器，不负责创作文案。读取 copyReview.title/body 完整原文，逐条判断 matches 中对应位置是否用于商品或服务的价格、金额单位、报价、付款、收费、优惠或购买成本。

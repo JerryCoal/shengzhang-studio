@@ -1,21 +1,28 @@
+# 生长 STUDIO v1.17.0 测试版
+
+本次新增 Seedream 可见水印设置和生成后的本机角标检查。封面与视频首尾帧可以分别选择本次是否添加可见水印，生成后展示检查结果并放大人工核对。沿用已有密钥，无新增收费识别服务。详见 [v1.17.0 使用说明](docs/UPGRADE-1.17.0.md)。本版以 GitHub Pre-release 提供，累计包含 v1.7.0 之后的升级。接手开发请阅读 [开发交接文档](docs/DEVELOPMENT-HANDOFF-1.17.0.md)。
+
 # 生长 STUDIO · AI 运营工作台
 
 **从一个想法，到持续生长的品牌。**
 
-**当前开发进度：v1.7.0 测试版（2026-10-14 保存）。** 新增 MCP 投送/评论预览、Qwen Plus/Flash 接口及本地加密配置；226 项回归通过。**外部小红书 MCP 真实握手、真实账号联调和新界面完整验收尚未完成。** [下载 v1.7.0 测试版](https://github.com/JerryCoal/shengzhang-studio/releases/tag/v1.7.0) · [更新内容](docs/RELEASE-1.7.0.md) · [操作说明](docs/UPGRADE-1.7.0.md) · [后续开发清单](docs/DEVELOPMENT-HANDOFF-1.7.0.md)。下方保留此前公开版本的说明与下载。
+**v1.11.0 起加入近期内容研究（2026-10-14）。** 原始流程为：AI 规划检索词 → 小红书 MCP / 搜索服务 / 中文新闻源 → 近七天清洗 → 本地关键词或可选 Qwen RAG → 有原文证据的分析 → 用户选用标签 → 策略与文案创作。共 14 份内置 Skills，普通文案继续支持用户安装的规则。研究库和密钥按本地用户加密保存，付费请求逐轮确认、分开记账。[历史更新](docs/RELEASE-1.11.0.md) · [最新研究流程](docs/RECENT-CONTENT-RESEARCH.md) · [Qwen RAG](docs/QWEN-RAG.md) · [全流程 Skills](docs/AI-SKILLS-WORKFLOW.md)。本地旧版安装包继续保留。
 
-**上一测试版：v1.6.0 · Windows x64。** 累计包含 v1.3.x–v1.6.0 的升级：可维护敏感词与 AI 语义检查、飞书发布计划、评论采集和分析、运营数据空间，以及用户确认后提交的官方页面发布助手。详见 [更新记录](docs/RELEASE-1.6.0.md) 与 [使用说明](docs/UPGRADE-1.6.0.md)。
+v1.7.1 已验证小红书 MCP 真实连接、扫码登录和 11 条自有作品评论导入；重复导入不增加条数，真实最终发布尚未测试。[验证记录](docs/PLATFORM-ASSIST-VALIDATION-1.7.1.md)
+
+**历史测试版：v1.6.0 · Windows x64。** 累计包含 v1.3.x–v1.6.0 的升级：可维护敏感词与 AI 语义检查、飞书发布计划、评论采集和分析、运营数据空间，以及用户确认后提交的官方页面发布助手。详见 [更新记录](docs/RELEASE-1.6.0.md) 与 [使用说明](docs/UPGRADE-1.6.0.md)。
 
 生长 STUDIO 将品牌资料、项目语料、热点筛选、宣传策略、文案与封面、视频、发布记录和评论复盘连接在同一个工作区。面向独立创作者、小团队和早期品牌，让整理过的资料与反馈继续用于下一次创作。
 
-**版本选择：** v1.6.0 是 Pre-release 测试版，真实平台账号的完整发布与采集尚待联调；v1.2.0 是继续保留的正式版。Windows 包内置后端与运行环境，完整解压即可运行，无需另装 Node.js。[验证范围](docs/PLATFORM-ASSIST-VALIDATION-1.6.0.md)
+**版本选择：** v1.17.0 是最新 Pre-release 测试版，真实平台账号的完整发布与采集尚待联调；v1.2.0 是继续保留的正式版。Windows 包内置后端与运行环境，完整解压即可运行，无需另装 Node.js。[本版验证范围](docs/VALIDATION-1.17.0.md)
 
 ## 下载与打开
 
 | 入口 | 地址 / 说明 |
 | --- | --- |
-| **下载 v1.6.0 Windows 测试版** | [Shengzhang-Studio-1.6.0-windows-x64.zip](https://github.com/JerryCoal/shengzhang-studio/releases/download/v1.6.0/Shengzhang-Studio-1.6.0-windows-x64.zip) |
-| v1.6.0 发布说明与校验文件 | [v1.6.0 Pre-release](https://github.com/JerryCoal/shengzhang-studio/releases/tag/v1.6.0) · [SHA-256](https://github.com/JerryCoal/shengzhang-studio/releases/download/v1.6.0/Shengzhang-Studio-1.6.0-windows-x64.zip.sha256) |
+| **下载 v1.17.0 Windows 测试版** | [Shengzhang-Studio-1.17.0-windows-x64.zip](https://github.com/JerryCoal/shengzhang-studio/releases/download/v1.17.0/Shengzhang-Studio-1.17.0-windows-x64.zip) |
+| v1.17.0 发布说明与校验文件 | [v1.17.0 Pre-release](https://github.com/JerryCoal/shengzhang-studio/releases/tag/v1.17.0) · [SHA-256](https://github.com/JerryCoal/shengzhang-studio/releases/download/v1.17.0/Shengzhang-Studio-1.17.0-windows-x64.zip.sha256) |
+| 开发交接 Markdown | [在线阅读](docs/DEVELOPMENT-HANDOFF-1.17.0.md) · [单独下载](https://github.com/JerryCoal/shengzhang-studio/releases/download/v1.17.0/DEVELOPMENT-HANDOFF-1.17.0.md) |
 | **下载 v1.2.0 正式版** | [Shengzhang-Studio-1.2.0-windows-x64.zip](https://github.com/JerryCoal/shengzhang-studio/releases/download/v1.2.0/Shengzhang-Studio-1.2.0-windows-x64.zip) |
 | 正式版发布说明 | [v1.2.0 Release](https://github.com/JerryCoal/shengzhang-studio/releases/tag/v1.2.0) |
 | 最新正式版入口（不含测试版） | [Releases / latest](https://github.com/JerryCoal/shengzhang-studio/releases/latest) |
@@ -32,7 +39,7 @@
 
 升级时，先在旧版托盘菜单选择 **退出并停止后台任务**，再打开完整解压后的新版。同一台电脑、同一 Windows 账户下，数据继续保存在 `%LOCALAPPDATA%\ShengzhangStudio`，不需要复制数据库到新版文件夹。仅关闭窗口会缩到托盘。
 
-详细操作见 [v1.6.0 使用说明](docs/UPGRADE-1.6.0.md)、[飞书接入指南](docs/FEISHU-SETUP.md)、[抖音开通指南](docs/DOUYIN-SETUP.md) 和 [Windows 使用说明](docs/WINDOWS-APP.md)。
+详细操作见 [v1.17.0 图片功能说明](docs/UPGRADE-1.17.0.md)、[全流程开发交接](docs/DEVELOPMENT-HANDOFF-1.17.0.md)、[飞书接入指南](docs/FEISHU-SETUP.md)、[抖音开通指南](docs/DOUYIN-SETUP.md) 和 [Windows 使用说明](docs/WINDOWS-APP.md)。
 
 ### v1.6.0：发布、采集与复盘
 
@@ -57,7 +64,7 @@
 ```mermaid
 flowchart TD
     A[创建项目：品牌、受众、事实与目标] --> B[导入项目介绍并检索语料]
-    B --> C[可选：更新近七天热点]
+    B --> C[可选：新闻、网页或小红书内容研究]
     C --> D[核对来源与名称风险，挑选文案标签]
     B --> E[生成宣传策略]
     D --> E
@@ -73,8 +80,8 @@ flowchart TD
 | 步骤 | 用户操作 | 工作台如何处理 |
 | --- | --- | --- |
 | 1. 建立项目 | 填写品牌、产品、受众、真实卖点、渠道和预算 | 项目资料自动保存，新项目保留草稿；事实、目标与渠道成为生成依据 |
-| 2. 整理语料 | 导入 TXT、Markdown、DOCX、文字型 PDF，或粘贴介绍 | 提取正文、分段并在本地按关键词检索；可核对、停用或删除。扫描件需先转文字 |
-| 3. 选择热点（可选） | 点击「更新近七天热点」，输入或点选项目关键词 | 读取选定公开中文新闻源，按日期、相关度与过滤词筛选；人物、作品、品牌候选需逐项确认，再生成标签 |
+| 2. 整理语料 | 导入 TXT、Markdown、DOCX、文字型 PDF，或粘贴介绍 | 分段后本地关键词检索，可选 Qwen 向量与关键词混合检索；可核对、停用或删除。扫描件需先转文字 |
+| 3. 内容研究（可选） | 选择公开新闻、Qwen/豆包搜索，或小红书 MCP 相关帖子 | 清洗日期与重复项，保留原文来源和可见互动，AI 给出带引用的应用建议；人工选择后进入创作 |
 | 4. 形成策略 | 选择免费模板或文本 AI，核对主题、表达与 Prompt | 查询语料和已采用经验；确认后锁定版本并创建制作任务；修改已确认策略会另存草稿 |
 | 5. 编写内容 | 用标签、语料引用补充要求，生成或编辑文案与分镜 | 按步骤组织提示词，在生成末尾按可维护词库筛选、替换敏感词；保留引用与命中记录 |
 | 6. 制作画面 | 选择本地模板、Seedream 封面或 AI 视频 | 封面：预览提示词 → 候选生成 → 人工采用。视频：生成首尾帧 → 检查 → 提交 Seedance → 保存结果 |
@@ -85,7 +92,7 @@ flowchart TD
 ### 封面与视频怎么做
 
 - **免费封面**：内容制作 → 图文任务 →「本地模板制作 · 免费」。可配合真实产品图，输出 900 × 1200 PNG。
-- **Seedream 小红书封面**：配置 Seedream → 确认项目策略 → 小红书图文卡片「AI 封面 · Seedream」→ 选择风格、构图和要求 → 预览提示词与语料 → 确认生成 → 检查候选 →「确认采用为封面」。输出 1728 × 2304（3:4）。
+- **Seedream 小红书封面**：配置 Seedream → 确认项目策略 → 小红书图文卡片「AI 封面 · Seedream」→ 选择风格、构图和要求 → 预览提示词与语料 → 确认生成 → 检查候选 →「确认采用为封面」。输出 1728 × 2304（3:4）。可选择本次是否添加可见水印，生成后查看本机角标检查并放大原图核对。
 - **AI 视频**：短片任务中，用 GPT Image 2 或 Seedream 生成并检查首尾关键帧，再提交 Seedance。图片和视频分别配置密钥；尚未完成真实 AI 视频生成的联调验证。
 - **本地短片**：模板合成约 12 秒短片，可上传配音；输出格式由浏览器支持情况决定。素材包包含成品和配套文案。
 
@@ -99,13 +106,13 @@ Seedream 提示「模型或者接入点不存在」时，点击设置页模型�
 - **按需使用模型**：本地模板和关键词检索无需模型；文本环节可独立选服务商与模型，付费生成先确认预算。
 - **反馈复用**：评论保留原文与作用范围，采用的建议直接进入下一轮策划。
 
-本地语料检索采用关键词匹配，不使用向量数据库；热点筛选不是全网热搜榜。名称风险提示和敏感词替换仍需人工审核。
+语料默认本地关键词检索，可选 Qwen text-embedding-v4 生成向量后在本地混合检索，无需单独部署向量数据库。小红书高互动排序仅代表返回样本，不是全站榜单；名称风险、敏感词与角标检查仍需人工核对。
 
 ## 服务与数据
 
 | 能力 | 接口 / 方式 | 使用前提 |
 | --- | --- | --- |
-| 策略、文案、评论分类与复盘 | OpenAI / DeepSeek | 对应官方 API Key、模型权限及额度；每个文字环节可独立选择 |
+| 策略、文案、评论分类与复盘 | OpenAI / DeepSeek / Qwen | 对应官方 API Key、模型权限及额度；每个文字环节可独立选择 |
 | 小红书 AI 封面 | 火山方舟 Seedream | 北京区域已开通模型或可用接入点；图片密钥独立保存 |
 | 视频首尾帧 | GPT Image 2 / Seedream | 对应图片服务权限与额度 |
 | AI 视频 | Seedance（火山方舟 / BytePlus） | 对应区域密钥和支持首尾帧的模型或接入点 |
@@ -113,6 +120,9 @@ Seedream 提示「模型或者接入点不存在」时，点击设置页模型�
 | 可选抖音评论同步 | 抖音开放平台只读接口 | 已有应用、获批查询与评论权限及账号授权；新应用资格需官方确认，真实账号联调待完成 |
 | 小红书 / 抖音网页评论与指标 | 页面响应解析、自动滚动和预览导入 | Windows 应用、自有作品链接；仅采集实际可见 / 返回数据，不保证全量 |
 | 飞书多维表格 | 发布计划单向同步、冲突检测与状态回填 | 企业自建应用、表格权限及用户配置，详见接入指南 |
+| 外部小红书 MCP | 搜索/详情、用户确认发布、评论读取 | 另行安装服务并登录；默认仅本机连接，采集量受平台实际返回限制 |
+| 外部抖音 MCP | 适配登录和图文/视频发布 | 该适配器未提供评论工具，评论走内置助手或可选官方接口 |
+| 内容研究与 RAG | RSS、Qwen/豆包搜索、小红书 MCP、可选 Qwen embedding | 服务按需配置，不自动切换收费来源；发送范围先确认 |
 
 Windows 版的用户、工作区和凭证在本机按用户加密保存；API 与可选平台接口凭证还使用 Windows 当前账户的 DPAPI 保护；官方网页助手的登录会话仅在内存中复用。勾选自动登录后，下次可点击用户进入，也可取消记住。密码无法找回；工作区备份为明文且不含 API 密钥，请自行保管。
 
@@ -120,9 +130,9 @@ Windows 版的用户、工作区和凭证在本机按用户加密保存；API �
 
 Windows 菜单「工作台 → 在浏览器中打开」提供连接本机后端的完整网页，与桌面窗口共用本机数据。独立联网网页版的浏览器加密工作区和后端代码保留，但当前没有承诺持续可用的公网后端；不同浏览器与设备不会自动同步。详见 [联网网页版说明](docs/WEB-LOCAL-DATA.md)。
 
-## 截至 v1.6.0 的版本迭代
+## 截至 v1.17.0 的版本迭代
 
-以下区分 GitHub 已发布版本与此前仅本地交付的迭代；未将本地版本描述成已存在的历史 Release。
+v1.7.1–v1.16.0 原为本地迭代，本次累计进入 v1.17.0，未为它们补造独立 GitHub Release。历史文档的“未上传”描述当时状态。
 
 | 版本 | 主要变化 | 记录 |
 | --- | --- | --- |
@@ -140,10 +150,15 @@ Windows 菜单「工作台 → 在浏览器中打开」提供连接本机后端�
 | **v1.0.0 · 正式版** | **整合以上功能，公开完整项目源码，统一版本号、流程文档和正式下载入口** | [说明](docs/UPGRADE-1.0.0.md) / [正式版下载](https://github.com/JerryCoal/shengzhang-studio/releases/tag/v1.0.0) |
 | **v1.1.0 · 正式版** | **抖音六步开通指南、应用内授权与浏览器回退、授权作品选择、审核公开后自动采集评论、可选同步频率；修复评论分页和平台授权过期处理** | [更新记录](docs/RELEASE-1.1.0.md) / [正式版下载](https://github.com/JerryCoal/shengzhang-studio/releases/tag/v1.1.0) |
 | **v1.2.0 · 正式版** | **停用自动投送与旧任务；统一手动发布，增强 PNG / JPG / 原格式导出、独立文案与结构化素材包，完善创作中心入口和操作指引** | [更新记录](docs/RELEASE-1.2.0.md) / [下载](https://github.com/JerryCoal/shengzhang-studio/releases/tag/v1.2.0) |
-| v1.3.0–v1.3.4 · 本地迭代，本次合入 | 词库格式、规则优先替换、AI 语义检查、小红书文案规则、官方网页评论采集与自动滚动 | [敏感词升级](docs/UPGRADE-1.3.0.md) / [评论采集](docs/UPGRADE-1.3.4.md) |
-| v1.4.0–v1.4.1 · 本地迭代，本次合入 | 官方页面草稿助手、结构化评论、飞书多维表格发布计划 | [发布助手](docs/UPGRADE-1.4.0.md) / [飞书同步](docs/UPGRADE-1.4.1.md) |
-| v1.5.0 · 本地迭代，本次合入 | 评论初筛、AI 分类与人工复核，新增运营数据空间与累计指标快照 | [说明](docs/UPGRADE-1.5.0.md) |
+| v1.3.0–v1.3.4 · 本地迭代，已随 v1.6.0 合入 | 词库格式、规则优先替换、AI 语义检查、小红书文案规则、官方网页评论采集与自动滚动 | [敏感词升级](docs/UPGRADE-1.3.0.md) / [评论采集](docs/UPGRADE-1.3.4.md) |
+| v1.4.0–v1.4.1 · 本地迭代，已随 v1.6.0 合入 | 官方页面草稿助手、结构化评论、飞书多维表格发布计划 | [发布助手](docs/UPGRADE-1.4.0.md) / [飞书同步](docs/UPGRADE-1.4.1.md) |
+| v1.5.0 · 本地迭代，已随 v1.6.0 合入 | 评论初筛、AI 分类与人工复核，新增运营数据空间与累计指标快照 | [说明](docs/UPGRADE-1.5.0.md) |
 | **v1.6.0 · 测试版** | **确认后提交与回执、防重复投稿、父子评论与日期、作品指标采集、平台内存会话复用** | [更新记录](docs/RELEASE-1.6.0.md) / [测试版下载](https://github.com/JerryCoal/shengzhang-studio/releases/tag/v1.6.0) |
+| v1.7.0 · 测试版 | MCP 接入、Qwen 文本模型、本地加密配置 | [发布记录](https://github.com/JerryCoal/shengzhang-studio/releases/tag/v1.7.0) |
+| v1.7.1–v1.9.0 · 本次累计合入 | 小红书真实评论验收、用户文案 Skills、全流程内置规则 | [MCP 验证](docs/PLATFORM-ASSIST-VALIDATION-1.7.1.md) / [Skills](docs/AI-SKILLS-WORKFLOW.md) |
+| v1.10.0–v1.13.0 · 本次累计合入 | Qwen RAG、近期内容研究、Qwen 地域与 MCP 引导修复、多来源搜索 | [RAG](docs/QWEN-RAG.md) / [研究](docs/RECENT-CONTENT-RESEARCH.md) / [搜索](docs/UPGRADE-1.13.0.md) |
+| v1.14.0–v1.16.0 · 本次累计合入 | 后台任务、字号与重点阅读、小红书相关帖子发现及 DeepSeek 分析 | [后台](docs/UPGRADE-1.14.0.md) / [阅读](docs/UPGRADE-1.15.0.md) / [选题](docs/UPGRADE-1.16.0.md) |
+| **v1.17.0 · 测试版** | **Seedream 水印选择、本机 OCR 角标检查、原图核对与开发交接** | [更新](docs/RELEASE-1.17.0.md) / [验证](docs/VALIDATION-1.17.0.md) |
 
 此前源码中的「0.5.0 联网网页版」是并行部署方案的标识，不是桌面 v0.4.7 之后单独发布的正式版本。相关代码在 v1.0.0 中统一版本号，公网部署状态见上文。
 
@@ -164,7 +179,7 @@ Windows 菜单「工作台 → 在浏览器中打开」提供连接本机后端�
 Node.js **22.13+**；Windows 发布包使用 Node.js 24。依赖由 `pnpm-lock.yaml` 锁定。
 
 ```sh
-npm install -g pnpm@11.19.0
+npm install -g pnpm@11.25.0
 pnpm install --frozen-lockfile
 pnpm dev
 ```
@@ -187,7 +202,7 @@ pnpm run build:windows
 node scripts/package-windows.mjs
 ```
 
-当前源码输出 `outputs/Shengzhang-Studio-1.6.0-windows-x64.zip`，构建所用 Node 一起打包。仓库不包含第三方运行组件压缩包、用户数据、测试产物或个人密钥。原生工程构建前需执行 `pnpm native:sync`，再使用 Android Studio 或 macOS/Xcode。
+当前源码输出 `outputs/Shengzhang-Studio-1.17.0-windows-x64.zip`，构建所用 Node 一起打包。仓库不包含第三方运行组件压缩包、用户数据、测试产物或个人密钥。原生工程构建前需执行 `pnpm native:sync`，再使用 Android Studio 或 macOS/Xcode。
 
 ```text
 src/          页面、输入辅助、浏览器工作区、图文与视频制作
@@ -201,4 +216,4 @@ android/      安卓工程（待签名与真机验证）
 ios/          iOS 工程（待签名与真机验证）
 ```
 
-更多文档：[提示词与输入辅助](docs/PROMPT-WORKFLOW.md) · [生成与平台连接](docs/GENERATION-AND-PLATFORMS.md) · [部署说明](docs/DEPLOYMENT.md)。历史文档描述对应版本，当前功能与下载以本 README 和 v1.6.0 发布说明为准。
+更多文档：[提示词与输入辅助](docs/PROMPT-WORKFLOW.md) · [生成与平台连接](docs/GENERATION-AND-PLATFORMS.md) · [部署说明](docs/DEPLOYMENT.md)。历史文档描述对应版本，当前功能与下载以本 README 和 [v1.17.0 发布说明](docs/RELEASE-1.17.0.md) 为准。运行前置、模块索引和下一步见 [开发交接文档](docs/DEVELOPMENT-HANDOFF-1.17.0.md)。

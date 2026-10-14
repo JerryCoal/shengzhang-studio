@@ -1,0 +1,24 @@
+export type CreativeSkillPlatform = 'xiaohongshu' | 'douyin';
+export type CreativeSkillStage = 'copy';
+export type CreativeSkillPreview = {
+  name: string;
+  description: string;
+  version: string;
+  platforms: CreativeSkillPlatform[];
+  stages: CreativeSkillStage[];
+  instructions: string;
+  sourceText: string;
+  sourceFile: string;
+  warnings: string[];
+};
+export type CreativeSkillSnapshot = CreativeSkillPreview & { id: string; installedAt: string };
+export type InstalledCreativeSkill = CreativeSkillSnapshot & { enabled: boolean };
+export type CreativeSkillState = { installedSkills?: InstalledCreativeSkill[]; skillsRevision?: number };
+export const CREATIVE_SKILL_MAX_BYTES: number;
+export const CREATIVE_SKILL_MAX_COUNT: number;
+export function normalizeCreativeSkills<T extends CreativeSkillState>(state: T): T & { installedSkills: InstalledCreativeSkill[]; skillsRevision: number };
+export function previewCreativeSkill(input: { fileName: string; text: string }): CreativeSkillPreview;
+export function installCreativeSkill(state: CreativeSkillState, input: { fileName: string; text: string; expectedRevision: number; confirmed: true }): InstalledCreativeSkill;
+export function setCreativeSkillEnabled(state: CreativeSkillState, id: string, input: { enabled: boolean; expectedRevision: number }): InstalledCreativeSkill;
+export function removeCreativeSkill(state: CreativeSkillState, id: string, input: { expectedRevision: number }): { ok: true };
+export function resolveCreativeSkill(state: CreativeSkillState, input: { skillId?: string; stage: string; platform: CreativeSkillPlatform }): CreativeSkillSnapshot | null;

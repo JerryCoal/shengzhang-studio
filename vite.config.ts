@@ -4,6 +4,7 @@ import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import JSZip from 'jszip';
+import textScale from './scripts/text-scale-postcss.mjs';
 const require = createRequire(import.meta.url);
 async function preparePDFResources() {
   const root = dirname(require.resolve('pdfjs-dist/package.json')), zip = new JSZip();
@@ -14,6 +15,7 @@ async function preparePDFResources() {
 export default defineConfig(({ mode }) => ({
   base: mode === 'static' ? './' : '/',
   plugins: [react(), { name: 'local-pdf-resources', buildStart: preparePDFResources }],
+  css: { postcss: { plugins: [textScale()] } },
   server: { host: '127.0.0.1', port: 5173, strictPort: true, proxy: { '/api': 'http://127.0.0.1:4318' } },
   build: { target: 'es2022' },
 }));

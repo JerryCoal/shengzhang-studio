@@ -1,6 +1,6 @@
 import { canGenerate } from './model-provider';
 import { useEffect, useRef, type ReactNode } from 'react';
-import { ArrowUpRight, Check, ChevronRight, Leaf, Plus, Sparkles, X } from 'lucide-react';
+import { ArrowUpRight, Check, ChevronRight, Leaf, Minimize2, Plus, Sparkles, X } from 'lucide-react';
 import type { Platform, Project } from './types';
 import { useStudio } from './context';
 export const platformName = (platform: Platform) => platform === 'xiaohongshu' ? '小红书' : '抖音';
@@ -12,9 +12,21 @@ export function Empty({ title, text, children }: { title: string; text: string; 
 export function NeedProject() { const { go } = useStudio(); return <Empty title="先种下一个新项目" text="添加品牌资料与宣传目标，开始你的内容创作。"><button className="button primary" onClick={() => go('projects')}><Plus size={16}/>创建项目</button></Empty>; }
 export function Modal({ title, description, children, onClose, wide = false }: { title: string; description?: string; children: ReactNode; onClose: () => void; wide?: boolean }) {
   const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => { ref.current?.showModal(); const d = ref.current; return () => d?.close(); }, []);
-  return <dialog ref={ref} className={`modal ${wide ? 'wide' : ''}`} onCancel={e => { e.preventDefault(); onClose(); }} onClick={e => { if (e.target === e.currentTarget) onClose(); }} aria-label={title}>
-    <div className="modal-head"><div><h2>{title}</h2>{description && <p>{description}</p>}</div><button className="icon-button" onClick={onClose} aria-label="关闭弹窗"><X size={20}/></button></div><div className="modal-body">{children}</div>
+  const { dialogsVisible = true, taskPending, minimizeTask } = useStudio();
+  useEffect(() => {
+    const d = ref.current;
+    if (dialogsVisible && d) {
+      // Restore ancestor dialogs first so a nested AI preview remains on top.
+      const parents: HTMLDialogElement[] = [];
+      let parent = d.parentElement?.closest('dialog');
+      while (parent) { if (parent.dataset.studioVisible === 'true') parents.unshift(parent); parent = parent.parentElement?.closest('dialog') || null; }
+      for (const dialog of [...parents, d]) if (!dialog.open) dialog.showModal();
+    } else d?.close();
+    return () => d?.close();
+  }, [dialogsVisible]);
+  const close = taskPending && minimizeTask ? minimizeTask : onClose;
+  return <dialog ref={ref} data-studio-visible={dialogsVisible} className={`modal ${wide ? 'wide' : ''}`} onCancel={e => { e.preventDefault(); close(); }} onClick={e => { if (e.target === e.currentTarget) close(); }} aria-label={title}>
+    <div className="modal-head"><div><h2>{title}</h2>{description && <p>{description}</p>}</div><div className="row gap-8">{taskPending && <button type="button" className="button small" onClick={minimizeTask}><Minimize2 size={15}/>收起窗口</button>}<button type="button" className="icon-button" onClick={close} aria-label={taskPending ? '收起弹窗，继续后台处理' : '关闭弹窗'}><X size={20}/></button></div></div><div className="modal-body">{taskPending && <p className="info-box">正在后台处理。可以收起窗口，切换到其他项目继续工作；完成后从右上角“后台任务”查看。收起不会取消请求，请保持应用运行。</p>}{children}</div>
   </dialog>;
 }
 export function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) { return <label className="field"><span>{label}</span>{children}{hint && <small>{hint}</small>}</label>; }

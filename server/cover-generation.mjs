@@ -4,8 +4,9 @@ import { mediaPrompt } from './prompts.mjs';
 import { rulesOf } from './workflow.mjs';
 import { generateSeedreamKeyframe, seedreamCost, validateSeedreamReferences } from './seedream.mjs';
 import { seedreamSettingsSchema, SEEDREAM_COVER_SIZE } from './seedream-config.mjs';
+import { reviewGeneratedImage } from './image-generation-review.mjs';
 
-export const coverInput = z.object({ expectedRevision: z.number().int().positive(), prompt: z.string().trim().max(1200).default(''), query: z.string().trim().max(500).default(''), style: z.enum(['natural', 'clean', 'editorial']).default('natural'), layout: z.enum(['top', 'left', 'center']).default('top'), textMode: z.enum(['title', 'none']).default('title'), confirmed: z.literal(true) }).strict();
+export const coverInput = z.object({ expectedRevision: z.number().int().positive(), prompt: z.string().trim().max(1200).default(''), query: z.string().trim().max(500).default(''), style: z.enum(['natural', 'clean', 'editorial']).default('natural'), layout: z.enum(['top', 'left', 'center']).default('top'), textMode: z.enum(['title', 'none']).default('title'), watermark: z.boolean().optional(), confirmed: z.literal(true) }).strict();
 
 export function mountCoverGeneration(app, store, config, helpers, preferences) {
   const { project, activeJobs, local, background, respond, reserve, settle } = helpers;
@@ -13,7 +14,7 @@ export function mountCoverGeneration(app, store, config, helpers, preferences) {
   const update = (pid, aid, work) => store.mutate(state => { const p = project(state, pid), a = assetIn(p, aid); const result = work(p, a, state); d.touch(p); return result; });
   app.post('/api/projects/:id/assets/:assetId/cover', async (req, res) => {
     local(req); const input = coverInput.parse(req.body);
-    const settings = seedreamSettingsSchema.parse(preferences.get().seedream);
+    const settings = seedreamSettingsSchema.parse({ ...preferences.get().seedream, ...(input.watermark === undefined ? {} : { watermark: input.watermark }) });
     d.assert(!activeJobs.has(req.params.id), '此项目正在执行模型请求，请稍候', 409);
     activeJobs.add(req.params.id);
     let key, job;
@@ -24,21 +25,22 @@ export function mountCoverGeneration(app, store, config, helpers, preferences) {
         d.assert(a.aiCover?.phase !== 'generating', '封面正在生成，请勿重复提交', 409);
         d.assert(a.aiCover?.phase !== 'uncertain', '上次封面请求结果不明，请核对火山方舟后解除锁定', 409);
         const references = p.imageData ? [p.imageData] : []; validateSeedreamReferences(references);
-        const recipe = mediaPrompt(p, a, { ...input, purpose: 'cover' }, rulesOf(state));
-        const usageId = reserve(p, settings.model, Math.max(settings.reservationUsd, settings.imagePriceUsd), 'cover');
+        const recipe = mediaPrompt(p, a, { ...input, purpose: 'cover', hasProductReference: !!p.imageData }, rulesOf(state));
+        const usageId = reserve(p, settings.model, Math.max(settings.reservationUsd, settings.imagePriceUsd), 'cover', recipe);
         const id = d.id();
         // A new request keeps the adopted asset and its history untouched.
-        a.aiCover = { id, phase: 'generating', assetRevision: a.revision, model: settings.model, size: SEEDREAM_COVER_SIZE, usageId, input, ...recipe, createdAt: d.now(), error: '' };
+        a.aiCover = { id, phase: 'generating', assetRevision: a.revision, model: settings.model, size: SEEDREAM_COVER_SIZE, watermarkRequested: settings.watermark, usageId, input, ...recipe, createdAt: d.now(), error: '' };
         return { pid: p.id, aid: a.id, id, usageId, references, prompt: recipe.prompt };
       });
     } finally { activeJobs.delete(req.params.id); }
     background(async () => {
       try {
         const result = await generateSeedreamKeyframe({ apiKey: key, settings, size: SEEDREAM_COVER_SIZE, prompt: job.prompt, references: job.references }, config.fetcher || fetch);
+        const watermarkCheck = await reviewGeneratedImage(result.mediaData, config);
         update(job.pid, job.aid, (p, a) => {
           settle(p, job.usageId, seedreamCost(result.usage, settings), 'completed', 'Seedream 封面 · 按配置单价估算，最终以账单为准');
           if (a.aiCover?.id !== job.id) return;
-          Object.assign(a.aiCover, { phase: a.revision === a.aiCover.assetRevision ? 'ready' : 'stale', mediaData: result.mediaData, completedAt: d.now() });
+          Object.assign(a.aiCover, { phase: a.revision === a.aiCover.assetRevision ? 'ready' : 'stale', mediaData: result.mediaData, watermarkCheck, completedAt: d.now() });
           if (a.aiCover.phase === 'stale') a.aiCover.error = '生成期间文案或成品已修改。候选图保留供查看，不会覆盖当前版本。';
         });
       } catch (error) {

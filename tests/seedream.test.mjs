@@ -62,3 +62,40 @@ test('Seedream-only settings survive restart and upgrade legacy Seedance setting
   assert.equal(store.get().imageProvider, 'openai'); assert.deepEqual(store.get().seedance, seedance);
   store.saveSeedream(defaultSeedream); assert.deepEqual(createIntegrationPreferences(path).get().seedance, seedance);
 });
+
+test('Seedream watermark defaults on for legacy settings and an explicit off survives restart', t => {
+  assert.equal(defaultSeedream.watermark, true);
+  const { watermark: _watermark, ...legacy } = defaultSeedream;
+  assert.equal(seedreamSettingsSchema.parse(legacy).watermark, true);
+  for (const value of ['false', 0, null]) assert.throws(() => seedreamSettingsSchema.parse({ ...legacy, watermark: value }));
+  const dir = mkdtempSync(join(tmpdir(), 'studio-seedream-watermark-'));
+  t.after(() => { if (!dir.startsWith(resolve(tmpdir()) + sep)) throw Error('Unexpected directory'); rmSync(dir, { recursive: true }); });
+  const path = join(dir, 'preferences.json');
+  let preferences = createIntegrationPreferences(path);
+  writeFileSync(path, JSON.stringify({ ...preferences.get(), seedream: legacy }));
+  preferences = createIntegrationPreferences(path);
+  assert.equal(preferences.get().seedream.watermark, true);
+  preferences.saveSeedream({ ...preferences.get().seedream, watermark: false });
+  preferences = createIntegrationPreferences(path);
+  assert.equal(preferences.get().seedream.watermark, false);
+  const detached = preferences.get(); detached.seedream.watermark = true;
+  assert.equal(preferences.get().seedream.watermark, false, 'reading preferences must not mutate their saved value');
+});
+
+test('every Seedream model transmits the exact watermark boolean without altering PNG or JPEG bytes', async () => {
+  for (const [family, preset] of Object.entries(SEEDREAM_MODELS)) {
+    for (const watermark of [false, true]) {
+      for (const [mime, encoded] of [['image/png', png], ['image/jpeg', jpeg]]) {
+        let calls = 0;
+        const result = await generateSeedreamKeyframe({ apiKey: key, prompt: 'unchanged synthetic image', settings: { ...defaultSeedream, family, model: preset.model, watermark } }, async (_url, init) => {
+          calls++;
+          assert.equal(JSON.parse(init.body).watermark, watermark);
+          return Response.json({ data: [{ b64_json: encoded }], usage: { generated_images: 1 } });
+        });
+        assert.equal(calls, 1);
+        assert.equal(result.mediaData, `data:${mime};base64,${encoded}`);
+        assert.deepEqual(Buffer.from(result.mediaData.split(',')[1], 'base64'), Buffer.from(encoded, 'base64'));
+      }
+    }
+  }
+});

@@ -6,6 +6,10 @@ export type CommentCaptureResult = { rows?: CapturedComment[]; metrics?: Capture
 declare global {
   interface Window {
     studioDesktop?: {
+      stopExternalMCP: (args: {platform: 'xiaohongshu' | 'douyin'; sessionToken: string}) => Promise<{note?: string; error?: string}>;
+      startExternalMCP: (args: {platform: 'xiaohongshu' | 'douyin'; sessionToken: string}) => Promise<{endpoint?: string; token?: string; ready?: boolean; cancelled?: boolean; note?: string; error?: string}>;
+      restartMCP: () => Promise<{ok?: boolean; note?: string; error?: string}>;
+      openPlatformLogin: (args: {platform: 'xiaohongshu' | 'douyin'; sessionToken: string}) => Promise<{closed?: boolean; cancelled?: boolean; note?: string; error?: string}>;
       resetPlatformConnections: () => Promise<void>;
       openDouyinAuthorization: (url: string) => Promise<DouyinAuthorizationResult>;
       cancelDouyinAuthorization: () => Promise<void>;

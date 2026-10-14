@@ -7,6 +7,7 @@ import { seedreamSettingsSchema, SEEDREAM_SIZE } from './seedream-config.mjs';
 import { mountCoverGeneration } from './cover-generation.mjs';
 import { mediaPrompt } from './prompts.mjs';
 import { rulesOf } from './workflow.mjs';
+import { reviewGeneratedImage } from './image-generation-review.mjs';
 
 export const SEEDANCE_HOSTS = { volcengine: 'https://ark.cn-beijing.volces.com/api/v3', byteplus: 'https://ark.ap-southeast.bytepluses.com/api/v3' };
 export const seedanceSettingsSchema = z.object({ region: z.enum(['volcengine', 'byteplus']), model: z.string().trim().min(3).max(120).regex(/^[a-zA-Z0-9_-]+$/), reservationUsd: z.number().min(0.1).max(100), outputPriceUsd: z.number().min(0).max(1000) }).strict();
@@ -19,9 +20,9 @@ export function imageCost(usage) {
   const output = usage?.output_tokens;
   return [text, images, output].every(n => Number.isFinite(n) && n >= 0) ? (text * 5 + images * 8 + output * 30) / 1e6 : null;
 }
-function reserve(p, model, amount, stage) {
+function reserve(p, model, amount, stage, recipe) {
   d.assert(p.usage.reduce((sum, u) => sum + u.amountUsd, 0) + amount <= p.brief.budgetUsd, `项目预算不足。本次需要预留 $${amount.toFixed(2)}，请先调整预算。`);
-  const usage = { id: d.id(), stage, model, amountUsd: amount, estimated: true, status: 'running', at: d.now(), note: '请求费用预留；不代表服务商账单或单次收费上限' };
+  const usage = { id: d.id(), stage, model, ...(recipe ? { promptVersion: recipe.promptVersion, skillVersions: recipe.skillVersions } : {}), amountUsd: amount, estimated: true, status: 'running', at: d.now(), note: '请求费用预留；不代表服务商账单或单次收费上限' };
   p.usage.push(usage); return usage.id;
 }
 function settle(p, usageId, cost, status, note) {
@@ -54,9 +55,10 @@ export function mountMediaGeneration(app, store, config, { project, activeJobs }
 
   app.post('/api/projects/:id/assets/:assetId/keyframes', async (req, res) => {
     local(req);
-    const input = z.object({ provider: z.enum(['openai', 'seedream']).optional(), role: z.enum(['first_frame', 'last_frame']), prompt: z.string().trim().min(1).max(4000), quality: z.enum(['low', 'medium', 'high']).default('medium'), expectedRevision: z.number().int() }).strict().parse(req.body);
+    const input = z.object({ provider: z.enum(['openai', 'seedream']).optional(), role: z.enum(['first_frame', 'last_frame']), prompt: z.string().trim().min(1).max(4000), quality: z.enum(['low', 'medium', 'high']).default('medium'), watermark: z.boolean().optional(), expectedRevision: z.number().int() }).strict().parse(req.body);
     const provider = input.provider || preferences.get().imageProvider || 'openai';
-    const imageSettings = provider === 'seedream' ? seedreamSettingsSchema.parse(preferences.get().seedream) : null;
+    d.assert(provider === 'seedream' || input.watermark === undefined, '可见水印开关仅适用于 Seedream 图片生成');
+    const imageSettings = provider === 'seedream' ? seedreamSettingsSchema.parse({ ...preferences.get().seedream, ...(input.watermark === undefined ? {} : { watermark: input.watermark }) }) : null;
     const model = imageSettings?.model || 'gpt-image-2', reservation = imageSettings ? Math.max(imageSettings.reservationUsd, imageSettings.imagePriceUsd) : 1;
     const costOf = usage => imageSettings ? seedreamCost(usage, imageSettings) : imageCost(usage);
     d.assert(!activeJobs.has(req.params.id), '此项目正在进行模型请求', 409);
@@ -75,10 +77,10 @@ export function mountMediaGeneration(app, store, config, { project, activeJobs }
       const strategy = p.strategies.find(s => s.id === a.strategyId); d.assert(strategy?.status === 'confirmed', '请先确认策略');
       const references = [p.imageData, ...(input.role === 'last_frame' ? [current.frames.find(f => f.role === 'first_frame').mediaData] : [])].filter(Boolean);
       if (imageSettings) validateSeedreamReferences(references);
-      const recipe = mediaPrompt(p, a, { purpose: input.role, prompt: input.prompt }, rulesOf(store.get()));
+      const recipe = mediaPrompt(p, a, { purpose: input.role, prompt: input.prompt, hasProductReference: !!p.imageData }, rulesOf(store.get()));
       const prompt = recipe.prompt;
       job = update(p.id, a.id, (fresh, asset) => {
-        const usageId = reserve(fresh, model, reservation, 'keyframe');
+        const usageId = reserve(fresh, model, reservation, 'keyframe', recipe);
         asset.aiProduction = { ...current, phase: 'generating-frame', error: '', frameUsageId: usageId, frameProvider: provider, frameModel: model };
         return { projectId: p.id, assetId: a.id, productionId: current.id, usageId, references, prompt, recipe };
       });
@@ -86,11 +88,12 @@ export function mountMediaGeneration(app, store, config, { project, activeJobs }
     background(async () => {
       try {
         const result = imageSettings ? await generateSeedreamKeyframe({ apiKey: key, prompt: job.prompt, references: job.references, settings: imageSettings }, fetcher) : await generateKeyframe({ apiKey: key, prompt: job.prompt, references: job.references, quality: input.quality }, fetcher);
+        const review = imageSettings ? { watermarkRequested: imageSettings.watermark, watermarkCheck: await reviewGeneratedImage(result.mediaData, config) } : {};
         update(job.projectId, job.assetId, (p, a, g) => {
           settle(p, job.usageId, costOf(result.usage), 'completed', imageSettings ? `Seedream · ${imageSettings.imagePriceUsd ? '按返回图片数和保存时单价估算' : '未填写单价，保留预算预留'}，最终以账单为准` : 'GPT Image 2 · 按返回 token 估算，最终以账单为准');
           if (g?.id !== job.productionId) return;
           g.frames = g.frames.filter(f => input.role === 'last_frame' && f.role === 'first_frame');
-          g.frames.push({ id: d.id(), role: input.role, prompt: input.prompt, recipe: job.recipe, mediaData: result.mediaData, model, provider, size: imageSettings ? SEEDREAM_SIZE : '864x1536', createdAt: d.now() });
+          g.frames.push({ id: d.id(), role: input.role, prompt: input.prompt, recipe: job.recipe, mediaData: result.mediaData, model, provider, size: imageSettings ? SEEDREAM_SIZE : '864x1536', ...review, createdAt: d.now() });
           g.phase = a.revision === g.assetRevision ? 'frames' : 'stale';
           g.error = g.phase === 'stale' ? '内容已修改，关键帧保留供查看，请按新版本重新生成。' : '';
         });
@@ -107,12 +110,12 @@ export function mountMediaGeneration(app, store, config, { project, activeJobs }
     const settings = seedanceSettingsSchema.parse(preferences.get().seedance);
     const key = await seedKey();
     const recipeState = store.get(), recipeProject = project(recipeState, req.params.id);
-    const recipe = mediaPrompt(recipeProject, assetIn(recipeProject, req.params.assetId), { purpose: 'video', prompt: input.prompt }, rulesOf(recipeState));
+    const recipe = mediaPrompt(recipeProject, assetIn(recipeProject, req.params.assetId), { purpose: 'video', prompt: input.prompt, duration: input.duration, generateAudio: input.generateAudio, hasProductReference: false }, rulesOf(recipeState));
     const job = update(req.params.id, req.params.assetId, (p, a, g) => {
       d.assert(a.revision === input.expectedRevision && g?.assetRevision === a.revision && g.id === input.productionId, '内容版本已改变，请重新检查关键帧', 409);
       d.assert(['frames', 'failed'].includes(g.phase) && !g.taskId, '任务已经提交或需要先核对结果，请勿重复生成', 409);
       d.assert(g.frames.length === 2 && g.frames.some(f => f.role === 'first_frame') && g.frames.some(f => f.role === 'last_frame'), '请先完成首尾两张关键帧');
-      const usageId = reserve(p, settings.model, settings.reservationUsd, 'video');
+      const usageId = reserve(p, settings.model, settings.reservationUsd, 'video', recipe);
       Object.assign(g, { phase: 'submitting-video', prompt: input.prompt, recipe, duration: input.duration, generateAudio: input.generateAudio, videoUsageId: usageId, provider: settings.region, model: settings.model, outputPriceUsd: settings.outputPriceUsd, error: '', submittedAt: d.now(), failures: 0 });
       return { projectId: p.id, assetId: a.id, productionId: g.id, frames: g.frames, usageId };
     });

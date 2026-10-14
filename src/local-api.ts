@@ -1,9 +1,12 @@
 import { applyRuleClassification, correctComment } from '../server/comment-analysis.mjs';
 import { saveMetricSnapshot } from '../server/operating-data.mjs';
 import { z } from 'zod';
+import { previewCreativeSkill, installCreativeSkill, setCreativeSkillEnabled, removeCreativeSkill } from '../server/creative-skills.mjs';
+import { creativeSkillCatalog } from '../server/creative-skill-catalog.mjs';
 import * as d from '../server/domain.mjs';
 import { configureTrends, selectTrends, changeTrendTag } from '../server/trends.mjs';
 import { updateGuide } from '../server/guide.mjs';
+import { appearanceOf, saveAppearance } from '../server/appearance.mjs';
 import { consumeEditorDraft, rulesOf, saveRules, importCorpus, changeCorpus, searchCorpus, saveEditorDraft, reviewObject } from '../server/workflow.mjs';
 import { changeLocalState, lockLocalWorkspace, readLocalState } from './local-vault';
 import modelSettings from './static-settings.json';
@@ -11,7 +14,7 @@ import type { State, Integrations, Settings, Project } from './types';
 import { defaultSeedream } from '../server/seedream-config.mjs';
 
 const unavailable = '静态体验版未连接在线服务。请在本地完整版中配置 AI 或平台授权；此处不会发出请求或收取费用。';
-const settings: Settings = { ...modelSettings, openaiConfigured: false, authEnabled: true, version: '1.7.0 · 本地静态版', verification: null,
+const settings: Settings = { ...modelSettings, openaiConfigured: false, authEnabled: true, version: '1.17.0 · 本地静态版', verification: null,
   credential: { local: false, editable: false, supported: false, configured: false, source: 'none', suffix: '', protection: '', problem: '静态版不接收 API 密钥。请在本地完整版中配置 AI 服务。' } } as Settings;
 const integrations: Integrations = { local: false, imageProvider: 'openai', seedream: { ...defaultSeedream, configured: false, supported: false, suffix: '', problem: unavailable }, seedance: { region: 'volcengine', model: '', reservationUsd: 2, outputPriceUsd: 0, configured: false, supported: false, suffix: '', problem: unavailable }, douyin: { configured: false, supported: false, redirectUri: '', accounts: [] } };
 function project(state: State, id: string) { const p = state.projects.find(p => p.id === id); d.assert(p, '项目不存在'); return p; }
@@ -31,12 +34,15 @@ export async function localAPI<T>(path: string, method: string, input: unknown):
     const state = await readLocalState();
     if (path === '/state' || path === '/backup') { const copy = structuredClone(state); delete copy.webPrivate; return copy as T; }
     if (path === '/settings') return structuredClone(settings) as T;
+    if (path === '/appearance') return appearanceOf(state) as T;
+    if (path === '/creative-skills') return creativeSkillCatalog(state) as T;
     if (path === '/content-rules') return { rules: rulesOf(state), revision: state.rulesRevision || 0 } as T;
     if (path.startsWith('/editor-drafts/')) return (state.projectDrafts?.[path.split('/')[2]] || null) as T;
     if (path === '/integrations') return structuredClone(integrations) as T;
     if (path === '/progress-version') return { version: state.projects.map(p => `${p.id}:${p.revision}`).join('|') } as T;
     throw new Error(unavailable);
   }
+  if (path === '/creative-skills/preview' && method === 'POST') return previewCreativeSkill(input as Parameters<typeof previewCreativeSkill>[0]) as T;
   if (path.startsWith('/editor-drafts/')) {
     const key = path.split('/')[2];
     const result = await changeLocalState(state => {
@@ -51,7 +57,14 @@ export async function localAPI<T>(path: string, method: string, input: unknown):
   try {
     return await changeLocalState(state => {
       const body = z.record(z.string(), z.unknown()).parse(input ?? {});
+      if (path === '/creative-skills' && method === 'POST') return installCreativeSkill(state, body as Parameters<typeof installCreativeSkill>[1]);
+      if (/^\/creative-skills\/[^/]+$/.test(path)) {
+        const id = path.split('/')[2];
+        if (method === 'PATCH') return setCreativeSkillEnabled(state, id, body as Parameters<typeof setCreativeSkillEnabled>[2]);
+        if (method === 'DELETE') return removeCreativeSkill(state, id, body as Parameters<typeof removeCreativeSkill>[2]);
+      }
       if (path === '/guide' && method === 'PUT') return updateGuide(state, body);
+      if (path === '/appearance' && method === 'PUT') return saveAppearance(state, body);
       if (path === '/content-rules' && method === 'PUT') return saveRules(state, body);
       if (body.mode === 'openai' || path.startsWith('/integrations') || path.startsWith('/settings')) throw new Error(unavailable);
       if (path === '/projects' && method === 'POST') { const p = d.newProject(body); consumeEditorDraft(state, body); state.projects.unshift(p); d.activity(state, '新项目已创建', p.brief.name, p.id); return p; }
@@ -78,8 +91,8 @@ export async function localAPI<T>(path: string, method: string, input: unknown):
       }
       if (kind === 'assets') {
         if (!action && method === 'PUT') return d.updateAsset(p, itemId, body, rulesOf(state));
-        if (action === 'restore' && method === 'POST') { const asset = p.assets.find(a => a.id === itemId); const version = asset?.history.find(v => v.revision === body.revision); d.assert(asset && version?.mediaData, '该版本没有成品'); return d.updateAsset(p, itemId, { ...version, expectedRevision: asset.revision }, rulesOf(state)); }
-        if (action === 'review' && method === 'POST') { const asset = p.assets.find(a => a.id === itemId); d.assert(asset, '内容不存在'); d.assert(asset.revision === body.expectedRevision, '成品已更新'); const old = JSON.stringify([asset.title, asset.body, asset.scenes, asset.prompt]), visual = JSON.stringify([asset.title, asset.scenes]); const prior = { title: asset.title, body: asset.body, mediaData: asset.mediaData, mime: asset.mime, revision: asset.revision, at: d.now() }, wasReady = asset.status === 'ready'; reviewObject(asset, rulesOf(state)); if (old !== JSON.stringify([asset.title, asset.body, asset.scenes, asset.prompt])) { if (wasReady) asset.history = [prior, ...asset.history].slice(0, 5); if (visual !== JSON.stringify([asset.title, asset.scenes])) asset.status = 'queued'; asset.revision++; d.touch(p); } return asset; }
+        if (action === 'restore' && method === 'POST') { const asset = p.assets.find(a => a.id === itemId); const version = asset?.history.find(v => v.revision === body.revision); d.assert(asset && version?.mediaData, '该版本没有成品'); const restored = d.updateAsset(p, itemId, { ...version, expectedRevision: asset.revision }, rulesOf(state)); if (version.skillTrace) restored.skillTrace = structuredClone(version.skillTrace); else delete restored.skillTrace; return restored; }
+        if (action === 'review' && method === 'POST') { const asset = p.assets.find(a => a.id === itemId); d.assert(asset, '内容不存在'); d.assert(asset.revision === body.expectedRevision, '成品已更新'); const old = JSON.stringify([asset.title, asset.body, asset.scenes, asset.prompt]), visual = JSON.stringify([asset.title, asset.scenes]); const prior = { title: asset.title, body: asset.body, mediaData: asset.mediaData, mime: asset.mime, revision: asset.revision, at: d.now(), ...(asset.skillTrace ? { skillTrace: structuredClone(asset.skillTrace) } : {}) }, wasReady = asset.status === 'ready'; reviewObject(asset, rulesOf(state)); if (old !== JSON.stringify([asset.title, asset.body, asset.scenes, asset.prompt])) { if (wasReady) asset.history = [prior, ...asset.history].slice(0, 5); if (visual !== JSON.stringify([asset.title, asset.scenes])) asset.status = 'queued'; asset.revision++; d.touch(p); } return asset; }
       }
       if (kind === 'publications') {
         if (!itemId && method === 'POST') { const pub = d.schedulePublication(p, state.accounts, body); d.activity(state, '已加入发布计划', `${pub.title} · 等待手动发布`, p.id); return pub; }

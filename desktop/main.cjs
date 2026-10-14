@@ -1,6 +1,8 @@
 const { app, BrowserWindow, WebContentsView, Menu, Tray, nativeImage, shell, dialog, ipcMain, session, clipboard } = require('electron');
 const { startDesktopMCP } = require('./mcp-server.cjs');
-const { randomBytes } = require('node:crypto');
+const { createPlatformLogin } = require('./platform-login.cjs');
+const { createMCPLauncher } = require('./mcp-launcher.cjs');
+const { randomBytes, createHash } = require('node:crypto');
 const mcpSecret = randomBytes(32).toString('base64url');
 let mcpServer;
 const { createCreatorController } = require('./creator-window.cjs');
@@ -18,9 +20,12 @@ const dataRoot = process.env.STUDIO_DESKTOP_DATA_DIR || join(process.env.LOCALAP
 mkdirSync(dataRoot, { recursive: true });
 app.setPath('userData', join(dataRoot, 'browser'));
 const reportFile = join(dataRoot, 'startup-status.json');
+const externalMCP = createMCPLauncher({dataRoot:join(dataRoot,'external-mcp')});
+let launchEpoch=0, activePlatformTask=null;
 const report = event => writeFileSync(reportFile, JSON.stringify({ ...event, at: new Date().toISOString() }));
 let window, tray, backend, website = '', quitting = false, shutdownRequested = false, proxyEnabled = false;
 const douyinAuth = createDouyinAuthController({ BrowserWindow, session, getParent: () => window });
+const platformLogin = createPlatformLogin({ BrowserWindow, getParent: () => window });
 const commentCollector = createCommentCollector({ BrowserWindow, WebContentsView, session, Menu, dialog, ipcMain, getParent: () => window });
 const creator = createCreatorController({ BrowserWindow, WebContentsView, session, ipcMain, dialog, clipboard, getParent: () => window, tempRoot: () => app.getPath('temp') });
 const platformSessions = createPlatformSessions(session, async token => {
@@ -34,18 +39,24 @@ ipcMain.handle('studio:douyin-authorize', async (event, url) => {
 });
 ipcMain.handle('studio:douyin-cancel', event => { if (trustedRenderer(event)) douyinAuth.cancel(); });
 async function openComments(url, automatic = false) {
+  if(activePlatformTask)return {error:'已有平台窗口正在操作，请先完成或关闭后重试。'};
+  const task=Symbol('comments');activePlatformTask=task;
   try {
+    platformLogin.cancel();
     commentCollector.cancel();creator.cancel();
     const {commentSource}=await import('./comment-source.mjs');
     const platform=commentSource(typeof url==='string'?url:url?.url).platform;
     const sharedSession=await platformSessions.acquire(platform,url?.sessionToken);
     return await commentCollector.open(url,{sharedSession,automatic});
-  } catch(e) { return { error:e.message || '无法打开作品，请检查链接后重试。' }; }
+  } catch(e) { return { error:e.message || '无法打开作品，请检查链接后重试。' }; } finally {if(activePlatformTask===task)activePlatformTask=null;}
 }
 ipcMain.handle('studio:comments-open', (event,url)=>{if(!trustedRenderer(event))throw Error('请从工作台开始评论采集');return openComments(url);});
 ipcMain.handle('studio:comments-cancel', event => { if (trustedRenderer(event)) commentCollector.cancel(); });
 async function openCreator(draft, automatic = false) {
+  if(activePlatformTask)return {error:'已有平台窗口正在操作，请先完成或关闭后重试。'};
+  const task=Symbol('creator');activePlatformTask=task;
   try {
+    platformLogin.cancel();
     commentCollector.cancel();creator.cancel();
     const sharedSession=await platformSessions.acquire(draft?.platform,draft?.sessionToken);
     const canTrack=typeof draft.projectId==='string'&&/^[\w-]{1,100}$/.test(draft.projectId)&&typeof draft.publicationId==='string'&&/^[\w-]{1,100}$/.test(draft.publicationId);
@@ -54,14 +65,50 @@ async function openCreator(draft, automatic = false) {
       if(!response.ok){const error=await response.json().catch(()=>({}));throw Error(error.error||'发布记录未能保存，已停止提交');}
     }:null;
     return await creator.open(draft,{sharedSession,saveDelivery,automatic});
-  } catch(e) { return { error:e.message || '无法打开发布助手' }; }
+  } catch(e) { return { error:e.message || '无法打开发布助手' }; } finally {if(activePlatformTask===task)activePlatformTask=null;}
 }
 ipcMain.handle('studio:creator-open',(event,draft)=>{if(!trustedRenderer(event))throw Error('请从工作台打开发布助手');return openCreator(draft);});
 ipcMain.handle('studio:creator-cancel', event => { if (trustedRenderer(event)) creator.cancel(); });
-ipcMain.handle('studio:platform-lock', async event => {if (!trustedRenderer(event)) return;commentCollector.cancel();creator.cancel();await platformSessions.clear();});
+ipcMain.handle('studio:platform-lock', async event => {if (!trustedRenderer(event)) return;launchEpoch++;await externalMCP.stopAll();platformLogin.cancel();commentCollector.cancel();creator.cancel();await platformSessions.clear();});
+async function externalScope(args) {
+  if(!['xiaohongshu','douyin'].includes(args?.platform)||typeof args?.sessionToken!=='string'||!args.sessionToken||args.sessionToken.length>1024)throw Error('请先登录工作台');
+  const response=await fetch(website+'/api/profiles/session',{headers:{'X-Studio-Client':'studio-v1',Authorization:'Bearer '+args.sessionToken},signal:AbortSignal.timeout(8000)});
+  if(!response.ok)throw Error('工作台登录已失效');
+  const profile=await response.json();
+  if(typeof profile.username!=='string'||!profile.username)throw Error('无法确认工作台用户');
+  return createHash('sha256').update(profile.username).digest('hex');
+}
+ipcMain.handle('studio:mcp-external-start',async(event,args)=>{
+  if(!trustedRenderer(event))throw Error('请从工作台选择 MCP 程序');
+  const epoch=launchEpoch;
+  try {
+    const scope=await externalScope(args);
+    const selected=await dialog.showOpenDialog(window,{title:'选择已从对应项目下载的 MCP 程序（选择后将启动）',buttonLabel:'选择并启动',properties:['openFile'],filters:[{name:'Windows MCP 程序',extensions:['exe']}]});
+    if(selected.canceled||!selected.filePaths[0])return {cancelled:true};
+    if(epoch!==launchEpoch||scope!==await externalScope(args))throw Error('工作台用户已切换，请重新选择');
+    const result=await externalMCP.start({platform:args.platform,scope,exePath:selected.filePaths[0]});
+    if(epoch!==launchEpoch){await externalMCP.stop({platform:args.platform,scope});return {error:'用户已切换，本次启动已取消。'};}
+    return {endpoint:result.endpoint,token:result.apiKey,note:result.note,ready:result.ready};
+  }catch(error){return {error:error.message||'外部服务未能启动，请核对下载的程序。'};}
+});
+ipcMain.handle('studio:mcp-external-stop',async(event,args)=>{
+  if(!trustedRenderer(event))throw Error('请从工作台停止服务');
+  try {const scope=await externalScope(args);await externalMCP.stop({platform:args.platform,scope});return {note:'已停止工作台为当前用户启动的对应服务；其他程序未受影响。'};}catch{return {error:'服务尚未确认停止，请完成平台任务后重试。'};}
+});
+ipcMain.handle('studio:mcp-restart', async event => {
+  if (!trustedRenderer(event)) throw Error('请从工作台修复连接');
+  if(activePlatformTask)return {error:'平台窗口正在操作，请先完成或关闭后再修复连接。'};
+  try { return await mcpServer.restart(); } catch { return { error:'内置服务暂时无法重启。请先完成或关闭平台任务；仍失败时从菜单“退出并停止后台任务”，再打开新版应用。' }; }
+});
+ipcMain.handle('studio:platform-login', async (event, args) => {
+  if (!trustedRenderer(event)) throw Error('请从工作台开始登录');
+  if(activePlatformTask)return {error:'平台窗口正在操作，请先完成或关闭当前发布、采集任务后再登录。'};
+  const task=Symbol('login');activePlatformTask=task;
+  try {const sharedSession=await platformSessions.acquire(args?.platform,args?.sessionToken);return await platformLogin.open(args.platform,sharedSession);}catch{return {error:'官方登录窗口未能打开，请重新登录工作台后重试。'};}finally{if(activePlatformTask===task)activePlatformTask=null;}
+});
 function safeExternal(url) { try { const target = new URL(url); if (['https:', 'http:'].includes(target.protocol) && !target.username && !target.password) void shell.openExternal(target.href); } catch {} }
 async function proxyEnvironment() {
-  const env = { ...process.env, NO_PROXY: 'localhost,127.0.0.1,::1', NODE_USE_ENV_PROXY: '1' };
+  const env = { ...process.env, NO_PROXY: 'localhost,127.0.0.1,::1', no_proxy: 'localhost,127.0.0.1,::1', NODE_USE_ENV_PROXY: '1' };
   if (env.HTTPS_PROXY || env.HTTP_PROXY) return env;
   try {
     const executable = join(process.env.SystemRoot || 'C:/Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe');
@@ -104,7 +151,7 @@ else {
       website = await startBackend();
       const icon = nativeImage.createFromPath(join(__dirname, 'dist', 'icon-192.png'));
       window = new BrowserWindow({ width: 1440, height: 940, minWidth: 760, minHeight: 620, show: false, title: '生长 · AI 运营工作台', backgroundColor: '#f6f7f2', icon, webPreferences: { preload: join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true } });
-      window.webContents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => { if (mainFrame && !inPlace) { douyinAuth.cancel(); commentCollector.cancel(); creator.cancel(); void platformSessions.clear(); } });
+      window.webContents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => { if (mainFrame && !inPlace) { douyinAuth.cancel(); platformLogin.cancel(); commentCollector.cancel(); creator.cancel(); void platformSessions.clear(); } });
       window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
       window.webContents.session.setPermissionCheckHandler(() => false);
       window.webContents.setWindowOpenHandler(({ url }) => { safeExternal(url); return { action: 'deny' }; });
@@ -128,13 +175,16 @@ else {
   });
 }
 app.on('before-quit', event => {
+  launchEpoch++; const externalClosed=externalMCP.stopAll().catch(()=>{});
   mcpServer?.close();
   douyinAuth.cancel();
+  platformLogin.cancel();
   commentCollector.cancel();
   creator.cancel();
-  if (shutdownRequested || !backend || backend.exitCode !== null) { quitting = true; return; }
+  if (shutdownRequested) { quitting = true; return; }
+  if (!backend || backend.exitCode !== null) { event.preventDefault();quitting=true;shutdownRequested=true;void externalClosed.finally(()=>app.exit(0));return; }
   event.preventDefault(); quitting = true; shutdownRequested = true; window?.hide();
   const timeout = setTimeout(() => { backend.kill(); app.exit(0); }, 45000);
-  backend.once('exit', () => { clearTimeout(timeout); app.exit(0); });
+  backend.once('exit', () => { clearTimeout(timeout); void externalClosed.finally(()=>app.exit(0)); });
   if (backend.connected) backend.send({ event: 'shutdown' }); else { backend.kill(); app.exit(0); }
 });

@@ -1,6 +1,32 @@
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const keyed = rows => rows.every(row => isRecord(row) && typeof row.id === 'string') && new Set(rows.map(row => row.id)).size === rows.length;
+// The browser omits skill snapshots from network payloads. Reattach only an
+// exact locally known asset version before the existing conflict checks run.
+// A new trace returned by generation always wins over this restoration step.
+function restoreLocalSkillTraces(snapshot, current) {
+  const restored = structuredClone(snapshot);
+  for (const project of restored.projects || []) {
+    const localProject = current.projects?.find(value => value.id === project.id);
+    if (!localProject) continue;
+    for (const asset of project.assets || []) {
+      const localAsset = localProject.assets?.find(value => value.id === asset.id);
+      if (!localAsset) continue;
+      const candidates = [localAsset, ...(localAsset.history || [])];
+      for (const version of [asset, ...(asset.history || [])]) for (const key of ['skillTrace', 'researchReferences']) {
+        if (Object.hasOwn(version, key)) continue;
+        const known = candidates.find(value => value.revision === version.revision && value.title === version.title && value.body === version.body && Object.hasOwn(value, key));
+        if (known) version[key] = structuredClone(known[key]);
+      }
+    }
+    for (const strategy of project.strategies || []) {
+      if (Object.hasOwn(strategy, 'researchReferences')) continue;
+      const known = localProject.strategies?.find(value => value.id === strategy.id && value.version === strategy.version && value.title === strategy.title && value.core === strategy.core && value.prompt === strategy.prompt);
+      if (known?.researchReferences) strategy.researchReferences = structuredClone(known.researchReferences);
+    }
+  }
+  return restored;
+}
 // Apply only fields changed by this operation. Edits made meanwhile stay local.
 function merge(base, remote, current) {
   if (same(base, remote)) return structuredClone(current);
@@ -34,6 +60,8 @@ function merge(base, remote, current) {
   throw new Error('结果与本地编辑冲突');
 }
 export function mergeRelayState(base, remote, current) {
+  base = restoreLocalSkillTraces(base, current);
+  remote = restoreLocalSkillTraces(remote, current);
   const next = structuredClone(current);
   for (const key of ['projects', 'accounts']) next[key] = merge(base[key], remote[key], current[key]);
   const old = new Set(base.activities.map(a => a.id));

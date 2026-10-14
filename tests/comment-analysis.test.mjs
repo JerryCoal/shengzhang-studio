@@ -85,7 +85,7 @@ async function apiFixture(t, fetcher) {
 }
 test('AI classification receives scoped comments and context, validates quotes, and records review metadata',async t=>{
   let calls=0,bad=false;
-  const f=await apiFixture(t,async(_,init)=>{calls++;const b=JSON.parse(init.body),payload=JSON.parse(b.input);assert.equal(payload.comments.length,1);assert.ok(payload.product);assert.match(b.instructions,/价格咨询不是负面/);return output({comments:payload.comments.map(c=>({id:c.id,tags:['价格顾虑'],sentiment:'neutral',reason:'用户询问价格',evidence:bad?'完全捏造的原文':c.text,needsReview:true}))});});
+  const f=await apiFixture(t,async(_,init)=>{calls++;const b=JSON.parse(init.body),payload=JSON.parse(b.input);assert.equal(payload.comments.length,1);assert.ok(payload.product);assert.match(b.instructions,/不因出现价格或购买字眼就判负面/);return output({comments:payload.comments.map(c=>({id:c.id,tags:['价格顾虑'],sentiment:'neutral',reason:'用户询问价格',evidence:bad?'完全捏造的原文':c.text,needsReview:true}))});});
   const id=f.p.comments[0].id;assert.equal((await f.req('comments/classify',{commentIds:[id]})).status,200);
   const c=f.store.get().projects[0].comments[0];assert.equal(c.classification.method,'ai');assert.equal(c.classification.needsReview,true);assert.equal(c.text,f.p.comments[0].text);
   const count=calls;assert.equal((await f.req('comments/classify',{commentIds:[]})).status,400);assert.equal(calls,count);

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { ResearchPanel } from './Research';
 import { Check, ExternalLink, Flame, RefreshCw, Tag, X } from 'lucide-react';
 import { useStudio } from '../context';
 import { Empty, Field, NeedProject, PageTitle, Pill } from '../components';
@@ -7,7 +8,7 @@ import { trendsOf, COMMON_WORDS, type TrendsState, type TrendSettings } from '..
 import { NEWS_SOURCES, NEWS_CATEGORIES, KEYWORD_SUGGESTIONS } from '../../server/news-sources.mjs';
 const words = (text: string) => [...new Set(text.split(/[,，、;；\n]+/).map(s=>s.trim()).filter(Boolean))];
 const date = (text?: string) => text ? new Date(text).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '尚未采集';
-export function TrendsPage() { const { project }=useStudio(); return project ? <ProjectTrends key={project.id}/> : <NeedProject/>; }
+export function TrendsPage() { const { project }=useStudio(); return project ? <><PageTitle eyebrow="DISCOVER · UNDERSTAND · CREATE" title="发现好选题，让创作有依据。" subtitle="小红书相关帖子与话题 → 本地清洗筛选 → DeepSeek 分析 → 挑选建议用于创作。也可继续研究近期新闻与网页。"/><ResearchPanel key={project.id}/><details className="research-legacy"><summary>本地新闻线索 · 原有 RSS 筛选与标签</summary><p className="small-note">按关键词筛选公开新闻，不调用文字模型；新闻报道数量不等于社交平台互动热度。</p><ProjectTrends key={project.id}/></details></> : <NeedProject/>; }
 function ProjectTrends() {
   const {project,run,mutate,busy,notify,go}=useStudio();const p=project!, current=trendsOf(p);
   const [keywords,setKeywords]=useState(current.settings.keywords.join('，'));
@@ -23,7 +24,7 @@ function ProjectTrends() {
   const save=async()=>{const saved=await mutate<TrendsState>(`/projects/${p.id}/trends/settings`,'PUT',{expectedRevision:current.revision,settings});return saved.result;};
   const riskPending=chosen.some(id=>current.candidates.find(c=>c.id===id)?.risk==='review'&&!ack.includes(id));
   return <>
-    <PageTitle eyebrow="NEWS TO IDEAS" title="找到值得借鉴的话题。" subtitle="近七天中文新闻 → 项目匹配 → 人工挑选 → 文案标签。采集与筛选不调用付费模型。"/>
+    <div className="section-heading"><div><h2>近七天中文新闻线索</h2><p className="small-note">保留原有来源、过滤词和已确认标签；采集与规则筛选不调用付费模型。</p></div></div>
     <div className="trend-workflow"><span>1 选择关键词</span><span>2 更新新闻</span><span>3 确认候选</span><span>4 使用标签</span></div>
     <section className="panel trend-settings">
       <div className="section-heading"><h2>这次关注什么？</h2><Pill color="green">当前项目独立保存</Pill></div>

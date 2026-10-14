@@ -10,6 +10,17 @@ export function plainText(value) {
   return String(value || '').replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g,'$1').replace(/&(lt|gt|amp|quot|apos|nbsp);/gi,(_,n)=>({lt:'<',gt:'>',amp:'&',quot:'"',apos:"'",nbsp:' '})[n.toLowerCase()]).replace(/&#(x[\da-f]+|\d+);/gi,(_,n)=>{const c=n[0].toLowerCase()==='x'?parseInt(n.slice(1),16):Number(n);return c>0&&c<=0x10ffff&&!(c>=0xd800&&c<=0xdfff)?String.fromCodePoint(c):'';}).replace(/<(script|style|noscript)\b[^>]*>[\s\S]*?<\/\1>/gi,' ').replace(/<[^>]*>/g,' ').replace(/[\u0000-\u001f]/g,' ').replace(/\s+/g,' ').trim();
 }
 function valueOf(xml, name) { return new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)<\\/${name}>`,'i').exec(xml)?.[1] || ''; }
+function publicationTime(value) {
+  // A day-only or timezone-free value cannot establish a strict rolling seven-day window.
+  const iso = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:\d{2})$/i);
+  const rfc = value.match(/^(?:[A-Za-z]{3},?\s+)?(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+(\d{2}):(\d{2})(?::(\d{2}))?\s+(?:GMT|UTC|[+-]\d{4})$/i);
+  if (!iso && !rfc) return NaN;
+  const months = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+  const year = Number(iso ? iso[1] : rfc[3]), month = iso ? Number(iso[2]) : months.indexOf(rfc[2].toLowerCase()) + 1;
+  const day = Number(iso ? iso[3] : rfc[1]), hour = Number((iso || rfc)[4]), minute = Number((iso || rfc)[5]), second = Number((iso || rfc)[6] || 0);
+  if (month < 1 || month > 12 || day < 1 || day > new Date(Date.UTC(year, month, 0)).getUTCDate() || hour > 23 || minute > 59 || second > 59) return NaN;
+  return Date.parse(value);
+}
 export function sourceURL(raw, source) {
   try { const url=new URL(plainText(raw),source.feed); if(!['http:','https:'].includes(url.protocol)||url.username||url.password||(url.port&&url.port!=='443')||!source.hosts.includes(url.hostname))return null; url.protocol='https:';url.hash='';for(const key of [...url.searchParams.keys()])if(/^utm_|^(spm|from|ref)$/i.test(key))url.searchParams.delete(key);return url.href; } catch { return null; }
 }
@@ -20,7 +31,7 @@ export function parseFeed(xml, source, at=Date.now()) {
     const item=row[2], title=plainText(valueOf(item,'title')).slice(0,200);
     const rawLink=valueOf(item,'link')||/<link\b[^>]*href=["']([^"']+)["']/i.exec(item)?.[1]||'';
     const url=sourceURL(rawLink,source), rawDate=plainText(valueOf(item,'pubDate')||valueOf(item,'published')||valueOf(item,'dc:date'));
-    const date=Date.parse(rawDate); if(!rawDate||!Number.isFinite(date)){excluded.undated++;continue;}if(date>at){excluded.future++;continue;}
+    const date=publicationTime(rawDate); if(!rawDate||!Number.isFinite(date)){excluded.undated++;continue;}if(date>at){excluded.future++;continue;}
     const publishedAt=new Date(date).toISOString(); if(!withinWeek({publishedAt},at)){excluded.old++;continue;}
     if(!url||!title){excluded.unsafe++;continue;}
     const excerpt=plainText(valueOf(item,'description')||valueOf(item,'summary')||valueOf(item,'content:encoded')||valueOf(item,'content')).slice(0,280);

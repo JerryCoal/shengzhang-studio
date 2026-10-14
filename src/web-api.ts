@@ -8,6 +8,7 @@ import type { Integrations, Settings, State, WebPrivate, TextProvider } from './
 import { defaultSeedream, seedreamConnectionSchema } from '../server/seedream-config.mjs';
 import type { ImageProvider } from './types';
 import { providerLabel } from './model-provider';
+import { normalizeQwenKey, qwenConnection, qwenConnectionSchema, QWEN_CONNECTION_OPTIONS } from '../server/qwen-connection.mjs';
 import { resolveWebBackend, requestWebOperation, webCallbackUrl } from './web-connection';
 
 const defaults = (): WebPrivate => ({ credentials: {}, seedream: { ...defaultSeedream }, imageProvider: 'openai', routes: { ...catalog.routes }, seedance: { region: 'volcengine', model: '', reservationUsd: 2, outputPriceUsd: 0 }, authorizations: [], verification: null });
@@ -18,16 +19,16 @@ const pendingMessage = '有一项联网请求尚未确认。请核对服务商�
 function settingsOf(state: State): Settings {
   const saved = privateOf(state), model = saved.routes.strategy;
   const credential = (provider: TextProvider): Settings['credential'] => ({ supported: true, editable: true, local: true, configured: !!saved.credentials[provider], suffix: saved.credentials[provider]?.slice(-4) || '', source: saved.credentials[provider] ? 'vault' : 'none', protection: '浏览器 · 登录密码 AES-GCM 加密', problem: '' });
-  return { ...catalog, routes: saved.routes, model, ...catalog.models[model as keyof typeof catalog.models], authEnabled: true, version: '1.7.0 · 联网网页版', browserStorage: true,
+  return { ...catalog, routes: saved.routes, model, ...catalog.models[model as keyof typeof catalog.models], authEnabled: true, version: '1.17.0 · 联网网页版', browserStorage: true,
     openaiConfigured: !!saved.credentials.openai, verification: saved.verification, apiDiagnostic: saved.apiDiagnostic,
-    providers: { qwen: { configured: !!saved.credentials.qwen, credential: credential('qwen'), verification: saved.qwenVerification || null, apiDiagnostic: saved.qwenDiagnostic }, openai: { configured: !!saved.credentials.openai, credential: credential('openai'), verification: saved.verification, apiDiagnostic: saved.apiDiagnostic }, deepseek: { configured: !!saved.credentials.deepseek, credential: credential('deepseek'), verification: saved.deepseekVerification || null, apiDiagnostic: saved.deepseekDiagnostic } },
+    providers: { qwen: { configured: !!saved.credentials.qwen, credential: credential('qwen'), connection: qwenConnection(saved.qwenConnection || state.qwenConnection), connectionOptions: QWEN_CONNECTION_OPTIONS.map(({ id, label, requiresWorkspace }) => ({ id, label, requiresWorkspace: !!requiresWorkspace })), verification: saved.qwenVerification || null, apiDiagnostic: saved.qwenDiagnostic }, openai: { configured: !!saved.credentials.openai, credential: credential('openai'), verification: saved.verification, apiDiagnostic: saved.apiDiagnostic }, deepseek: { configured: !!saved.credentials.deepseek, credential: credential('deepseek'), verification: saved.deepseekVerification || null, apiDiagnostic: saved.deepseekDiagnostic } },
     pendingWebRequest: saved.pending, recoveredWebResults: saved.recovery?.length || 0,
     credential: { supported: true, editable: true, local: true, configured: !!saved.credentials.openai, suffix: saved.credentials.openai?.slice(-4) || '', source: saved.credentials.openai ? 'vault' : 'none', protection: '浏览器 · 登录密码 AES-GCM 加密', problem: '' },
   } as Settings;
 }
 function integrationsOf(state: State): Integrations {
   const saved = privateOf(state), douyin = JSON.parse(saved.credentials.douyin || '{"accounts":{}}');
-  return { local: true, imageProvider: saved.imageProvider || 'openai', seedream: { ...(saved.seedream || defaultSeedream), supported: true, configured: !!saved.credentials.seedream, suffix: saved.credentials.seedream?.slice(-4) || '', problem: '' }, seedance: { ...saved.seedance, supported: true, configured: !!saved.credentials.seedance, suffix: saved.credentials.seedance?.slice(-4) || '', problem: '' },
+  return { local: true, imageProvider: saved.imageProvider || 'openai', seedream: { ...defaultSeedream, ...saved.seedream, supported: true, configured: !!saved.credentials.seedream, suffix: saved.credentials.seedream?.slice(-4) || '', problem: '' }, seedance: { ...saved.seedance, supported: true, configured: !!saved.credentials.seedance, suffix: saved.credentials.seedance?.slice(-4) || '', problem: '' },
     douyin: { supported: true, configured: !!douyin.clientKey, clientKeySuffix: douyin.clientKey?.slice(-4) || '', redirectUri: douyin.redirectUri || '', accounts: Object.entries(douyin.accounts || {}).map(([id, raw]) => { const value = raw as Integrations['douyin']['accounts'][number]; return { id, scopes: value.scopes, expiresAt: value.expiresAt, refreshExpiresAt: value.refreshExpiresAt, connectionId: value.connectionId }; }) },
   };
 }
@@ -67,10 +68,12 @@ async function relay(path: string, method: string, body: unknown, projectId?: st
       const provider = requestProvider(state.webPrivate, path, body), limited = provider === 'qwen' ? state.webPrivate.qwenDiagnostic : provider === 'deepseek' ? state.webPrivate.deepseekDiagnostic : provider === 'openai' ? state.webPrivate.apiDiagnostic : null;
       if (limited?.kind === 'rate_limit' && limited.model === textModel(state.webPrivate, path, body) && limited.retryAt && Date.parse(limited.retryAt) > Date.now()) throw new Error(`${providerLabel(provider === 'qwen' ? 'qwen' : provider === 'deepseek' ? 'deepseek' : 'openai')} 仍在限流等待期，请 ${Math.ceil((Date.parse(limited.retryAt) - Date.now()) / 1000)} 秒后再试。本次未发送新请求。`);
       const pending = { id: crypto.randomUUID(), path, projectId, at: new Date().toISOString() };
-      state.webPrivate.pending = pending; return pending;
+      // Validate and minimize inputs before locking a request that has not been sent yet.
+      const base = webPayload(state, path, body, projectId);
+      state.webPrivate.pending = pending; return { pending, base };
     });
-    const identity = localUsername(), pending = started.result, saved = privateOf(started.state);
-    const base = webPayload(started.state, path, body, projectId);
+    const identity = localUsername(), pending = started.result.pending, saved = privateOf(started.state);
+    const base = started.result.base;
     const credentials: WebPrivate['credentials'] = {};
     const provider = requestProvider(saved, path, body), openai = provider === 'openai', deepseek = provider === 'deepseek';
     const seedance = /\/(seedance|video-status|generation-reset|tick)$/.test(path);
@@ -81,7 +84,7 @@ async function relay(path: string, method: string, body: unknown, projectId?: st
     if (provider === 'seedream' && saved.credentials.seedream) credentials.seedream = saved.credentials.seedream;
     if (seedance && saved.credentials.seedance) credentials.seedance = saved.credentials.seedance;
     if (douyin && saved.credentials.douyin) credentials.douyin = saved.credentials.douyin;
-    const envelope = { path, method, body, state: base, credentials, routes: saved.routes, seedance: saved.seedance, seedream: saved.seedream || defaultSeedream, imageProvider: saved.imageProvider || 'openai', authorizations: douyin ? saved.authorizations : [] };
+    const envelope = { path, method, body, state: base, credentials, routes: saved.routes, ...(provider === 'qwen' ? { qwenConnection: qwenConnectionSchema.parse(saved.qwenConnection || started.state.qwenConnection || { region: 'cn-beijing', workspaceId: '' }) } : {}), seedance: saved.seedance, seedream: saved.seedream || defaultSeedream, imageProvider: saved.imageProvider || 'openai', authorizations: douyin ? saved.authorizations : [] };
     let response;
     try {
       const encoded = JSON.stringify(envelope);
@@ -157,7 +160,20 @@ export async function webAPI<T>(path: string, method = 'GET', body?: unknown): P
     await saveConnection(saved => { saved.routes = schema.parse(body) as WebPrivate['routes']; saved.verification = null; }); return settingsOf(await readLocalState()) as T;
   }
   if (path === '/settings/providers/qwen/credential' && ['PUT', 'DELETE'].includes(method)) {
-    await saveConnection(saved => { if (method === 'DELETE') delete saved.credentials.qwen; else saved.credentials.qwen = z.object({ apiKey: z.string().trim().regex(/^sk-[A-Za-z0-9_-]{16,509}$/) }).strict().parse(body).apiKey; saved.qwenVerification = null; saved.qwenDiagnostic = null; });
+    await saveConnection(saved => {
+      if (method === 'DELETE') delete saved.credentials.qwen;
+      else {
+        const input = z.object({ apiKey: z.string().max(4200), connection: qwenConnectionSchema.optional() }).strict().parse(body);
+        saved.credentials.qwen = normalizeQwenKey(input.apiKey);
+        if (input.connection) saved.qwenConnection = input.connection;
+      }
+      saved.qwenVerification = null; saved.qwenDiagnostic = null;
+    });
+    return settingsOf(await readLocalState()) as T;
+  }
+  if (path === '/settings/providers/qwen/connection' && method === 'PUT') {
+    const connection = qwenConnectionSchema.parse(body);
+    await saveConnection(saved => { saved.qwenConnection = connection; saved.qwenVerification = null; saved.qwenDiagnostic = null; });
     return settingsOf(await readLocalState()) as T;
   }
   if (path === '/settings/providers/deepseek/credential' && ['PUT', 'DELETE'].includes(method)) {
@@ -206,7 +222,7 @@ export async function webAPI<T>(path: string, method = 'GET', body?: unknown): P
     const state = await readLocalState(); return { version: state.projects.map(p => `${p.id}:${p.revision}`).join('|') } as T;
   }
   const online = path === '/settings/providers/qwen/credential/check' || path === '/settings/credential/check' || path === '/settings/providers/deepseek/credential/check' || path.startsWith('/integrations/douyin/') || /^\/projects\/[^/]+\/(assets\/[^/]+\/(copy|cover|cover-apply|cover-reset|keyframes|seedance|video-status|generation-reset)|publications\/[^/]+\/(platform-status|platform-item|comments-sync)|comments\/classify)$/.test(path) || (body as { mode?: string })?.mode === 'openai';
-  if (online) return await relay(path, method, body, path.startsWith('/projects/') ? path.split('/')[2] : undefined) as T;
+  if (online && path !== '/appearance') return await relay(path, method, body, path.startsWith('/projects/') ? path.split('/')[2] : undefined) as T;
   const result = await localAPI<unknown>(path, method, body);
   if (result && typeof result === 'object') {
     if ('schemaVersion' in result) return publicState(result as State) as T;

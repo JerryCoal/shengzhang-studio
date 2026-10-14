@@ -10,6 +10,7 @@ data/
 *.log
 *.tsbuildinfo
 .local/
+cookies.json
 .tools/
 android/.gradle/
 android/local.properties

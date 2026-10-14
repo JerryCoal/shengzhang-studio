@@ -2,6 +2,8 @@ import { validateSemanticRule } from './semantic-replacement.mjs';
 import { scanCopy, copyFields, applyFixed, actionOf } from './sensitive-checker.mjs';
 import { z } from 'zod';
 import { disableAutomaticPublishing } from './manual-publishing.mjs';
+import { normalizeCreativeSkills } from './creative-skills.mjs';
+import { appearanceOf } from './appearance.mjs';
 
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
 const now = () => new Date().toISOString();
@@ -19,6 +21,8 @@ const pairs = [
 export const defaultRules = () => pairs.map(([term, replacement], index) => ({ id: `default-${index + 1}`, term, replacement, enabled: true }));
 export function rulesOf(state) { return state.contentRules || defaultRules(); }
 export function normalizeWorkflow(state) {
+  normalizeCreativeSkills(state);
+  state.appearance = appearanceOf(state);
   state.contentRules ??= defaultRules(); state.rulesRevision ??= 0; state.projectDrafts ??= {};
   for (const project of state.projects) project.corpus ??= [];
   return disableAutomaticPublishing(state);

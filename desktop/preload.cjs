@@ -1,5 +1,9 @@
 const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('studioDesktop', {
+  startExternalMCP: args => ipcRenderer.invoke('studio:mcp-external-start', args),
+  stopExternalMCP: args => ipcRenderer.invoke('studio:mcp-external-stop', args),
+  restartMCP: () => ipcRenderer.invoke('studio:mcp-restart'),
+  openPlatformLogin: args => ipcRenderer.invoke('studio:platform-login', args),
   resetPlatformConnections: () => ipcRenderer.invoke('studio:platform-lock'),
   openDouyinAuthorization: url => ipcRenderer.invoke('studio:douyin-authorize', url),
   cancelDouyinAuthorization: () => ipcRenderer.invoke('studio:douyin-cancel'),

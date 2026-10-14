@@ -5,7 +5,7 @@ const tools=[
   {name:'studio_comments',description:'读取登录后官方页面可见的自有作品评论，自动滚动后返回预览。',inputSchema:{type:'object',required:['url','sessionToken'],properties:{url:{type:'string'},sessionToken:{type:'string'},limit:{type:'integer'},includeReplies:{type:'boolean'}}}},
 ];
 async function startDesktopMCP({token,execute}) {
-  let active=false;
+  let active=false, restarting=false;
   const server=createServer(async(req,res)=>{
     const send=(status,value)=>{res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(value===undefined?'':JSON.stringify(value));};
     const bearer=Buffer.from(req.headers.authorization||''),expected=Buffer.from('Bearer '+token);
@@ -17,10 +17,10 @@ async function startDesktopMCP({token,execute}) {
     if(body?.jsonrpc!=='2.0')return send(400,{error:'JSON-RPC required'});
     if(body.method==='notifications/initialized'&&id===undefined)return send(202);
     if(typeof id!=='string'&&typeof id!=='number')return send(400,{error:'Request ID required'});
-    if(body.method==='initialize')return respond({protocolVersion:'2025-06-18',capabilities:{tools:{}},serverInfo:{name:'shengzhang-desktop-platform-mcp',version:'1.7.0'}});
+    if(body.method==='initialize')return respond({protocolVersion:'2025-06-18',capabilities:{tools:{}},serverInfo:{name:'shengzhang-desktop-platform-mcp',version:'1.17.0'}});
     if(body.method==='tools/list')return respond({tools});
     if(body.method!=='tools/call'||!tools.some(t=>t.name===body.params?.name))return send(200,{jsonrpc:'2.0',id,error:{code:-32601,message:'Unsupported tool'}});
-    if(active)return respond({isError:true,content:[{type:'text',text:'平台窗口正在执行另一项任务'}]});
+    if(active||restarting)return respond({isError:true,content:[{type:'text',text:'平台窗口正在执行另一项任务'}]});
     active=true;
     try {const result=await execute(body.params.name,body.params.arguments);respond({structuredContent:result,content:[{type:'text',text:JSON.stringify(result)}]});}
     catch{return respond({isError:true,content:[{type:'text',text:'请检查工作区登录、平台页面或任务状态'}]});}
@@ -28,6 +28,16 @@ async function startDesktopMCP({token,execute}) {
   });
   server.requestTimeout=60000;
   await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
-  return {endpoint:`http://127.0.0.1:${server.address().port}/mcp`,close:()=>{server.close();server.closeAllConnections();}};
+  const port=server.address().port;
+  return {endpoint:`http://127.0.0.1:${port}/mcp`,
+    async restart() {
+      if(active||restarting) throw Error('平台窗口正在操作，请完成或关闭后再修复连接');
+      restarting=true;
+      try {
+        await new Promise(resolve=>{server.close(resolve);server.closeAllConnections();});
+        await new Promise((resolve,reject)=>{const failed=error=>{server.off('listening',ready);reject(error);};const ready=()=>{server.off('error',failed);resolve();};server.once('error',failed);server.once('listening',ready);server.listen(port,'127.0.0.1');});
+        return {ok:true,note:'内置服务已重新启动。请重新检查连接，然后在官方窗口登录平台。'};
+      } finally {restarting=false;}
+    }, close:()=>{server.close();server.closeAllConnections();}};
 }
 module.exports={startDesktopMCP};

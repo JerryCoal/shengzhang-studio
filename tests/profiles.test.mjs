@@ -39,6 +39,28 @@ async function fixture(t, { realVault = false, waitForAI } = {}) {
 }
 const credentials = username => ({ username, password });
 
+test('appearance is encrypted per profile, survives restart, and never alters project data', async t => {
+  const f = await fixture(t);
+  let alpha = (await f.request('/profiles/register', 'POST', credentials('appearance-alpha'))).data;
+  const beta = (await f.request('/profiles/register', 'POST', credentials('appearance-beta'))).data;
+  assert.equal((await f.request('/appearance')).status, 401);
+  const original = (await f.request('/state', 'GET', undefined, alpha.token)).data;
+  const preference = { fontScale: 1.375, emphasize: true };
+  const changed = await f.request('/appearance', 'PUT', preference, alpha.token);
+  assert.equal(changed.status, 200); assert.deepEqual(changed.data.result, preference);
+  assert.deepEqual(changed.data.state.projects, original.projects);
+  assert.deepEqual(changed.data.state.accounts, original.accounts);
+  assert.deepEqual(changed.data.state.activities, original.activities);
+  assert.deepEqual((await f.request('/appearance', 'GET', undefined, beta.token)).data, { fontScale: 1, emphasize: false });
+  for (const file of readdirSync(f.directory, { recursive: true, withFileTypes: true }).filter(file => file.isFile())) {
+    const bytes = readFileSync(join(file.parentPath, file.name));
+    assert.ok(!bytes.includes(Buffer.from('fontScale')), file.name);
+  }
+  await f.restart(); alpha = (await f.request('/profiles/login', 'POST', credentials('appearance-alpha'))).data;
+  assert.deepEqual((await f.request('/appearance', 'GET', undefined, alpha.token)).data, preference);
+  assert.deepEqual((await f.request('/state', 'GET', undefined, alpha.token)).data.projects, original.projects);
+});
+
 test('Qwen and MCP credentials are encrypted per profile, excluded from backups, and survive restart', async t => {
   const f = await fixture(t), qwenKey = 'sk-qwen-local-test-only-987654321', mcpKey = 'mcp-local-test-only-12345';
   let a = (await f.request('/profiles/register', 'POST', credentials('mcp-a'))).data;
@@ -61,6 +83,22 @@ test('Qwen and MCP credentials are encrypted per profile, excluded from backups,
   for (const path of ['/settings','/state','/backup','/mcp/settings']) {
     const raw = JSON.stringify((await f.request(path,'GET',undefined,a.token)).data); assert(!raw.includes(qwenKey)); assert(!raw.includes(mcpKey));
   }
+});
+
+test('Qwen connection region survives desktop restart and stays isolated with the matching local credential', async t => {
+  const f = await fixture(t), key = 'opaque-profile-fixture+new/0123456789==';
+  let a = (await f.request('/profiles/register', 'POST', credentials('qwen-region-a'))).data;
+  const b = (await f.request('/profiles/register', 'POST', credentials('qwen-region-b'))).data;
+  const connection = { region: 'ap-southeast-1', workspaceId: 'llm-test-account' };
+  assert.equal((await f.request('/settings/providers/qwen/credential', 'PUT', { apiKey: key, connection }, a.token)).status, 200);
+  assert.equal((await f.request('/settings', 'GET', undefined, b.token)).data.providers.qwen.connection.region, 'cn-beijing');
+  await f.restart(); a = (await f.request('/profiles/login', 'POST', credentials('qwen-region-a'))).data;
+  const settings = (await f.request('/settings', 'GET', undefined, a.token)).data;
+  assert.equal(settings.providers.qwen.connection.region, connection.region); assert.equal(settings.providers.qwen.connection.workspaceId, connection.workspaceId); assert.equal(settings.providers.qwen.configured, true);
+  assert.equal((await f.request('/settings/providers/qwen/credential/check', 'POST', {}, a.token)).status, 200);
+  assert.equal(f.requests.at(-1).url, 'https://llm-test-account.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/models'); assert.equal(f.requests.at(-1).key, 'Bearer ' + key);
+  for (const path of ['/state', '/settings', '/backup']) assert(!JSON.stringify((await f.request(path, 'GET', undefined, a.token)).data).includes(key));
+  for (const file of readdirSync(f.directory, { recursive: true }).filter(name => name.endsWith('.json'))) assert(!readFileSync(join(f.directory, file), 'utf8').includes(key));
 });
 
 test('guide state is persisted across desktop restart and isolated by profile', async t => {

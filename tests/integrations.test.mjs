@@ -16,12 +16,13 @@ const accessToken = 'fake-access-token-never-real';
 const png = Buffer.from('89504e470d0a1a0a', 'hex').toString('base64');
 const mp4 = `data:video/mp4;base64,${Buffer.from('000000186674797069736f6d0000000069736f6d', 'hex').toString('base64')}`;
 const imageResponse = () => Response.json({ data: [{ b64_json: png }], usage: { input_tokens_details: { text_tokens: 100, image_tokens: 200 }, output_tokens: 1000 } });
+const unchecked = () => ({ status: 'unavailable', engine: 'test', checkedAt: '2026-10-14T00:00:00.000Z', regions: [], message: 'Synthetic fixture; no OCR is run.' });
 const success = data => Response.json({ data: { error_code: 0, ...data } });
 function memoryVault() { let value = ''; return { status: () => ({ configured: !!value, supported: true, suffix: value.slice(-4), problem: '' }), getKey: async () => value, save: async key => { value = key; }, remove: () => { value = ''; } }; }
 async function fixture(t, options = {}) {
   const store = createStore(':memory:'), seedanceVault = memoryVault(), seedreamVault = memoryVault(), douyinVault = memoryVault(), preferences = createIntegrationPreferences();
   await seedanceVault.save(seedKey); preferences.save({ region: 'byteplus', model: 'test-seedance-endpoint', reservationUsd: 2, outputPriceUsd: 2.5 });
-  const app = createApp(store, { apiKey: openAIKey, seedanceVault, seedreamVault, douyinVault, integrationPreferences: preferences, downloadVideo: async () => mp4, ...options });
+  const app = createApp(store, { apiKey: openAIKey, seedanceVault, seedreamVault, douyinVault, integrationPreferences: preferences, downloadVideo: async () => mp4, imageWatermarkInspector: async () => unchecked(), ...options });
   const server = app.listen(0, '127.0.0.1'); await once(server, 'listening');
   t.after(async () => { await app.locals.integrations.close(); await new Promise(resolve => server.close(resolve)); store.close(); });
   const req = async (path, method = 'GET', body, headers = {}) => { const response = await fetch(`http://127.0.0.1:${server.address().port}/api${path}`, { method, headers: { 'X-Studio-Client': 'studio-v1', 'Content-Type': 'application/json', ...headers }, ...(body ? { body: JSON.stringify(body) } : {}) }); return { status: response.status, body: await response.json() }; };
@@ -40,7 +41,7 @@ test('Seedream-only account generates referenced first/last frames and completes
     if (init.method === 'POST') return Response.json({ id: 'seedream-video' });
     return Response.json({ id: 'seedream-video', status: 'succeeded', content: { video_url: 'https://output.tos.bytepluses.com/test.mp4' } });
   } });
-  const settings = { ...defaultSeedream, imagePriceUsd: .04 };
+  const settings = { ...defaultSeedream, imagePriceUsd: .04, watermark: false };
   assert.equal((await f.req('/integrations/seedream', 'PUT', { settings, apiKey: key })).status, 200);
   assert.equal((await f.req('/integrations/image-provider', 'PUT', { provider: 'seedream' })).status, 200);
   for (const role of ['first_frame', 'last_frame']) {
@@ -49,12 +50,14 @@ test('Seedream-only account generates referenced first/last frames and completes
     await until(() => f.a().aiProduction?.phase === 'frames');
   }
   assert.equal(JSON.parse(calls[0].init.body).image.length, 1); assert.equal(JSON.parse(calls[1].init.body).image.length, 2);
+  assert.equal(JSON.parse(calls[0].init.body).watermark, false); assert.equal(JSON.parse(calls[1].init.body).watermark, false);
   assert.equal(JSON.parse(calls[1].init.body).image[1], f.a().aiProduction.frames[0].mediaData);
   assert.equal(f.a().aiProduction.frames[1].provider, 'seedream'); assert.equal(f.a().aiProduction.frames[1].model, settings.model);
   assert.equal(f.p().usage.filter(v => v.stage === 'keyframe').reduce((s, v) => s + v.amountUsd, 0), .08);
   const body = { productionId: f.a().aiProduction.id, expectedRevision: 1, prompt: 'camera', duration: 5, generateAudio: false, confirmed: true };
   await f.req(f.base + '/seedance', 'POST', body); await until(() => f.a().aiProduction.phase === 'generating-video');
   const video = JSON.parse(calls[2].init.body);
+  assert.equal(video.watermark, true, 'Seedream image preferences must not disable the Seedance video watermark');
   assert.deepEqual(video.content.slice(1).map(v => v.image_url.url), f.a().aiProduction.frames.map(v => v.mediaData));
   await f.req(f.base + '/video-status', 'POST'); assert.equal(f.a().mediaData, mp4);
   assert(!calls.some(v => v.url.includes('openai.com')));
@@ -98,6 +101,116 @@ test('keyframe provider switch keeps OpenAI available and preserves the old firs
   assert.match(f.a().aiProduction.error, /开通/); assert(!f.a().aiProduction.error.includes('secret-upstream-value'));
   await f.req(f.base + '/keyframes', 'POST', { ...input, role: 'last_frame' }); await until(() => f.a().aiProduction.phase === 'frames');
   assert.equal(calls[2].url, 'https://api.openai.com/v1/images/edits'); assert.equal(f.a().aiProduction.frames.length, 2);
+});
+
+test('Seedream frame overrides are per request and preserve independent inspection snapshots', async t => {
+  const requests = [], checks = [];
+  const reports = [
+    { ...unchecked(), status: 'detected', message: 'Synthetic visible marker', regions: [{ x: 1, y: 2, width: 8, height: 4, text: 'AI生成' }] },
+    { ...unchecked(), status: 'not_detected', message: 'Synthetic no marker detected' },
+    unchecked(),
+  ];
+  const f = await fixture(t, {
+    apiKey: '',
+    fetcher: async (_url, init) => { requests.push(JSON.parse(init.body)); return Response.json({ data: [{ b64_json: png }], usage: { generated_images: 1 } }); },
+    imageWatermarkInspector: async mediaData => { checks.push(mediaData); return reports[checks.length - 1]; },
+  });
+  await f.req('/integrations/seedream', 'PUT', { settings: { ...defaultSeedream, watermark: true, imagePriceUsd: .04 }, apiKey: 'seedream-watermark-test-key' });
+  await f.req('/integrations/image-provider', 'PUT', { provider: 'seedream' });
+  const base = { prompt: 'synthetic scene', expectedRevision: f.a().revision };
+  for (const [role, watermark] of [['first_frame', false], ['last_frame', true]]) {
+    assert.equal((await f.req(f.base + '/keyframes', 'POST', { ...base, role, watermark })).status, 202);
+    await until(() => f.a().aiProduction?.phase === 'frames');
+  }
+  const savedFrames = f.a().aiProduction.frames;
+  assert.deepEqual(requests.map(r => r.watermark), [false, true]);
+  assert.deepEqual(savedFrames.map(frame => frame.watermarkRequested), [false, true]);
+  assert.deepEqual(savedFrames.map(frame => frame.watermarkCheck), reports.slice(0, 2));
+  assert(savedFrames.every(frame => frame.mediaData === `data:image/png;base64,${png}`));
+  assert.equal(f.preferences.get().seedream.watermark, true);
+  // A later preference update cannot change already-created frames.
+  await f.req('/integrations/seedream', 'PUT', { settings: { ...defaultSeedream, watermark: false, imagePriceUsd: .07 } });
+  assert.deepEqual(f.a().aiProduction.frames.map(frame => frame.watermarkRequested), [false, true]);
+  assert.deepEqual(f.a().aiProduction.frames.map(frame => frame.watermarkCheck), reports.slice(0, 2));
+  assert.equal((await f.req(f.base + '/keyframes', 'POST', { ...base, role: 'last_frame' })).status, 202);
+  await until(() => f.a().aiProduction?.phase === 'frames');
+  assert.equal(requests[2].watermark, false); assert.equal(f.a().aiProduction.frames[1].watermarkRequested, false);
+  assert.deepEqual(f.a().aiProduction.frames[1].watermarkCheck, reports[2]);
+  assert.equal(f.preferences.get().seedream.watermark, false);
+  assert.deepEqual(f.p().usage.filter(u => u.stage === 'keyframe').map(u => [u.status, u.amountUsd]), [['completed', .04], ['completed', .04], ['completed', .07]]);
+  assert.equal(requests.length, 3); assert.equal(checks.length, 3);
+});
+
+test('failed frame inspections preserve PNG and JPEG bytes and completed fees without another request', async t => {
+  const jpeg = Buffer.from('ffd8ffe000044a46ffd9', 'hex').toString('base64');
+  for (const [mime, encoded] of [['image/png', png], ['image/jpeg', jpeg]]) await t.test(mime, async t => {
+    let fetches = 0, checks = 0;
+    const mediaData = `data:${mime};base64,${encoded}`;
+    const f = await fixture(t, {
+      apiKey: '',
+      fetcher: async (_url, init) => { fetches++; assert.equal(JSON.parse(init.body).watermark, false); return Response.json({ data: [{ b64_json: encoded }], usage: { generated_images: 1 } }); },
+      imageWatermarkInspector: async data => { checks++; assert.equal(data, mediaData); throw Error('private-ocr-failure'); },
+    });
+    await f.req('/integrations/seedream', 'PUT', { settings: { ...defaultSeedream, imagePriceUsd: .04 }, apiKey: 'seedream-watermark-test-key' });
+    assert.equal((await f.req(f.base + '/keyframes', 'POST', { provider: 'seedream', role: 'first_frame', prompt: 'synthetic frame', watermark: false, expectedRevision: f.a().revision })).status, 202);
+    await until(() => f.a().aiProduction?.phase === 'frames');
+    const frame = f.a().aiProduction.frames[0];
+    assert.equal(frame.mediaData, mediaData); assert.equal(frame.watermarkRequested, false);
+    assert.equal(frame.watermarkCheck.status, 'unavailable'); assert(Number.isFinite(Date.parse(frame.watermarkCheck.checkedAt))); assert.deepEqual(frame.watermarkCheck.regions, []);
+    assert.equal(f.p().usage.at(-1).status, 'completed'); assert.equal(f.p().usage.at(-1).amountUsd, .04);
+    f.app.locals.integrations.start(); await f.app.locals.integrations.tick();
+    assert.equal(fetches, 1); assert.equal(checks, 1); assert.equal(f.a().aiProduction.phase, 'frames');
+    assert(!JSON.stringify((await f.req('/backup')).body).includes('private-ocr-failure'));
+  });
+});
+
+test('keyframe execution snapshots default watermark and price before asynchronous generation completes', async t => {
+  let complete; const gate = new Promise(resolve => { complete = resolve; });
+  const f = await fixture(t, { fetcher: async (_url, init) => {
+    assert.equal(JSON.parse(init.body).watermark, false); await gate;
+    return Response.json({ data: [{ b64_json: png }], usage: { generated_images: 1 } });
+  } });
+  await f.req('/integrations/seedream', 'PUT', { settings: { ...defaultSeedream, watermark: false, imagePriceUsd: .04 }, apiKey: 'seedream-watermark-test-key' });
+  try {
+    assert.equal((await f.req(f.base + '/keyframes', 'POST', { provider: 'seedream', role: 'first_frame', prompt: 'snapshot', expectedRevision: f.a().revision })).status, 202);
+    f.preferences.saveSeedream({ ...defaultSeedream, watermark: true, imagePriceUsd: .09 });
+  } finally { complete(); }
+  await until(() => f.a().aiProduction?.phase === 'frames');
+  assert.equal(f.a().aiProduction.frames[0].watermarkRequested, false);
+  assert.equal(f.p().usage.at(-1).amountUsd, .04); assert.equal(f.preferences.get().seedream.watermark, true);
+});
+
+test('OpenAI rejects watermark overrides and never receives Seedream options or inspection metadata', async t => {
+  let checks = 0; const requests = [];
+  const f = await fixture(t, {
+    fetcher: async (url, init) => { requests.push({ url, init }); return imageResponse(); },
+    imageWatermarkInspector: async () => { checks++; return unchecked(); },
+  });
+  await f.req('/integrations/seedream', 'PUT', { settings: { ...defaultSeedream, watermark: false }, apiKey: 'seedream-watermark-test-key' });
+  const input = { role: 'first_frame', prompt: 'OpenAI frame', expectedRevision: f.a().revision };
+  for (const provider of ['openai', undefined]) for (const watermark of [false, true]) {
+    assert.equal((await f.req(f.base + '/keyframes', 'POST', { ...input, ...(provider ? { provider } : {}), watermark })).status, 400);
+  }
+  for (const watermark of ['false', 0, null]) assert.equal((await f.req(f.base + '/keyframes', 'POST', { ...input, provider: 'seedream', watermark })).status, 400);
+  assert.equal(requests.length, 0); assert.equal(f.p().usage.length, 0);
+  assert.equal((await f.req(f.base + '/keyframes', 'POST', { ...input, provider: 'openai' })).status, 202);
+  await until(() => f.a().aiProduction?.phase === 'frames');
+  assert.equal(requests[0].url, 'https://api.openai.com/v1/images/edits');
+  for (const field of ['watermark', 'family', 'imagePriceUsd', 'reservationUsd']) assert.equal(requests[0].init.body.has(field), false);
+  assert.equal(f.a().aiProduction.frames[0].watermarkRequested, undefined); assert.equal(f.a().aiProduction.frames[0].watermarkCheck, undefined);
+  assert.equal(checks, 0);
+});
+
+test('legacy Seedream frames remain unchecked when reading state or recovering the background worker', async t => {
+  let checks = 0, fetches = 0;
+  const f = await fixture(t, { fetcher: async () => { fetches++; return imageResponse(); }, imageWatermarkInspector: async () => { checks++; return unchecked(); } });
+  f.store.mutate(state => { const asset = state.projects[0].assets.find(a => a.id === f.aid); asset.aiProduction = { id: 'legacy-seedream', phase: 'frames', assetRevision: asset.revision, frames: [{ id: 'old-frame', role: 'first_frame', provider: 'seedream', model: defaultSeedream.model, mediaData: `data:image/png;base64,${png}` }] }; });
+  f.app.locals.integrations.start(); await f.app.locals.integrations.tick();
+  for (const path of ['/state', '/backup']) {
+    const serialized = JSON.stringify((await f.req(path)).body);
+    assert(serialized.includes('old-frame')); assert(!serialized.includes('watermarkRequested')); assert(!serialized.includes('watermarkCheck'));
+  }
+  assert.equal(f.a().aiProduction.frames[0].mediaData, `data:image/png;base64,${png}`); assert.equal(checks, 0); assert.equal(fetches, 0);
 });
 
 test('image-2 uses image edits with product and first-frame references; fees use image token rates', async () => {

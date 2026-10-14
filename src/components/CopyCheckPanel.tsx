@@ -1,3 +1,4 @@
+import { CopyKeywords } from './CopyKeywords';
 import { useMemo, useState } from 'react';
 import { useStudio } from '../context';
 import { screenCopy, rulesOf } from '../../server/workflow.mjs';
@@ -9,8 +10,8 @@ type SemanticDecision = CopyMatch & { id: string; decision: 'replace' | 'keep' |
 type Candidate = { semanticReview?: { decisions: SemanticDecision[]; source: Draft }; candidate: Draft; review: CopyReview; sourceRevision: number; rulesRevision: number };
 export function HighlightedCopy({ text, matches }: { text: string; matches: CopyMatch[] }) {
   let cursor = 0;
-  const parts = matches.map((hit, i) => { const prefix = text.slice(cursor, hit.start); cursor = hit.end; return <span key={i}>{prefix}<mark className={hit.action} title={`${hit.risk} · ${hit.action === 'semantic' ? `需判断价格语境；确认后替换为：${hit.replacement}` : hit.action === 'rewrite' ? '需结合上下文改写' : `替换为：${hit.replacement || '删除'}`}`}>{text.slice(hit.start, hit.end)}</mark></span>; });
-  return <div className="checked-text">{parts}{text.slice(cursor)}</div>;
+  const parts = matches.map((hit, i) => { const prefix = text.slice(cursor, hit.start); cursor = hit.end; return <span key={i}><CopyKeywords text={prefix}/><mark className={hit.action} title={`${hit.risk} · ${hit.action === 'semantic' ? `需判断价格语境；确认后替换为：${hit.replacement}` : hit.action === 'rewrite' ? '需结合上下文改写' : `替换为：${hit.replacement || '删除'}`}`}>{text.slice(hit.start, hit.end)}</mark></span>; });
+  return <div className="checked-text">{parts}<CopyKeywords text={text.slice(cursor)}/></div>;
 }
 export function CopyCheckPanel({ draft, onApply, asset }: { draft: Draft; onApply: (value: Draft) => void; asset?: Asset }) {
   const { state, project, busy } = useStudio();

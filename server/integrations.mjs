@@ -60,6 +60,8 @@ export function mountIntegrations(app, store, config, helpers) {
   };
   return {
     tick,
+    mcpResearchSearch: mcp.researchSearch,
+    mcpResearchStatus: mcp.researchStatus,
     start() { media.recover(); douyin.recover(); feishu.recover(); timer = setInterval(tick, 10000); timer.unref(); },
     async close() { clearInterval(timer); douyin.close(); feishu.close(); mcp.close(); await currentTick; await media.close(); },
   };

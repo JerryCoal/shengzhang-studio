@@ -1,8 +1,27 @@
 import { corpusQuery, searchCorpus } from '../server/workflow.mjs';
 import type { State } from './types';
 
+// Creative rules and their generation snapshots stay in the local workspace.
+// Scrub before any early return, including credential checks and news refreshes.
+function removeSkillTraces(value: unknown): void {
+  if (!value || typeof value !== 'object') return;
+  if (Array.isArray(value)) { for (const item of value) removeSkillTraces(item); return; }
+  const record = value as Record<string, unknown>;
+  delete record.skillTrace;
+  delete record.researchReferences;
+  for (const item of Object.values(record)) removeSkillTraces(item);
+}
+
 export function webPayload(source: State, path: string, body: unknown, projectId?: string): State {
-  const base = structuredClone(source); delete base.webPrivate; delete base.projectDrafts; delete base.guide; base.activities = [];
+  const input = (body || {}) as { instruction?: string; query?: string; prompt?: string; skillId?: string; reviewOnly?: boolean };
+  if (path.endsWith('/copy') && input.reviewOnly !== true && input.skillId) {
+    throw new Error('网页版尚未启用自装 Skills 联网生成，请使用平台内置规则或 Windows 版');
+  }
+  const base = structuredClone(source); delete base.webPrivate; delete base.projectDrafts; delete base.guide; delete base.appearance; base.activities = [];
+  delete base.installedSkills; delete base.skillsRevision; removeSkillTraces(base);
+  delete (base as unknown as Record<string, unknown>).researchSettings;
+  // Local semantic indexes and their consent never travel through the relay.
+  for (const project of base.projects) for (const key of ['ragIndex', 'ragEnabled', 'ragConsent', 'ragUsage', 'ragPreviousCny', 'ragRevision', 'research', 'researchUsage', 'researchPreviousCny']) delete (project as unknown as Record<string, unknown>)[key];
   base.projects = projectId ? base.projects.filter(p => p.id === projectId) : [];
   const p = base.projects[0]; if (!p) return base;
   if (path.endsWith('/trends/refresh')) {
@@ -15,11 +34,10 @@ export function webPayload(source: State, path: string, body: unknown, projectId
     return base;
   }
   if (!path.includes('/trends/')) delete p.trends;
-  const input = (body || {}) as { instruction?: string; query?: string; prompt?: string };
   const assetId = path.includes('/assets/') ? path.split('/')[4] : '';
   const publicationId = path.includes('/publications/') ? path.split('/')[4] : '';
   const asset = p.assets.find(a => a.id === assetId), strategy = path.endsWith('/strategies'), copy = path.endsWith('/copy');
-  const retrievalProject = /\/(cover|keyframes|seedance)$/.test(path) && asset ? { ...p, brief: p.strategies.find(s => s.id === asset.strategyId)?.briefSnapshot || p.brief } : p;
+  const retrievalProject = /\/(copy|cover|keyframes|seedance)$/.test(path) && asset ? { ...p, brief: p.strategies.find(s => s.id === asset.strategyId)?.briefSnapshot || p.brief } : p;
   if (strategy || copy || /\/(cover|keyframes|seedance)$/.test(path)) {
     const query = strategy ? input.query || corpusQuery(p, input.instruction || '') : input.query || corpusQuery(retrievalProject, `${asset?.title || ''} ${input.instruction || input.prompt || ''}`);
     const references = searchCorpus(p, query);

@@ -14,7 +14,7 @@ export function publicationStatusLabel(record: Publication) {
   if (record.delivery?.phase==='submitted') return '已提交 · 待核对';
   if (record.delivery?.phase==='submitting') return '结果待核对 · 已锁定重试';
   if (record.manualReviewRequired) return '旧版任务 · 请先核对平台';
-  return record.status === 'exported' ? '已导出 · 待手动发布' : '待导出 / 手动发布';
+  return record.status === 'exported' ? '已导出 · 待发布' : '待准备 / 发布';
 }
 export function PlatformActions({ record }: { record: Publication }) {
   const { project, state, settings, run, mutate, busy } = useStudio();

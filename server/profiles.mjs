@@ -38,7 +38,7 @@ export function createProfileApp(options) {
     next();
   });
   app.use(express.json({ limit: '32mb' }));
-  app.get('/api/health', (_req, res) => res.json({ ok: true, authRequired: true, authMode: 'profiles', version: '1.7.0', localOnly: true }));
+  app.get('/api/health', (_req, res) => res.json({ ok: true, authRequired: true, authMode: 'profiles', version: '1.17.0', localOnly: true }));
   app.use('/api', (req, res, next) => req.get('X-Studio-Client') === 'studio-v1' ? next() : res.status(403).json({ error: '请从运营工作台访问' }));
   const tokenHash = req => hash((req.get('Authorization') || '').replace(/^Bearer /, ''));
   const identity = req => { const value = sessions.get(tokenHash(req)); if (!value || value.expiresAt <= Date.now()) throw failure('请重新登录本地工作区', 401); return value; };
@@ -53,6 +53,8 @@ export function createProfileApp(options) {
     let store;
     try {
       store = createStore(resolve(directory, 'workspace.sqlite'), { key: workspaceKey, scope: user.id });
+      store.mutate(state => { for (const p of state.projects) if (p.research?.run?.status === 'running') { p.research.revision++; Object.assign(p.research.run, { status: 'failed', phase: 'failed', finishedAt: new Date().toISOString(), error: '上次研究中断，已保留资料和预留费用；可以重新分析已保存参考。' }); } });
+      store.mutate(state => { for (const p of state.projects) for (const usage of p.ragUsage || []) if (usage.status === 'running') { usage.status = 'uncertain'; usage.note = '上次检索任务中断，保留预留人民币费用，请核对百炼账单。'; } });
       store.mutate(state => { for (const p of state.projects) for (const usage of p.usage) if (usage.status === 'running' && !p.assets.some(a => a.aiProduction?.videoUsageId === usage.id && a.aiProduction?.taskId && a.aiProduction.phase === 'generating-video')) { usage.status = 'uncertain'; usage.note = '上次运行中断，请核对服务商账单；已保留预留费用。'; } });
       const vault = name => createVault(resolve(directory, 'private', `${name}.json`), { supported: vaultSupported, transform: async (action, bytes) => {
         if (action === 'protect') {
@@ -62,7 +64,7 @@ export function createProfileApp(options) {
         const protectedBytes = await transform('unprotect', bytes);
         try { return unseal(protectedBytes, credentialKey, `${user.id}:${name}`); } finally { protectedBytes.fill(0); }
       } });
-      const workspaceApp = createApp(store, { ...options.workspaceOptions, profileMode: true, staticDirectory, allowedOrigins, vault: vault('openai'), deepseekVault: vault('deepseek'), qwenVault: vault('qwen'), seedanceVault: vault('seedance'), seedreamVault: vault('seedream'), douyinVault: vault('douyin'), feishuVault: vault('feishu'), mcpVaults: { xiaohongshu: vault('xiaohongshu-mcp'), douyin: vault('douyin-mcp') }, modelStore: createModelStore(resolve(directory, 'models.json')), integrationPreferences: createIntegrationPreferences(resolve(directory, 'integrations.json')) });
+      const workspaceApp = createApp(store, { ...options.workspaceOptions, profileMode: true, staticDirectory, allowedOrigins, vault: vault('openai'), deepseekVault: vault('deepseek'), qwenVault: vault('qwen'), researchVault: vault('web-search'), seedanceVault: vault('seedance'), seedreamVault: vault('seedream'), douyinVault: vault('douyin'), feishuVault: vault('feishu'), mcpVaults: { xiaohongshu: vault('xiaohongshu-mcp'), douyin: vault('douyin-mcp') }, modelStore: createModelStore(resolve(directory, 'models.json')), integrationPreferences: createIntegrationPreferences(resolve(directory, 'integrations.json')) });
       const context = { app: workspaceApp, store, credentialKey, active: 0, idle: [], closing: null };
       contexts.set(user.id, context); workspaceApp.locals.integrations.start();
     } catch (error) { store?.close(); credentialKey.fill(0); throw error; }

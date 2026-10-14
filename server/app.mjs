@@ -2,26 +2,35 @@ import { applyRuleClassification, correctComment } from './comment-analysis.mjs'
 import { saveMetricSnapshot } from './operating-data.mjs';
 import { updatePlatformDelivery } from './platform-delivery.mjs';
 import express from 'express';
+import { previewCreativeSkill, installCreativeSkill, setCreativeSkillEnabled, removeCreativeSkill } from './creative-skills.mjs';
+import { creativeSkillCatalog } from './creative-skill-catalog.mjs';
 import { contentArchive } from './content-export.mjs';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { resolve } from 'node:path';
 import { z } from 'zod';
 import * as domain from './domain.mjs';
 import { updateGuide } from './guide.mjs';
+import { appearanceOf, saveAppearance } from './appearance.mjs';
 import { mountAIRoutes } from './ai-routes.mjs';
+import { mountRagRoutes } from './rag-routes.mjs';
 import { mountTrendRoutes } from './trend-routes.mjs';
+import { mountResearchRoutes } from './research-routes.mjs';
 import { createOpenAITransport } from './openai-errors.mjs';
 import { createDeepSeekTransport } from './deepseek.mjs';
 import { createQwenTransport } from './qwen.mjs';
+import { qwenConnection, qwenRequestUrl } from './qwen-connection.mjs';
 import { mountIntegrations } from './integrations.mjs';
 import { consumeEditorDraft, rulesOf, saveRules, importCorpus, changeCorpus, searchCorpus, saveEditorDraft, reviewObject } from './workflow.mjs';
 
 export function createApp(store, options = {}) {
   const app = express();
   const config = { apiKey: '', password: '', secret: randomBytes(32).toString('hex'), allowedOrigins: [], ...options };
+  config.getQwenConnection = () => qwenConnection(store.get().qwenConnection);
+  const embeddingFetcher = options.ragFetcher || options.fetcher || fetch;
+  config.ragFetcher = (url, init) => embeddingFetcher(qwenRequestUrl(url, store.get().qwenConnection), init);
   const openaiTransport = createOpenAITransport(config.fetcher);
   const deepseekTransport = createDeepSeekTransport(openaiTransport.fetch);
-  const qwenTransport = createQwenTransport(deepseekTransport.fetch);
+  const qwenTransport = createQwenTransport(deepseekTransport.fetch, () => store.get().qwenConnection);
   config.fetcher = qwenTransport.fetch;
   config.qwenTransport = app.locals.qwenTransport = qwenTransport;
   config.deepseekTransport = app.locals.deepseekTransport = deepseekTransport;
@@ -85,6 +94,14 @@ export function createApp(store, options = {}) {
     res.json({ result, state: store.get() });
   };
   app.get('/api/state', (_req, res) => res.json(store.get()));
+  app.get('/api/appearance', (_req, res) => res.json(appearanceOf(store.get())));
+  app.put('/api/appearance', (req, res) => { const result = store.mutate(state => saveAppearance(state, req.body)); res.json({ result, state: store.get() }); });
+  app.get('/api/creative-skills', (_req, res) => res.json(creativeSkillCatalog(store.get())));
+  app.post('/api/creative-skills/preview', (req, res) => res.json(previewCreativeSkill(req.body)));
+  const changeCreativeSkills = (res, work) => { const result = store.mutate(work); res.json({ result, state: store.get() }); };
+  app.post('/api/creative-skills', (req, res) => changeCreativeSkills(res, state => installCreativeSkill(state, req.body)));
+  app.patch('/api/creative-skills/:skillId', (req, res) => changeCreativeSkills(res, state => setCreativeSkillEnabled(state, req.params.skillId, req.body)));
+  app.delete('/api/creative-skills/:skillId', (req, res) => changeCreativeSkills(res, state => removeCreativeSkill(state, req.params.skillId, req.body)));
   app.put('/api/guide', (req, res) => { const result = store.mutate(state => updateGuide(state, req.body)); res.json({ result, state: store.get() }); });
   app.get('/api/content-rules', (_req, res) => { const state = store.get(); res.json({ rules: rulesOf(state), revision: state.rulesRevision || 0 }); });
   app.put('/api/content-rules', (req, res) => { const result = store.mutate(state => saveRules(state, req.body)); res.json({ result, state: store.get() }); });
@@ -93,25 +110,23 @@ export function createApp(store, options = {}) {
   app.delete('/api/editor-drafts/:key', (req, res) => {
     store.mutate(state => { const current = state.projectDrafts?.[req.params.key]; domain.assert(!current || current.version === req.body.expectedVersion, '草稿已在另一处更新', 409); if (current) delete state.projectDrafts[req.params.key]; }); res.json({ ok: true });
   });
+  const rag = mountRagRoutes(app, store, config, { project, activeJobs });
   app.post('/api/projects/:id/corpus', (req, res) => mutate(req, res, p => { const result = importCorpus(p, req.body); domain.touch(p); return result; }));
   app.patch('/api/projects/:id/corpus/:documentId', (req, res) => mutate(req, res, p => { const result = changeCorpus(p, req.params.documentId, req.body, 'PATCH'); domain.touch(p); return result; }));
   app.delete('/api/projects/:id/corpus/:documentId', (req, res) => mutate(req, res, p => { const result = changeCorpus(p, req.params.documentId, {}, 'DELETE'); domain.touch(p); return result; }));
-  app.post('/api/projects/:id/corpus/search', (req, res) => {
-    const { query } = z.object({ query: z.string().trim().max(500) }).parse(req.body);
-    res.json({ query, results: searchCorpus(project(store.get(), req.params.id), query) });
-  });
   app.post('/api/projects/:id/assets/:assetId/review', (req, res) => mutate(req, res, (p, state) => {
     const asset = p.assets.find(a => a.id === req.params.assetId); domain.assert(asset, '内容不存在', 404);
     domain.assert(asset.revision === req.body.expectedRevision, '成品已更新，请重新打开', 409);
     const previous = JSON.stringify([asset.title, asset.body, asset.scenes, asset.prompt]);
-    const visual = JSON.stringify([asset.title, asset.scenes]); const old = { title: asset.title, body: asset.body, mediaData: asset.mediaData, mime: asset.mime, revision: asset.revision, at: domain.now() }; const wasReady = asset.status === 'ready'; reviewObject(asset, rulesOf(state));
+    const visual = JSON.stringify([asset.title, asset.scenes]); const old = { title: asset.title, body: asset.body, mediaData: asset.mediaData, mime: asset.mime, revision: asset.revision, at: domain.now(), ...(asset.skillTrace ? { skillTrace: structuredClone(asset.skillTrace) } : {}) }; const wasReady = asset.status === 'ready'; reviewObject(asset, rulesOf(state));
     if (previous !== JSON.stringify([asset.title, asset.body, asset.scenes, asset.prompt])) { if (wasReady) asset.history = [old, ...asset.history].slice(0, 5); if (visual !== JSON.stringify([asset.title, asset.scenes])) asset.status = 'queued'; asset.revision++; domain.touch(p); }
     return asset;
   }));
   app.get('/api/progress-version', (_req, res) => res.json({ version: store.get().projects.map(p => `${p.id}:${p.revision}`).join('|') }));
-  mountAIRoutes(app, store, config, { project, mutate, activeJobs });
+  mountAIRoutes(app, store, config, { project, mutate, activeJobs, rag });
   mountTrendRoutes(app, store, config, { project });
   app.locals.integrations = mountIntegrations(app, store, config, { project, mutate, activeJobs });
+  mountResearchRoutes(app, store, config, { project, activeJobs });
   app.get('/api/backup', (_req, res) => res.set('Content-Disposition', 'attachment; filename="shengzhang-backup.json"').json(store.get()));
   app.post('/api/projects/:id/export', async (req, res) => {
     const data = z.object({ kind: z.enum(['asset', 'publication']), id: z.string(), expectedRevision: z.number().int().positive().optional() }).parse(req.body);
@@ -149,7 +164,9 @@ export function createApp(store, options = {}) {
   app.post('/api/projects/:id/assets/:assetId/restore', (req, res) => mutate(req, res, (p, state) => {
     const a = p.assets.find(a => a.id === req.params.assetId); domain.assert(a, '内容不存在', 404);
     const old = a.history.find(h => h.revision === req.body.revision); domain.assert(old?.mediaData, '该版本没有成品');
-    return domain.updateAsset(p, a.id, { title: old.title, body: old.body, mediaData: old.mediaData, mime: old.mime, expectedRevision: a.revision }, rulesOf(state));
+    const restored = domain.updateAsset(p, a.id, { title: old.title, body: old.body, mediaData: old.mediaData, mime: old.mime, expectedRevision: a.revision }, rulesOf(state));
+    if (old.skillTrace) restored.skillTrace = structuredClone(old.skillTrace); else delete restored.skillTrace;
+    return restored;
   }));
   app.post('/api/projects/:id/publications', (req, res) => mutate(req, res, (p, state) => {
     const pub = domain.schedulePublication(p, state.accounts, req.body); domain.activity(state, '已加入发布计划', `${pub.title} · 等待手动发布`, p.id); return pub;

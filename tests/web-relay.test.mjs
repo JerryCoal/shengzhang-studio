@@ -39,6 +39,19 @@ test('web relay uses only supplied Qwen credentials and never exposes local MCP 
   assert.equal(calls.length,2);
 });
 
+test('web relay validates Qwen region and workspace before forwarding a key and never persists previous callers configuration', async t => {
+  const calls = [], key = 'opaque-qwen-relay-fixture-' + 'x'.repeat(600);
+  const f = await fixture(t, async (url, init) => { calls.push({ url, authorization: init.headers.Authorization }); return Response.json({ data: [{ id: 'qwen-plus' }] }); });
+  const input = envelope('/settings/providers/qwen/credential/check', undefined, { qwen: key });
+  for (const connection of [{ region: 'example.test' }, { region: 'cn-beijing', workspaceId: 'llm.example' }, { region: 'cn-beijing', baseUrl: 'https://evil.test' }]) {
+    assert.equal((await f.request({ ...input, qwenConnection: connection })).status, 400);
+  }
+  assert.equal(calls.length, 0);
+  const remote = await f.request({ ...input, qwenConnection: { region: 'ap-southeast-1', workspaceId: 'llm-fixture' } });
+  assert.equal(remote.value.status, 200); assert.equal(calls.at(-1).url, 'https://llm-fixture.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/models'); assert(!JSON.stringify(remote.value).includes(key));
+  assert.equal((await f.request(input)).value.status, 200); assert.equal(calls.at(-1).url, 'https://dashscope.aliyuncs.com/compatible-mode/v1/models');
+});
+
 test('web relay returns Seedream frames to the browser without retaining or echoing its key', async t => {
   const key = 'seedream-browser-test-secret', calls = [];
   const f = await fixture(t, async (url, init) => { calls.push(url); assert.equal(init.headers.Authorization, `Bearer ${key}`); return Response.json({ data: [{ b64_json: 'iVBORw0KGgo=' }], usage: { generated_images: 1 } }); });
