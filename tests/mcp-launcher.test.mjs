@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
 import { join, resolve, sep } from 'node:path';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createServer } from 'node:net';
 import { once } from 'node:events';
@@ -151,4 +151,25 @@ test('local port probe observes a listener without making any HTTP or platform r
   await new Promise(resolve => server.close(resolve)); assert.equal(await probeLocalPort(port), false);
   const env = launcherEnvironment({ AUTH_TOKEN: 'old', DASHSCOPE_API_KEY: 'old', Path: 'runtime-path', HOME: 'private-home' }, 'douyin', 'profile-directory', 'new-token');
   assert.equal(env.AUTH_TOKEN, 'new-token'); assert.equal(env.Path, 'runtime-path'); assert.equal(env.DASHSCOPE_API_KEY, undefined); assert.equal(env.HOME, undefined);
+});
+
+test('separate platform accounts retain distinct directories, ports and existing login data across launcher restart',async t=>{
+  const f=fixture(t),first=await f.launcher.start({platform:'xiaohongshu',scope:scopeA,exePath:f.exe,accountId:'default'});
+  const legacyDirectory=f.calls[0].options.cwd,fixtureBytes='synthetic-session-marker-not-real-cookies';writeFileSync(join(legacyDirectory,'cookies.json'),fixtureBytes);
+  const second=await f.launcher.start({platform:'xiaohongshu',scope:scopeA,exePath:f.exe,accountId:'campus'});const secondDirectory=f.calls[1].options.cwd;
+  assert.notEqual(first.endpoint,second.endpoint);assert.notEqual(legacyDirectory,secondDirectory);assert.equal(secondDirectory,join(legacyDirectory,'accounts','campus'));
+  assert.equal(f.calls[0].options.env.TEMP,join(legacyDirectory,'temp'));assert.equal(f.calls[1].options.env.COOKIES_PATH,join(secondDirectory,'cookies.json'));assert.equal(readFileSync(join(legacyDirectory,'cookies.json'),'utf8'),fixtureBytes);
+  await f.launcher.stop({platform:'xiaohongshu',scope:scopeA,accountId:'campus'});assert.equal((await f.launcher.status({platform:'xiaohongshu',scope:scopeA,accountId:'default'}))[0].managed,true);
+  await f.launcher.stopAll();const calls=[];const restarted=createMCPLauncher({dataRoot:join(f.root,'data'),portProbe:async()=>false,readyTimeoutMs:0,spawn:(file,args,options)=>{const child=fakeChild();calls.push({file,args,options,child});queueMicrotask(()=>child.emit('spawn'));return child;},killChild:async child=>child.stop()});t.after(()=>restarted.stopAll());
+  const status=(await restarted.status({platform:'xiaohongshu',scope:scopeA}))[0];assert.equal(status.programSaved,true);assert.equal(status.loginDataPresent,true);assert.equal(status.managed,false);assert(!JSON.stringify(status).includes(f.exe));assert(!JSON.stringify(status).includes(fixtureBytes));
+  const resumed=await restarted.start({platform:'xiaohongshu',scope:scopeA});assert.equal(calls[0].file,f.exe);assert.equal(calls[0].options.cwd,legacyDirectory);assert.equal(resumed.endpoint,first.endpoint);assert.equal(readFileSync(join(legacyDirectory,'cookies.json'),'utf8'),fixtureBytes);
+  const resumedSecond=await restarted.start({platform:'xiaohongshu',scope:scopeA,accountId:'campus'});assert.equal(resumedSecond.endpoint,second.endpoint);assert.equal(calls[1].options.cwd,secondDirectory);
+  for(const accountId of ['../other','A B','', 'x'.repeat(65)])await assert.rejects(restarted.start({platform:'xiaohongshu',scope:scopeA,accountId,exePath:f.exe}));
+});
+
+test('new account allocation reserves inactive saved ports and never borrows another user program',async t=>{
+  const f=fixture(t);const old=await f.launcher.start({platform:'xiaohongshu',scope:scopeA,accountId:'one',exePath:f.exe});await f.launcher.stopAll();
+  const launcher=createMCPLauncher({dataRoot:join(f.root,'data'),portProbe:async()=>false,readyTimeoutMs:0,spawn:()=>{const child=fakeChild();queueMicrotask(()=>child.emit('spawn'));return child;},killChild:async child=>child.stop()});t.after(()=>launcher.stopAll());
+  const next=await launcher.start({platform:'xiaohongshu',scope:scopeA,accountId:'two',exePath:f.exe});assert.notEqual(next.endpoint,old.endpoint);
+  const other=(await launcher.status({platform:'xiaohongshu',scope:scopeB,accountId:'one'}))[0];assert.equal(other.programSaved,false);assert.equal(other.loginDataPresent,false);await assert.rejects(launcher.start({platform:'xiaohongshu',scope:scopeB,accountId:'one'}),/请选择/);
 });

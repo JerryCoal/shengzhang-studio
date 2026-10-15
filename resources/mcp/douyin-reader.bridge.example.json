@@ -1,0 +1,10 @@
+{
+  "command": "C:/MCP/douyin-reader/.venv/Scripts/python.exe",
+  "args": ["-m", "browser_mcp"],
+  "cwd": "C:/MCP/douyin-reader",
+  "env": {
+    "BROWSER_MCP_DATA_DIR": "C:/MCP/douyin-reader/account-a",
+    "BROWSER_MCP_BRIDGE_PORT": "17880"
+  },
+  "port": 18150
+}

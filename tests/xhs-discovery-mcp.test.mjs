@@ -15,7 +15,7 @@ const req = { socket: { remoteAddress: '127.0.0.1' }, get: name => name === 'Hos
 const settings = (extra = {}) => ({ timeRange: 'week', sortBy: 'favorites', noteType: 'all', ...extra });
 const feeds = (start, length = 20) => ({ feeds: Array.from({ length }, (_, index) => ({ id: noteId(start + index), xsecToken: access, noteCard: { user: { nickname: 'PRIVATE_AUTHOR' } } })) });
 const detail = (n, extra = {}) => ({ feed_id: noteId(n), data: { note: { noteId: noteId(n), title: `学习空间 ${n}`, desc: `校园学习活动 ${n}`, time: Date.parse('2026-10-10T02:00:00Z'), interactInfo: { likedCount: '1.2万', collectedCount: '20+', commentCount: '31', sharedCount: '' }, user: { nickname: 'PRIVATE_AUTHOR' }, ...extra }, comments: { list: [{ content: 'PRIVATE_COMMENT', userInfo: { nickname: 'PRIVATE_COMMENTER' } }] } } });
-function fixture(onCall, { mode = 'external' } = {}) {
+function fixture(onCall, { mode = 'external', accountConfig } = {}) {
   const calls = [], requests = []; let closed = 0;
   const fetcher = async (url, init) => {
     assert.equal(url, 'http://127.0.0.1:18060/mcp');
@@ -34,7 +34,7 @@ function fixture(onCall, { mode = 'external' } = {}) {
     else { calls.push(rpc.params); result = await onCall(rpc.params.name, rpc.params.arguments); }
     return Response.json({ jsonrpc: '2.0', id: rpc.id, result }, { headers: { 'Mcp-Session-Id': 'fixture-session' } });
   };
-  const config = { mcpFetcher: fetcher, mcpVaults: { xiaohongshu: { status: () => ({ configured: true }), getKey: async () => JSON.stringify({ mode, endpoint: 'http://127.0.0.1:18060/mcp', apiKey: secret }) } } };
+  const config = { mcpFetcher: fetcher, mcpVaults: { xiaohongshu: { status: () => ({ configured: true }), getKey: async () => JSON.stringify(accountConfig || { mode, endpoint: 'http://127.0.0.1:18060/mcp', apiKey: secret }) } } };
   const app = { get() {}, put() {}, post() {}, delete() {} };
   const mcp = mountMCPPlatforms(app, {}, config, { project() {}, activeJobs: new Set() });
   return { mcp, config, calls, requests, get closed() { return closed; } };
@@ -67,11 +67,11 @@ test('XHS discovery maps only documented search filters including month overfetc
     const f = fixture(async (name, args) => {
       if (name === 'check_login_status') return login();
       assert.equal(name, 'search_feeds');
-      assert.deepEqual(args, { keyword: '校园学习', filters: { publish_time, sort_by, note_type } });
+      assert.deepEqual(args, { keyword: '校园学习', filters: { publish_time, sort_by: sortBy === 'general' && f.calls.filter(call => call.name === 'search_feeds').length === 2 ? '最多点赞' : sort_by, note_type } });
       return json({ feeds: [] });
     });
     const result = await f.mcp.researchSearch(req, { queries: ['校园学习'], at: AT, discovery: { timeRange, sortBy, noteType } });
-    assert.equal(f.calls.length, 2); assert.equal(f.closed, 1);
+    assert.equal(f.calls.length, sortBy === 'general' ? 3 : 2); assert.equal(f.closed, 1);
     assert.match(result.reports[0].message, /本次关键词样本/);
     if (timeRange === 'month') assert.match(result.reports[0].message, /半年内搜索.*近 30 天/);
     if (timeRange === 'all') assert.match(result.reports[0].message, /历史笔记不代表近期热点/);
@@ -150,4 +150,29 @@ test('XHS compact metrics preserve display notation while rejecting nonnumeric p
     const item = xhsMCPResearchItem(detail(1, { interactInfo: { likedCount: invalid } }), noteId(1), { at: AT, preserveCompactMetrics: true });
     assert.equal(item.metrics.likes, null);
   }
+});
+
+test('general discovery combines relevant and liked searches under the same twelve-detail ceiling', async () => {
+  const f = fixture(async (name, args) => {
+    if (name === 'check_login_status') return login();
+    if (name === 'search_feeds') return json(feeds(args.filters.sort_by === '综合' ? 1 : 101));
+    return json(detail(parseInt(args.feed_id, 16)));
+  });
+  const result = await f.mcp.researchSearch(req, { platform: 'xiaohongshu', queries: ['校园学习'], at: AT, discovery: settings({ sortBy: 'general', platform: 'xiaohongshu' }) });
+  assert.deepEqual(f.calls.filter(call => call.name === 'search_feeds').map(call => call.arguments.filters.sort_by), ['综合', '最多点赞']);
+  assert.deepEqual(result.items.map(item => item.externalId), [noteId(1), noteId(101), noteId(2), noteId(102)]);
+  assert.equal(f.calls.filter(call => call.name === 'get_feed_detail').length, 4);
+  assert(result.items.every(item => item.sourceAccountId === 'default'));
+});
+
+test('research can use a selected non-active matrix account without changing active identity or exposing credentials', async () => {
+  const accountConfig = { version: 2, activeAccountId: 'primary', accounts: [{ id: 'primary', name: '品牌主号', mode: 'external', endpoint: 'http://127.0.0.1:19099/mcp', apiKey: 'must-not-be-used' }, { id: 'campus', name: '校园账号', mode: 'external', endpoint: 'http://127.0.0.1:18060/mcp', apiKey: secret }] };
+  const f = fixture(async (name, args) => name === 'check_login_status' ? login() : name === 'search_feeds' ? json(feeds(1, 1)) : json(detail(parseInt(args.feed_id, 16))), { accountConfig });
+  const status = await f.mcp.researchStatus(req, { platform: 'xiaohongshu', accountId: 'campus' });
+  assert.equal(status.sourceAccountId, 'campus'); assert.equal(f.requests.length, 0);
+  const result = await f.mcp.researchSearch(req, { accountId: 'campus', queries: ['校园'], at: AT, discovery: settings() });
+  assert.equal(result.items.length, 1); assert.equal(result.items[0].sourceAccountId, 'campus');
+  assert.equal(result.items[0].sourceAccountName, '校园账号');
+  assert.equal((await f.mcp.researchStatus(req)).sourceAccountId, 'primary');
+  assert(!JSON.stringify({ status, result }).includes(secret));
 });

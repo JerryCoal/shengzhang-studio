@@ -1,4 +1,4 @@
-export type CreativeSkillPlatform = 'xiaohongshu' | 'douyin';
+export type CreativeSkillPlatform = import('./platform-catalog.mjs').MatrixPlatform;
 export type CreativeSkillStage = 'copy';
 export type CreativeSkillPreview = {
   name: string;

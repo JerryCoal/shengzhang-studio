@@ -6,8 +6,9 @@ function creatorAllowed(value,platform) {
   try{const u=new URL(value);return u.protocol==='https:'&&!u.username&&!u.password&&!u.port&&u.hostname===new URL(CREATORS[platform]).hostname;}catch{return false;}
 }
 function validateDraft(value) {
-  if(!value||!Object.hasOwn(CREATORS,value.platform))throw Error('请选择抖音或小红书');
-  const limits={title:20,body:1000};
+  const allLimits={xiaohongshu:{title:20,body:1000},douyin:{title:20,body:1000},youtube:{title:100,body:4000},tiktok:{title:90,body:2000},instagram:{title:100,body:2000}};
+  if(!value||!Object.hasOwn(allLimits,value.platform))throw Error('请选择已支持的发布平台');
+  const limits=allLimits[value.platform];
   if(typeof value.title!=='string'||!value.title.trim()||[...value.title].length>limits.title)throw Error(`请先将标题调整至 ${limits.title} 字以内`);
   if(typeof value.body!=='string'||[...value.body].length>limits.body)throw Error(`请先将正文调整至 ${limits.body} 字以内`);
   const types={'image/png':'png','image/jpeg':'jpg','video/mp4':'mp4'};

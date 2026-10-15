@@ -34,7 +34,7 @@ export function CorpusRag({ project, onStatusChange }: { project: Project; onSta
   }, [path, localOnly, onStatusChange]);
   useEffect(() => { void reload(); }, [reload, project.revision]);
   const locked = busy || pending || loading;
-  const enabledDocuments = (project.corpus || []).filter(document => document.enabled).length;
+  const enabledDocuments = (project.corpus || []).filter(document => document.enabled && document.purpose !== 'style_sample').length;
   const remaining = status ? Math.max(0, status.budgetCny - status.usageCny) : 0;
   const exceedsBudget = !!status && status.plan.estimatedCny > remaining;
   const canBuild = !!status?.available && status.configured && status.connectionSupported !== false && status.plan.chunksCount > 0 && status.plan.chunksCount <= 200 && status.plan.withinLimit !== false && Number.isFinite(status.plan.estimatedCny) && !exceedsBudget && remaining > 0;

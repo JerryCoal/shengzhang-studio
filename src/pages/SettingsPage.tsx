@@ -13,6 +13,7 @@ import { CreativeSkillsSettings } from './CreativeSkills';
 import { ResearchSettings } from './Research';
 import { WebRequestStatus } from './WebRequestStatus';
 import { MCPConnections } from './MCPConnections';
+import { ManualAccountCreator } from '../components/ManualAccountCreator';
 import { FeishuSettings } from './Feishu';
 import { PublishingNotice } from '../components/PublishingNotice';
 import { CREATOR_URLS } from '../../server/content-export.mjs';
@@ -59,6 +60,7 @@ export function SettingsPage() {
     <section id="settings-panel-media" role="tabpanel" aria-labelledby="settings-tab-media" hidden={section !== 'media'}>{IS_STATIC ? localNote : <IntegrationSettings/>}</section>
     <section id="settings-panel-rules" role="tabpanel" aria-labelledby="settings-tab-rules" hidden={section !== 'rules'}><CreativeSkillsSettings/><ContentRulesSettings/></section>
     <section id="settings-panel-publishing" role="tabpanel" aria-labelledby="settings-tab-publishing" hidden={section !== 'publishing'}>
+      <ManualAccountCreator/>
       <MCPConnections/>
       <section className="panel settings-card account-settings"><div className="section-heading"><div><h2>本地账号标识</h2><p className="muted">这里的名称仅用于区分发布记录，不会登录或修改平台账号。</p></div><Pill color="green">本地标识</Pill></div>
         <div className="manual-account-grid">{state.accounts.map(account => <article className="manual-account" key={account.id}><div className="row between"><Channel platform={account.platform}/><button className="icon-button" aria-label={`修改账号名称 ${account.name}`} onClick={() => setRename({ id: account.id, name: account.name })}><Pencil size={16}/></button></div><h3>{account.name}</h3><p>到平台后，请核对实际登录的账号。</p><a className="button small" href={CREATOR_URLS[account.platform]} target="_blank" rel="noreferrer">打开创作中心 <ExternalLink size={14}/></a></article>)}</div>

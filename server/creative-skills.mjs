@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PLATFORM_IDS } from './platform-catalog.mjs';
 
 // This module is shared by the desktop server and browser. Imported Markdown is
 // data: no file is extracted, dependency fetched, script evaluated or tool run.
@@ -13,7 +14,7 @@ const revision = z.number().int().nonnegative();
 const inputSchema = z.object({ fileName: z.string().trim().min(1).max(180), text: z.string().min(1).max(CREATIVE_SKILL_MAX_BYTES) }).strict();
 const storedSchema = z.object({
   id: identifier, name: z.string().min(1).max(80), description: z.string().min(1).max(600), version: z.string().min(1).max(40),
-  platforms: z.array(z.enum(['xiaohongshu', 'douyin'])).min(1).max(2), stages: z.array(z.literal('copy')).length(1),
+  platforms: z.array(z.enum(PLATFORM_IDS)).min(1).max(5), stages: z.array(z.literal('copy')).length(1),
   instructions: z.string().min(1).max(CREATIVE_SKILL_MAX_BYTES), sourceText: z.string().min(1).max(CREATIVE_SKILL_MAX_BYTES), sourceFile: z.string().min(1).max(180),
   warnings: z.array(z.string().max(3000)).max(10), enabled: z.boolean(), installedAt: z.string().max(40),
 });
@@ -112,7 +113,7 @@ export function previewCreativeSkill(input) {
   const description = plain(metadata.description ?? '用户导入的宣传文案创作规则', 600, 'Skill 描述');
   const version = plain(metadata.version ?? '1.0.0', 40, 'Skill 版本');
   if (!/^[A-Za-z0-9][A-Za-z0-9._+-]*$/u.test(version)) fail('Skill 版本请使用数字、字母、点或短横线，例如 1.0.0');
-  const platforms = list(metadata.platforms, ['xiaohongshu', 'douyin'], ['xiaohongshu', 'douyin'], '适用平台');
+  const platforms = list(metadata.platforms, ['xiaohongshu', 'douyin'], PLATFORM_IDS, '适用平台');
   const stages = list(metadata.stages, ['copy'], ['copy'], '适用步骤');
   const warnings = ['仅使用本文件正文作为文案表达偏好，不执行脚本、工具调用或外部链接，也不自动读取关联文件。'];
   if (!hasMetadata) warnings.push('未填写顶部元信息，已从标题或文件名取名，版本默认为 1.0.0。');
@@ -169,7 +170,7 @@ export function removeCreativeSkill(state, id, input) {
 }
 
 export function resolveCreativeSkill(state, input) {
-  const { skillId, stage, platform } = z.object({ skillId: identifier.or(z.literal('')).optional(), stage: z.string().max(40), platform: z.enum(['xiaohongshu', 'douyin']) }).strict().parse(input);
+  const { skillId, stage, platform } = z.object({ skillId: identifier.or(z.literal('')).optional(), stage: z.string().max(40), platform: z.enum(PLATFORM_IDS) }).strict().parse(input);
   if (!skillId) return null;
   normalizeCreativeSkills(state);
   const skill = locate(state, skillId);

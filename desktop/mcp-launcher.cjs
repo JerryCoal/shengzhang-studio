@@ -3,6 +3,7 @@ const { stat, realpath, mkdir } = require('node:fs/promises');
 const { isAbsolute, extname, basename, join, resolve, relative, sep } = require('node:path');
 const { connect } = require('node:net');
 const { randomBytes } = require('node:crypto');
+const { accountDirectory, readMetadata, saveMetadata, loginDataPresent, loginDataUpdatedAt, validAccountId, savedPorts, prepareRuntimeDirectory } = require('./mcp-account-storage.cjs');
 
 // Only the upstream HTTP launch modes are supported. No shell, commands from
 // the renderer, downloads, credential discovery or unknown-process shutdown.
@@ -10,8 +11,9 @@ const PRESETS = {
   xiaohongshu: { port: 18060, label: '小红书', args: ['-port', '127.0.0.1:18060'] },
   douyin: { port: 18080, label: '抖音', args: ['--http', '--host', '127.0.0.1', '--port', '18080'] },
 };
-function validInput(platform, scope) {
+function validInput(platform, scope, accountId = 'default') {
   if (!Object.hasOwn(PRESETS, platform) || typeof scope !== 'string' || !/^[a-f0-9]{64}$/.test(scope)) throw Error('请重新登录工作台后选择对应平台');
+  if (!validAccountId(accountId)) throw Error('平台账号编号无效');
 }
 function contained(root, child) { const name = relative(root, child); return name === '' || (name !== '..' && !name.startsWith('..' + sep) && !isAbsolute(name)); }
 async function executablePath(input) {
@@ -41,6 +43,9 @@ function launcherEnvironment(source, platform, directory, token) {
   for (const [name, value] of Object.entries(source)) if (allowed.test(name) && typeof value === 'string') env[name] = value;
   env.NO_PROXY = env.no_proxy = 'localhost,127.0.0.1,::1';
   env.AUTH_TOKEN = token;
+  // Older upstream builds consulted a process-wide temp cookies.json. Keep even
+  // that fallback inside this account rather than another Windows user's session.
+  env.TEMP = env.TMP = join(directory, 'temp');
   if (platform === 'xiaohongshu') env.COOKIES_PATH = join(directory, 'cookies.json');
   else { env.DOUYIN_DATA_DIR = directory; env.DOUYIN_DEBUG = '0'; }
   return env;
@@ -62,14 +67,15 @@ function killOwnedChild(child) {
   return new Promise((accept, reject) => execFile(tool, ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, timeout: 5000, encoding: 'utf8', maxBuffer: 65536 }, error => error && child.exitCode === null && child.signalCode === null ? reject(Error('服务尚未停止')) : accept()));
 }
 
-function createMCPLauncher({ dataRoot, spawn = spawnProcess, portProbe = probeLocalPort, validateExecutable = executablePath, ensureDirectory = privateDirectory, killChild = killOwnedChild, environment = process.env, startupTimeoutMs = 15000, stopTimeoutMs = 7000, readyTimeoutMs = 10000, pollIntervalMs = 200 } = {}) {
+function createMCPLauncher({ dataRoot, spawn = spawnProcess, portProbe = probeLocalPort, validateExecutable = executablePath, ensureDirectory = accountDirectory, killChild = killOwnedChild, environment = process.env, startupTimeoutMs = 15000, stopTimeoutMs = 7000, readyTimeoutMs = 10000, pollIntervalMs = 200 } = {}) {
   if (typeof dataRoot !== 'string' || !isAbsolute(dataRoot)) throw Error('需要本机外部服务数据目录');
   if (!Number.isFinite(readyTimeoutMs) || readyTimeoutMs < 0 || readyTimeoutMs > 10000 || !Number.isFinite(pollIntervalMs) || pollIntervalMs <= 0) throw Error('外部服务等待时间设置无效');
   const root = resolve(dataRoot), records = new Map(); let busy = false, epoch = 0, owner = '';
-  const endpoint = platform => `http://127.0.0.1:${PRESETS[platform].port}/mcp`;
-  const visible = (platform, scope) => {
-    const item = records.get(platform), own = item?.scope === scope;
-    return { platform, endpoint: endpoint(platform), status: own ? item.status : 'stopped', managed: !!(own && item.alive), ready: !!(own && item.alive && item.status === 'running'), note: own ? item.note : '尚未由工作台启动外部服务。' };
+  const recordKey = (platform, scope, accountId) => `${scope}:${platform}:${accountId}`;
+  const endpoint = port => `http://127.0.0.1:${port}/mcp`;
+  const visible = (platform, scope, accountId, metadata, present) => {
+    const item = records.get(recordKey(platform, scope, accountId));
+    return { platform, accountId, endpoint: endpoint(item?.port || metadata?.port || PRESETS[platform].port), status: item?.status || 'stopped', managed: !!item?.alive, ready: !!(item?.alive && item.status === 'running'), programSaved: !!metadata, loginDataPresent: !!present, note: item?.note || (metadata ? '已记住此账号的程序；可直接启动。登录资料保存在本机，是否仍有效需检查平台登录。' : '尚未为此账号选择外部程序。') };
   };
   async function waitUntilListening(item, current) {
     const deadline = Date.now() + readyTimeoutMs;
@@ -77,7 +83,7 @@ function createMCPLauncher({ dataRoot, spawn = spawnProcess, portProbe = probeLo
       current(); if (!item.alive) throw Error(item.note);
       const remaining = Math.max(1, deadline - Date.now()); let timer;
       const listening = await Promise.race([
-        Promise.resolve().then(() => portProbe(PRESETS[item.platform].port, Math.min(700, remaining), true)).catch(() => false),
+        Promise.resolve().then(() => portProbe(item.port, Math.min(700, remaining), true)).catch(() => false),
         new Promise(accept => { timer = setTimeout(() => accept(false), remaining); }),
       ]).finally(() => clearTimeout(timer));
       current(); if (!item.alive) throw Error(item.note);
@@ -116,27 +122,39 @@ function createMCPLauncher({ dataRoot, spawn = spawnProcess, portProbe = probeLo
     if (stopped.some(result => result.status === 'rejected')) throw Error('部分由工作台启动的外部服务尚未确认停止，请手动关闭对应程序。');
     return { ok: true, note: '已停止由工作台启动的外部服务；其他程序未受影响。' };
   }
-  async function start({ platform, exePath, scope } = {}) {
-    validInput(platform, scope);
+  async function start({ platform, exePath, scope, accountId = 'default' } = {}) {
+    validInput(platform, scope, accountId);
     if (busy) throw Error('另一项外部服务启动操作正在进行，请稍后再试');
     busy = true; let ticket = epoch, item;
     const current = () => { if (ticket !== epoch) throw Error('工作台登录或启动操作已变化，请重新操作'); };
     try {
-      const executable = await validateExecutable(exePath); current();
+      const directory = await ensureDirectory(root, scope, platform, accountId); current();
+      let metadata; try { metadata = await readMetadata(directory); } catch (error) { if (!exePath) throw error; }
+      const executable = await validateExecutable(exePath || metadata?.executable); current();
       checkProgramChoice(platform, executable);
       if ((owner && owner !== scope) || [...records.values()].some(record => record.alive && record.scope !== scope)) { const transition = epoch + 1; await stopAll(); if (epoch !== transition) throw Error('工作台登录已变化，请重新操作'); ticket = transition; }
       current(); owner = scope;
-      const previous = records.get(platform);
+      const previous = records.get(recordKey(platform, scope, accountId));
       if (previous?.alive) throw Error('此平台外部服务已由工作台启动，请检查连接；需要更换程序时先停止服务');
-      if (await portProbe(PRESETS[platform].port)) throw Error(`${PRESETS[platform].label}本机端口 ${PRESETS[platform].port} 已被占用。请先检查已有服务，或自行关闭旧服务后再启动；工作台不会结束未知程序。`);
+      let port = metadata?.port || (accountId === 'default' ? PRESETS[platform].port : (platform === 'xiaohongshu' ? 18100 : 18200));
+      if (metadata || accountId === 'default') {
+        if (await portProbe(port)) throw Error(`${PRESETS[platform].label}本机端口 ${port} 已被占用。请先检查已有服务，或自行关闭旧服务后再启动；工作台不会结束未知程序。`);
+      } else {
+        const reserved = await savedPorts(root, scope, platform); current();
+        const end = port + 100;
+        while (port < end && (reserved.has(port) || [...records.values()].some(record => record.port === port) || await portProbe(port))) { port++; current(); }
+        if (port >= end) throw Error('没有可用的本机账号服务端口，请关闭不再使用的外部服务后重试');
+      }
       current();
-      const directory = await ensureDirectory(root, scope, platform); current();
+      await prepareRuntimeDirectory(directory);
+      await saveMetadata(directory, { executable, port }); metadata = { executable, port }; current();
       const token = randomBytes(32).toString('base64url');
       let child;
-      try { child = spawn(executable, [...PRESETS[platform].args], { cwd: directory, env: launcherEnvironment(environment, platform, directory, token), windowsHide: true, shell: false, detached: false, stdio: 'ignore' }); }
+      const args = platform === 'xiaohongshu' ? ['-port', `127.0.0.1:${port}`] : ['--http', '--host', '127.0.0.1', '--port', String(port)];
+      try { child = spawn(executable, args, { cwd: directory, env: launcherEnvironment(environment, platform, directory, token), windowsHide: true, shell: false, detached: false, stdio: 'ignore' }); }
       catch { throw Error('无法启动外部 MCP 服务，请重新选择已解压的主程序'); }
-      item = { platform, scope, child, token, alive: true, spawned: false, status: 'starting', note: '程序已启动，正在准备本机服务；仍需检查连接并完成平台登录。', stopping: null, stopRequested: false };
-      records.set(platform, item);
+      item = { platform, scope, accountId, port, child, token, alive: true, spawned: false, status: 'starting', note: '程序已启动，正在准备本机服务；仍需检查连接并完成平台登录。', stopping: null, stopRequested: false };
+      records.set(recordKey(platform, scope, accountId), item);
       child.once('spawn', () => { item.spawned = true; });
       child.once('exit', () => { item.alive = false; item.token = ''; item.status = item.stopRequested ? 'stopped' : 'failed'; item.note = item.stopRequested ? '工作台启动的外部服务已停止。' : '外部程序已退出，请检查是否选中了 MCP 主程序、依赖是否齐全，或重新下载官方仓库的 Windows 版本。'; });
       child.on('error', () => { if (!item.spawned) { item.alive = false; item.token = ''; } item.status = 'failed'; item.note = '所选服务未能完成操作，请检查程序是否已解压、Windows 安全提示及本机服务状态。'; });
@@ -149,7 +167,7 @@ function createMCPLauncher({ dataRoot, spawn = spawnProcess, portProbe = probeLo
       current();
       if (!item.alive) throw Error(item.note);
       const ready = await waitUntilListening(item, current);
-      return { ok: true, ...visible(platform, scope), ready, apiKey: token };
+      return { ok: true, ...visible(platform, scope, accountId, metadata, await loginDataPresent(directory, platform)), ready, apiKey: token };
     } catch (error) {
       if (item?.alive) await stopRecord(item).catch(() => {});
       // Spawn errors can contain executable paths and environment details.
@@ -157,22 +175,26 @@ function createMCPLauncher({ dataRoot, spawn = spawnProcess, portProbe = probeLo
       throw error;
     } finally { busy = false; }
   }
-  async function status({ scope, platform } = {}) {
-    validInput(platform || 'xiaohongshu', scope);
+  async function status({ scope, platform, accountId = 'default' } = {}) {
+    validInput(platform || 'xiaohongshu', scope, accountId);
     const selected = platform ? [platform] : Object.keys(PRESETS);
+    const output = [];
     for (const name of selected) {
-      const item = records.get(name);
+      const item = records.get(recordKey(name, scope, accountId));
       if (item?.scope === scope && item.alive && !item.stopping) {
-        const listening = await portProbe(PRESETS[name].port, 700, true);
+        const listening = await portProbe(item.port, 700, true);
         if (item.alive && !item.stopping) { item.status = listening ? 'running' : 'starting'; item.note = listening ? '本机端口已就绪；请检查 MCP 连接，平台登录仍需单独完成。' : '进程仍在准备服务。首次运行可能需要准备浏览器；请稍候后检查连接。'; }
       }
+      const directory = await ensureDirectory(root, scope, name, accountId);
+      let metadata, problem; try { metadata = await readMetadata(directory); } catch { problem = '保存的启动信息无法读取，请重新选择程序；原登录资料仍保留。'; }
+      output.push({ ...visible(name, scope, accountId, metadata, await loginDataPresent(directory, name)), loginDataUpdatedAt:await loginDataUpdatedAt(directory,name), ...(problem ? {note:problem} : {}) });
     }
-    return selected.map(name => visible(name, scope));
+    return output;
   }
-  async function stop({ scope, platform } = {}) {
-    validInput(platform, scope); const item = records.get(platform);
+  async function stop({ scope, platform, accountId = 'default' } = {}) {
+    validInput(platform, scope, accountId); const item = records.get(recordKey(platform, scope, accountId));
     if (item?.scope === scope) await stopRecord(item);
-    return { ok: true, ...visible(platform, scope) };
+    return { ok: true, ...(await status({ scope, platform, accountId }))[0] };
   }
   return { start, status, stop, stopAll };
 }

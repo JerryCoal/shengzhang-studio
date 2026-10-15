@@ -1,5 +1,7 @@
 import { COMMENT_CATEGORIES, COMMENT_WORKFLOW_VERSION, classifyComment, selectCommentScope } from './comment-analysis.mjs';
 import { z } from 'zod';
+import { PLATFORM_IDS, PLATFORM_WORK } from './platform-catalog.mjs';
+import { commentSource } from '../desktop/comment-source.mjs';
 import { importCapturedComments } from './comment-import.mjs';
 import { strategyPrompt, taskPrompt } from './prompts.mjs';
 import { reviewObject, defaultRules, corpusQuery, searchCorpus, corpusPrompt } from './workflow.mjs';
@@ -11,7 +13,7 @@ export const briefSchema = z.object({
   name: text(100).min(1), brand: text(100).min(1), product: text(100).min(1),
   type: z.enum(['launch', 'daily']), goal: text(1000).min(1), audience: text(1000).min(1),
   sellingPoints: text(2000).min(1), facts: text(), requirements: text(2000),
-  channels: z.array(z.enum(['xiaohongshu', 'douyin'])).min(1).max(2),
+  channels: z.array(z.enum(PLATFORM_IDS)).min(1).max(5).refine(values => new Set(values).size === values.length, '请勿重复选择渠道'),
   deadline: z.string().refine(v => /^\d{4}-\d{2}-\d{2}$/.test(v) && Number.isFinite(Date.parse(v)), '请选择截止日期'),
   budgetUsd: z.number().finite().min(0).max(10000),
 });
@@ -26,15 +28,22 @@ export function newProject(input) {
     strategies: [], assets: [], publications: [], comments: [], insights: [], experiences: [], usage: [], corpus: [], imageData: '', audioData: '', lastImportAt: null };
 }
 export function touch(p) { p.revision += 1; p.updatedAt = now(); }
+export function addAccount(state, input) {
+  const data = z.object({platform:z.enum(PLATFORM_IDS),name:text(100).min(1)}).strict().parse(input);
+  assert(state.accounts.length < 100, '最多保存 100 个本地账号标识');
+  assert(!state.accounts.some(account => account.platform === data.platform && account.name === data.name), '该平台已有同名账号标识');
+  const account = {...data,id:id(),connected:false,autoPublish:false,autoComments:false,note:'本地发布记录标识，请在平台核对实际登录'};
+  state.accounts.push(account); return account;
+}
 export function activity(state, title, detail, projectId) {
   state.activities.unshift({ id: id(), title, detail, projectId, at: now() });
   state.activities = state.activities.slice(0, 100);
 }
 export function tasksFor(brief, strategy, rules = defaultRules()) {
   return brief.channels.flatMap(channel => [reviewObject({
-    key: channel === 'xiaohongshu' ? 'xhs-note' : 'dy-video', channel,
-    kind: channel === 'xiaohongshu' ? 'image' : 'video',
-    name: channel === 'xiaohongshu' ? '小红书 · 场景种草图文' : '抖音 · 12 秒场景短片',
+    key: PLATFORM_WORK[channel].key, channel,
+    kind: PLATFORM_WORK[channel].kind,
+    name: PLATFORM_WORK[channel].name,
     title: strategy.title,
     body: `${strategy.core}\n\n${brief.facts || '产品详细信息待补充。'}\n\n${brief.goal}\n\n#${brief.brand.replace(/\s/g, '')} #${brief.product.replace(/\s/g, '')}`,
     prompt: taskPrompt(brief, strategy, channel),
@@ -79,7 +88,12 @@ export function editStrategy(p, strategyId, input, rules = defaultRules()) {
   const previous = p.strategies.find(s => s.id === strategyId);
   assert(previous, '策略不存在', 404);
   const edits = strategyTextSchema.parse(input);
-  if (previous.status === 'confirmed') return makeDraft(p, edits, '', 'manual', rules, previous.retrievalQuery);
+  if (previous.status === 'confirmed') {
+    const draft = makeDraft(p, edits, '', 'manual', rules, previous.retrievalQuery);
+    if (Object.hasOwn(previous, 'documentContextSnapshot')) draft.documentContextSnapshot = structuredClone(previous.documentContextSnapshot);
+    if (Object.hasOwn(previous, 'styleReferencesSnapshot')) draft.styleReferencesSnapshot = structuredClone(previous.styleReferencesSnapshot);
+    return draft;
+  }
   reviewObject(edits, rules);
   Object.assign(previous, edits, { tasks: tasksFor(previous.briefSnapshot || p.brief, edits, rules), source: 'manual', changes: ['策略卡片与全部制作要求已同步更新'] });
   touch(p);
@@ -143,8 +157,13 @@ export function confirmPublication(p, publicationId, input) {
   assert(input.confirmed === true, '请先确认已经在平台发布成功');
   let url;
   try { url = new URL(input.url); } catch { assert(false, '请输入有效的作品链接'); }
-  const domains = record.platform === 'xiaohongshu' ? ['xiaohongshu.com', 'xhslink.com'] : ['douyin.com', 'iesdouyin.com'];
-  assert(url.protocol === 'https:' && !url.username && !url.password && domains.some(d => url.hostname === d || url.hostname.endsWith('.' + d)), '请填写对应平台的 HTTPS 作品链接');
+  if (['xiaohongshu','douyin'].includes(record.platform)) {
+    const domains = record.platform === 'xiaohongshu' ? ['xiaohongshu.com', 'xhslink.com'] : ['douyin.com', 'iesdouyin.com'];
+    assert(url.protocol === 'https:' && !url.username && !url.password && !url.port && domains.some(d => url.hostname === d || url.hostname.endsWith('.' + d)), '请填写对应平台的 HTTPS 作品链接');
+  } else {
+    let parsed; try { parsed=commentSource(url.href); } catch { assert(false,'请填写对应平台的完整 HTTPS 作品链接'); }
+    assert(parsed.platform === record.platform, '请填写对应平台的 HTTPS 作品链接');
+  }
   record.manualReviewRequired = false; record.status = 'published'; record.url = url.href; record.confirmationSource = 'user'; record.publishedAt = now(); touch(p);
   return record;
 }

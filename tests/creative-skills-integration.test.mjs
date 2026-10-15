@@ -77,7 +77,8 @@ for (const provider of ['openai', 'deepseek', 'qwen']) test(`${provider} copy se
   assert.equal(Object.hasOwn(call.input, 'installedSkills'), false); assert.equal(Object.hasOwn(call.input, 'sourceText'), false);
   assert.equal(call.request.tools, undefined);
   const trace = result.data.result.skillTrace;
-  assert.deepEqual(trace.user, call.input.creativeSkill); assert.deepEqual(trace.builtin.map(value => value.id), ['marketing-copywriting', 'xiaohongshu-copywriting']);
+  assert.deepEqual(trace.user, call.input.creativeSkill); assert.deepEqual(trace.builtin.map(value => value.id), ['marketing-copywriting', 'xiaohongshu-copywriting', 'natural-copy-editing']);
+  assert(call.system.includes(COPY_SKILLS['natural-copy-editing']));
   for (const item of trace.builtin) { assert.equal(item.version, COPY_SKILL_VERSIONS[item.id]); assert.equal(item.instructions, COPY_SKILLS[item.id]); }
   assert.equal(f.project().usage.length, 1); assert.equal(f.project().usage[0].status, 'completed');
 });

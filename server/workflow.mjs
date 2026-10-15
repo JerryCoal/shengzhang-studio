@@ -1,6 +1,7 @@
 import { validateSemanticRule } from './semantic-replacement.mjs';
 import { scanCopy, copyFields, applyFixed, actionOf } from './sensitive-checker.mjs';
 import { z } from 'zod';
+import { PLATFORM_IDS } from './platform-catalog.mjs';
 import { disableAutomaticPublishing } from './manual-publishing.mjs';
 import { normalizeCreativeSkills } from './creative-skills.mjs';
 import { appearanceOf } from './appearance.mjs';
@@ -65,26 +66,34 @@ export function reviewObject(object, rules) {
   object.copyReview = { ...review, previousHits: review.hits.length ? [] : object.copyReview?.hits?.length ? object.copyReview.hits : object.copyReview?.previousHits || [] };
   return object;
 }
-export function chunkText(text) {
+export const CORPUS_PURPOSES = ['product_facts', 'event_plan', 'brand_guidelines', 'style_sample'];
+const extractionSchema = z.object({
+  parser: z.enum(['simple', 'docling']), sourceName: z.string().max(180),
+  blocks: z.array(z.object({ id: z.string().min(1).max(120), kind: z.enum(['paragraph', 'heading', 'table', 'list', 'other']), text: z.string().max(300000), page: z.number().int().positive().max(10000).optional(), heading: z.string().max(500).optional() }).strict()).max(4000),
+  warnings: z.array(z.string().max(1000)).max(20), metadata: z.object({ version: z.string().max(100).optional(), pageCount: z.number().int().nonnegative().max(10000).optional() }).strict(),
+}).strict();
+export function chunkText(text, blocks = []) {
   const clean = text.replace(/\r\n?/g, '\n').replace(/\u0000/g, '').trim();
   const chunks = [];
-  for (const paragraph of clean.split(/\n\s*\n/).filter(s => s.trim())) {
-    for (let start = 0; start < paragraph.length; start += 800) chunks.push({ index: chunks.length + 1, text: paragraph.slice(start, start + 900).trim() });
+  const units = blocks.length ? blocks.filter(block => block.text.trim()).map(block => ({ text: block.text, blockId: block.id, kind: block.kind, ...(block.page ? { page: block.page } : {}), ...(block.heading ? { heading: block.heading } : {}) })) : clean.split(/\n\s*\n/).filter(s => s.trim()).map(text => ({ text }));
+  for (const { text: paragraph, ...location } of units) {
+    for (let start = 0; start < paragraph.length; start += 800) chunks.push({ index: chunks.length + 1, text: paragraph.slice(start, start + 900).trim(), ...location });
   }
   return chunks;
 }
 export function importCorpus(project, input) {
-  const data = z.object({ name: z.string().trim().min(1).max(160), text: z.string().trim().min(1).max(300000), format: z.enum(['txt', 'md', 'docx', 'pdf', 'paste']).default('paste') }).parse(input);
+  const data = z.object({ name: z.string().trim().min(1).max(160), text: z.string().trim().min(1).max(300000), format: z.enum(['txt', 'md', 'docx', 'pdf', 'pptx', 'xlsx', 'paste']).default('paste'), purpose: z.enum(CORPUS_PURPOSES).default('product_facts'), extraction: extractionSchema.optional() }).parse(input);
   const corpus = project.corpus ||= [];
   if (corpus.length >= 50 || corpus.reduce((n, item) => n + item.text.length, 0) + data.text.length > 2000000) fail('当前项目语料已达上限，请先删除不用的文档');
   if (corpus.some(item => item.text === data.text)) fail('这份正文已经导入，请勿重复添加', 409);
-  const doc = { ...data, id: uuid(), enabled: true, importedAt: now(), chunks: chunkText(data.text) };
+  if (data.extraction?.blocks.some(block => !data.text.includes(block.text))) fail('文档定位与当前正文不一致，请重新解析或使用手动正文导入');
+  const doc = { ...data, id: uuid(), enabled: true, importedAt: now(), chunks: chunkText(data.text, data.extraction?.blocks) };
   corpus.push(doc); return doc;
 }
 export function changeCorpus(project, documentId, input, method) {
   const doc = (project.corpus || []).find(item => item.id === documentId); if (!doc) fail('语料文档不存在', 404);
   if (method === 'DELETE') { project.corpus = project.corpus.filter(item => item.id !== documentId); return { ok: true }; }
-  Object.assign(doc, z.object({ enabled: z.boolean().optional(), name: z.string().trim().min(1).max(160).optional() }).parse(input)); return doc;
+  Object.assign(doc, z.object({ enabled: z.boolean().optional(), name: z.string().trim().min(1).max(160).optional(), purpose: z.enum(CORPUS_PURPOSES).optional() }).parse(input)); return doc;
 }
 function tokens(text) {
   const normalized = text.normalize('NFKC').toLocaleLowerCase();
@@ -95,10 +104,10 @@ export function corpusQuery(project, instruction = '') { return [project.brief.p
 export function searchCorpus(project, query, limit = 5) {
   const terms = tokens(String(query).slice(0, 500)); if (!terms.length) return [];
   const results = [];
-  for (const doc of project.corpus || []) if (doc.enabled) for (const chunk of doc.chunks) {
+  for (const doc of project.corpus || []) if (doc.enabled && doc.purpose !== 'style_sample') for (const chunk of doc.chunks) {
     const title = doc.name.toLocaleLowerCase(), text = chunk.text.toLocaleLowerCase();
     const score = terms.reduce((sum, term) => sum + (text.includes(term) ? 1 : 0) + (title.includes(term) ? 2 : 0), 0);
-    if (score) results.push({ documentId: doc.id, name: doc.name, chunk: chunk.index, text: chunk.text, score });
+    if (score) results.push({ documentId: doc.id, name: doc.name, chunk: chunk.index, text: chunk.text, score, ...(chunk.page ? { page: chunk.page } : {}), ...(chunk.heading ? { heading: chunk.heading } : {}) });
   }
   return results.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name) || a.chunk - b.chunk).slice(0, Math.min(10, limit));
 }
@@ -109,7 +118,7 @@ export function corpusPrompt(references) {
 export function saveEditorDraft(state, key, input, briefSchema) {
   const project = state.projects.find(p => p.id === key);
   if (key !== 'new' && !project) fail('项目不存在', 404);
-  const data = z.object({ brief: briefSchema.partial().extend({ name: z.string().max(100), brand: z.string().max(100), product: z.string().max(100), goal: z.string().max(1000), audience: z.string().max(1000), sellingPoints: z.string().max(2000), channels: z.array(z.enum(['xiaohongshu', 'douyin'])).max(2), deadline: z.string().max(10) }), expectedVersion: z.number().int().min(0), baseBrief: z.unknown().optional() }).parse(input);
+  const data = z.object({ brief: briefSchema.partial().extend({ name: z.string().max(100), brand: z.string().max(100), product: z.string().max(100), goal: z.string().max(1000), audience: z.string().max(1000), sellingPoints: z.string().max(2000), channels: z.array(z.enum(PLATFORM_IDS)).max(5), deadline: z.string().max(10) }), expectedVersion: z.number().int().min(0), baseBrief: z.unknown().optional() }).parse(input);
   const drafts = state.projectDrafts ||= {}, previous = drafts[key];
   if ((previous?.version || 0) !== data.expectedVersion) fail('该编辑草稿已在另一窗口更新，请关闭编辑框后重新打开', 409);
   const valid = briefSchema.safeParse(data.brief);

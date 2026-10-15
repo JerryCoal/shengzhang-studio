@@ -8,7 +8,7 @@ import { trendsOf, COMMON_WORDS, type TrendsState, type TrendSettings } from '..
 import { NEWS_SOURCES, NEWS_CATEGORIES, KEYWORD_SUGGESTIONS } from '../../server/news-sources.mjs';
 const words = (text: string) => [...new Set(text.split(/[,，、;；\n]+/).map(s=>s.trim()).filter(Boolean))];
 const date = (text?: string) => text ? new Date(text).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '尚未采集';
-export function TrendsPage() { const { project }=useStudio(); return project ? <><PageTitle eyebrow="DISCOVER · UNDERSTAND · CREATE" title="发现好选题，让创作有依据。" subtitle="小红书相关帖子与话题 → 本地清洗筛选 → DeepSeek 分析 → 挑选建议用于创作。也可继续研究近期新闻与网页。"/><ResearchPanel key={project.id}/><details className="research-legacy"><summary>本地新闻线索 · 原有 RSS 筛选与标签</summary><p className="small-note">按关键词筛选公开新闻，不调用文字模型；新闻报道数量不等于社交平台互动热度。</p><ProjectTrends key={project.id}/></details></> : <NeedProject/>; }
+export function TrendsPage() { const { project }=useStudio(); return project ? <><PageTitle eyebrow="DISCOVER · UNDERSTAND · CREATE" title="发现好选题，让创作有依据。" subtitle="同话题内容 → 核对可见表现 → 分析吸引点 → 挑选创作参考。也可继续研究近期新闻与网页。"/><ResearchPanel key={project.id}/><details className="research-legacy"><summary>本地新闻线索 · 原有 RSS 筛选与标签</summary><p className="small-note">按关键词筛选公开新闻，不调用文字模型；新闻报道数量不等于社交平台互动热度。</p><ProjectTrends key={project.id}/></details></> : <NeedProject/>; }
 function ProjectTrends() {
   const {project,run,mutate,busy,notify,go}=useStudio();const p=project!, current=trendsOf(p);
   const [keywords,setKeywords]=useState(current.settings.keywords.join('，'));

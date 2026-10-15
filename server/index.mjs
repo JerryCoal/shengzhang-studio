@@ -13,7 +13,7 @@ const store = createStore(process.env.DB_PATH);
 store.mutate(state => { for (const p of state.projects) for (const usage of p.usage) if (usage.status === 'running' && !p.assets.some(a => a.aiProduction?.videoUsageId === usage.id && a.aiProduction?.taskId && a.aiProduction.phase === 'generating-video')) { usage.status = 'uncertain'; usage.note = '服务重启时请求未完成，保留预留费用，请核对账单。'; } });
 const dataDirectory = process.env.DB_PATH ? dirname(resolve(process.env.DB_PATH)) : resolve('data');
 const app = createApp(store, {
-  mcpVaults: { xiaohongshu: createVault(resolve(dataDirectory, 'private/xiaohongshu-mcp.dpapi.json')), douyin: createVault(resolve(dataDirectory, 'private/douyin-mcp.dpapi.json')) },
+  mcpVaults: Object.fromEntries(['xiaohongshu','douyin','tiktok','youtube','instagram'].map(platform => [platform, createVault(resolve(dataDirectory, `private/${platform}-mcp.dpapi.json`))])),
   vault: createVault(resolve(dataDirectory, 'private/openai.dpapi.json')),
   qwenVault: createVault(resolve(dataDirectory, 'private/qwen.dpapi.json')),
   deepseekVault: createVault(resolve(dataDirectory, 'private/deepseek.dpapi.json')),

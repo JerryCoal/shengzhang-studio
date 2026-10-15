@@ -5,10 +5,12 @@ import { generateDeepSeek, deepseekInstructions } from './deepseek.mjs';
 import { generateQwen } from './qwen.mjs';
 import { assert, strategyTextSchema, categories } from './domain.mjs';
 import { textInstructions } from './prompts.mjs';
+import { documentContextDefinition } from './document-context.mjs';
 const string = { type: 'string' };
 const object = properties => ({ type: 'object', additionalProperties: false, properties, required: Object.keys(properties) });
 const array = items => ({ type: 'array', items });
 const definitions = {
+  'document-context': documentContextDefinition,
   strategy: { instructions: '输出 title（主题）、core（核心表达）、direction（渠道与分镜方向）、prompt（完整制作要求）。', schema: object({ title: string, core: string, direction: string, prompt: string }), validate: value => strategyTextSchema.parse(value) },
   copy: { instructions: '根据已确认策略，为指定内容写 title、body、prompt 与三个 scenes 分镜。维持产品事实与渠道。', schema: object({ title: string, body: string, prompt: string, scenes: array(string) }), validate: value => z.object({ title: z.string().trim().min(1).max(200), body: z.string().max(8000), prompt: z.string().max(8000), scenes: z.array(z.string().min(1).max(1000)).length(3) }).parse(value) },
   classification: { instructions: `逐条返回 id、tags（可多选）、sentiment、reason、evidence、needsReview。每个输入 id 恰好返回一次，使用所给枚举。分类定义：${JSON.stringify(CATEGORY_GUIDE)}`, schema: object({ comments: array(object({ id: string, tags: array({ type: 'string', enum: categories }), sentiment: { type: 'string', enum: ['positive', 'neutral', 'negative'] }, reason: string, evidence: string, needsReview: { type: 'boolean' } })) }), validate(value, payload) {

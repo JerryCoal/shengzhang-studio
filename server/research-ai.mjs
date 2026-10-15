@@ -15,4 +15,4 @@ export function researchDefinition(kind) {
   };
   return { schema: object({ analyses: { ...array(object(fields)), maxItems: 6 } }), validate: validateResearchAnalysis };
 }
-export function researchInstructions(kind) { return builtinSkillInstructions(kind === 'query' ? 'research-query' : 'research-analysis') + (kind === 'xhs-analysis' ? '\n本次为小红书内容发现。每条分析必须提供 1 至 6 项 growthAdvice；每项建议包含 focus、action、reason、validation、referenceIds，引用仅限该条 evidence。建议是待测试假设，不承诺流量增长。' : '') + '\n按所给接口输出中文 JSON。'; }
+export function researchInstructions(kind) { return builtinSkillInstructions(kind === 'query' ? 'research-query' : 'research-analysis') + (kind === 'xhs-analysis' ? '\n本次为指定平台同话题内容发现；平台以 discovery.platform 为准，未给定时为小红书。每条分析必须提供 1 至 6 项 growthAdvice；每项建议包含 focus、action、reason、validation、referenceIds，引用仅限该条 evidence。建议是待测试假设，不承诺流量增长。仅使用实际给出的播放或互动指标，缺失数据不得补零或猜测；观察、可能原因与验证方法分开。' : '') + '\n按所给接口输出中文 JSON。'; }

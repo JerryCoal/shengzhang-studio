@@ -1,3 +1,4 @@
+import { hasBuiltinPageAssistant } from '../../server/platform-catalog.mjs';
 import { useEffect, useRef, useState } from 'react';
 import { ExternalLink, Monitor, X } from 'lucide-react';
 import { Modal, Field, Channel } from '../components';
@@ -25,6 +26,7 @@ export function CreatorDraftDialog({content,onClose}:{content:Asset|Publication;
     setOpening(true);setMessage('');
     try {
       if(!project)throw Error('请先选择项目');
+      if(!hasBuiltinPageAssistant(platform))throw Error('此平台请使用 MCP 投送或导出素材包后在官方平台发布');
       const prepared=await prepareExport(content,content.mime==='image/webp'?'png':'original');
       let id=recordId;
       if(!id&&'channel' in content){
@@ -52,6 +54,6 @@ export function CreatorDraftDialog({content,onClose}:{content:Asset|Publication;
     {url&&<p className="info-box"><a href={url} target="_blank" rel="noreferrer">打开平台返回的作品链接 <ExternalLink size={14}/></a> · 平台接受提交不等于审核通过。</p>}
     {locked&&!opening&&record?.status!=='published'&&<div className="info-box"><p>{record?.delivery?.phase==='submitted'?'提交回执已保存，请核对后登记结果。':'此待办有一次结果未确定的提交。请先检查平台作品列表。'}</p><label className="checkbox-row"><input type="checkbox" checked={checked} onChange={e=>setChecked(e.target.checked)}/>{url?'我已核对链接的作品与本次内容、账号一致，确认发布成功':'我已检查平台，确认本条没有发布成功，可以重新尝试'}</label><button className="button small" disabled={!checked||busy} onClick={()=>void run(async()=>{if(url){await mutate(`/projects/${project!.id}/publications/${recordId}/confirm`,'POST',{url,confirmed:true});onClose();}else{await mutate(`/projects/${project!.id}/publications/${recordId}/delivery`,'POST',{action:'reset',confirmedNotPublished:true});setChecked(false);setMessage('已解锁，请确认原因后重新操作。');}})}>{url?'登记发布结果':'解锁这条待办'}</button></div>}
     {!hasDesktopCreator()&&<p className="info-box">应用内发布助手需要新版 Windows 桌面端；浏览器版可继续导出素材并前往官方创作中心。</p>}
-    <div className="modal-actions"><a className="button" href={CREATOR_URLS[platform]} target="_blank" rel="noreferrer">浏览器打开 <ExternalLink size={14}/></a>{opening?<button className="button" onClick={()=>void window.studioDesktop?.cancelCreatorDraft()}><X size={15}/>关闭助手</button>:<button className="button" onClick={onClose}>返回</button>}<button className="button primary" disabled={opening||!valid||!hasDesktopCreator()} onClick={()=>void open()}><Monitor size={16}/>{opening?'正在官方页面操作…':'打开官方发布助手'}</button></div>
+    <div className="modal-actions"><a className="button" href={CREATOR_URLS[platform]} target="_blank" rel="noreferrer">浏览器打开 <ExternalLink size={14}/></a>{opening?<button className="button" onClick={()=>void window.studioDesktop?.cancelCreatorDraft()}><X size={15}/>关闭助手</button>:<button className="button" onClick={onClose}>返回</button>}<button className="button primary" disabled={opening||!valid||!hasDesktopCreator()||!hasBuiltinPageAssistant(platform)} onClick={()=>void open()}><Monitor size={16}/>{opening?'正在官方页面操作…':'打开官方发布助手'}</button></div>
   </Modal>;
 }

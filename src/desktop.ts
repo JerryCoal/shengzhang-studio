@@ -1,4 +1,6 @@
 export type DouyinAuthorizationResult = { callbackUrl?: string; cancelled?: boolean; error?: string };
+export type ExternalMCPArgs = {platform:'xiaohongshu'|'douyin';sessionToken:string;accountId?:string};
+export type ExternalMCPStatus = {platform:'xiaohongshu'|'douyin';accountId:string;endpoint:string;status:'stopped'|'starting'|'running'|'failed'|'stopping';managed:boolean;ready:boolean;programSaved:boolean;loginDataPresent:boolean;loginDataUpdatedAt?:string;note:string};
 export type CapturedComment = { text: string; platformCommentId?: string; parentCommentId?: string; commentAt?: string; likes: number | null; timeLabel: string; isReply: boolean };
 export type CapturedMetrics = {platform:'douyin'|'xiaohongshu';itemId:string;capturedAt:string;metrics:import('./types').MetricSnapshot['metrics']};
 export type PublicationReceipt = {platform:'douyin'|'xiaohongshu';itemId:string;url:string;submittedAt:string};
@@ -6,8 +8,13 @@ export type CommentCaptureResult = { rows?: CapturedComment[]; metrics?: Capture
 declare global {
   interface Window {
     studioDesktop?: {
-      stopExternalMCP: (args: {platform: 'xiaohongshu' | 'douyin'; sessionToken: string}) => Promise<{note?: string; error?: string}>;
-      startExternalMCP: (args: {platform: 'xiaohongshu' | 'douyin'; sessionToken: string}) => Promise<{endpoint?: string; token?: string; ready?: boolean; cancelled?: boolean; note?: string; error?: string}>;
+      documentParserStatus: (args:{sessionToken:string})=>Promise<import('./document-parser-types').DocumentParserStatus>;
+      configureDocumentParser: (args:{sessionToken:string})=>Promise<import('./document-parser-types').DocumentParserStatus>;
+      parseDocument: (args:{sessionToken:string;requestId:string;name:string;base64:string})=>Promise<import('./document-parser-types').DocumentParseResult>;
+      cancelDocumentParse: (args:{sessionToken:string;requestId:string})=>Promise<unknown>;
+      stopExternalMCP: (args: ExternalMCPArgs) => Promise<{note?: string; error?: string}>;
+      startExternalMCP: (args: ExternalMCPArgs & {chooseProgram?:boolean}) => Promise<{endpoint?: string; token?: string; ready?: boolean; cancelled?: boolean; note?: string; error?: string;accountId?:string}>;
+      getExternalMCPStatus: (args: ExternalMCPArgs) => Promise<{items?:ExternalMCPStatus[];error?:string}>;
       restartMCP: () => Promise<{ok?: boolean; note?: string; error?: string}>;
       openPlatformLogin: (args: {platform: 'xiaohongshu' | 'douyin'; sessionToken: string}) => Promise<{closed?: boolean; cancelled?: boolean; note?: string; error?: string}>;
       resetPlatformConnections: () => Promise<void>;

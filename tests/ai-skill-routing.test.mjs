@@ -11,12 +11,13 @@ import { importCorpus } from '../server/workflow.mjs';
 
 // Expectations intentionally describe product workflows independently of the registry.
 const workflowSkills = {
+  'document-context': ['document-context'],
   'research-query': ['research-query'],
   'research-analysis': ['research-analysis'],
   strategy: ['marketing-strategy'],
   planning: ['iteration-planning'],
-  'copy-xiaohongshu': ['marketing-copywriting', 'xiaohongshu-copywriting'],
-  'copy-douyin': ['marketing-copywriting', 'douyin-copywriting'],
+  'copy-xiaohongshu': ['marketing-copywriting', 'xiaohongshu-copywriting', 'natural-copy-editing'],
+  'copy-douyin': ['marketing-copywriting', 'douyin-copywriting', 'natural-copy-editing'],
   'word-review': ['sensitive-copy-review'],
   'price-semantic': ['price-context-replacement'],
   classification: ['comment-classification'],
@@ -45,12 +46,12 @@ function assertRecipe(recipe, workflow) {
   })));
 }
 
-test('all 14 visible workflows resolve to the 14 current source Skills and compiled versions', () => {
+test('all 15 visible workflows resolve to the 16 current source Skills and compiled versions', () => {
   const workflows = aiSkillWorkflows();
-  assert.equal(workflows.length, 14);
+  assert.equal(workflows.length, 15);
   assert.deepEqual(workflows.map(item => item.id).sort(), Object.keys(workflowSkills).sort());
   const expectedIds = [...new Set(Object.values(workflowSkills).flat())].sort();
-  assert.equal(expectedIds.length, 14);
+  assert.equal(expectedIds.length, 16);
   assert.deepEqual(AI_SKILLS.map(skill => skill.id).sort(), expectedIds);
   assert.deepEqual(Object.keys(COPY_SKILLS).sort(), expectedIds);
   assert.deepEqual(Object.keys(COPY_SKILL_VERSIONS).sort(), expectedIds);

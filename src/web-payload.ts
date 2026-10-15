@@ -1,4 +1,5 @@
 import { corpusQuery, searchCorpus } from '../server/workflow.mjs';
+import { removeLocalDocumentData } from '../server/local-document-privacy.mjs';
 import type { State } from './types';
 
 // Creative rules and their generation snapshots stay in the local workspace.
@@ -13,12 +14,13 @@ function removeSkillTraces(value: unknown): void {
 }
 
 export function webPayload(source: State, path: string, body: unknown, projectId?: string): State {
+  if (/\/corpus\/context(?:\/|$)/.test(path)) throw new Error('文档资料提炼目前仅支持本机完整版，请在 Windows 应用中使用');
   const input = (body || {}) as { instruction?: string; query?: string; prompt?: string; skillId?: string; reviewOnly?: boolean };
   if (path.endsWith('/copy') && input.reviewOnly !== true && input.skillId) {
     throw new Error('网页版尚未启用自装 Skills 联网生成，请使用平台内置规则或 Windows 版');
   }
   const base = structuredClone(source); delete base.webPrivate; delete base.projectDrafts; delete base.guide; delete base.appearance; base.activities = [];
-  delete base.installedSkills; delete base.skillsRevision; removeSkillTraces(base);
+  delete base.installedSkills; delete base.skillsRevision; removeSkillTraces(base); removeLocalDocumentData(base);
   delete (base as unknown as Record<string, unknown>).researchSettings;
   // Local semantic indexes and their consent never travel through the relay.
   for (const project of base.projects) for (const key of ['ragIndex', 'ragEnabled', 'ragConsent', 'ragUsage', 'ragPreviousCny', 'ragRevision', 'research', 'researchUsage', 'researchPreviousCny']) delete (project as unknown as Record<string, unknown>)[key];

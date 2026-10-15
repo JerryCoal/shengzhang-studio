@@ -3,9 +3,10 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { ArrowUpRight, Check, ChevronRight, Leaf, Minimize2, Plus, Sparkles, X } from 'lucide-react';
 import type { Platform, Project } from './types';
 import { useStudio } from './context';
-export const platformName = (platform: Platform) => platform === 'xiaohongshu' ? '小红书' : '抖音';
+import { PLATFORM_NAMES } from '../server/platform-catalog.mjs';
+export const platformName = (platform: Platform) => PLATFORM_NAMES[platform] || platform;
 export const date = (value?: string | null, withTime = false) => value ? new Date(value).toLocaleString('zh-CN', withTime ? { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false } : { month: 'long', day: 'numeric' }) : '尚未记录';
-export function Channel({ platform, compact = false }: { platform: Platform; compact?: boolean }) { return <span className={`channel ${platform}`}><span>{platform === 'xiaohongshu' ? '红' : '♪'}</span>{!compact && platformName(platform)}</span>; }
+export function Channel({ platform, compact = false }: { platform: Platform; compact?: boolean }) { return <span className={`channel ${platform}`} title={platformName(platform)}><span>{({xiaohongshu:'红',douyin:'抖',tiktok:'Tk',youtube:'YT',instagram:'IG'})[platform]}</span>{!compact && platformName(platform)}</span>; }
 export function Pill({ children, color = 'green' }: { children: ReactNode; color?: string }) { return <span className={`pill ${color}`}>{children}</span>; }
 export function PageTitle({ eyebrow, title, subtitle, children }: { eyebrow?: string; title: string; subtitle: string; children?: ReactNode }) { return <div className="page-title"><div>{eyebrow && <div className="eyebrow">{eyebrow}</div>}<h1>{title}</h1><p>{subtitle}</p></div><div className="page-actions">{children}</div></div>; }
 export function Empty({ title, text, children }: { title: string; text: string; children?: ReactNode }) { return <div className="empty"><div className="empty-icon"><Leaf size={28}/></div><h3>{title}</h3><p>{text}</p>{children}</div>; }

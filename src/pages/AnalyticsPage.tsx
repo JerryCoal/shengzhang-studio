@@ -1,3 +1,4 @@
+import { PLATFORM_IDS, PLATFORM_NAMES } from '../../server/platform-catalog.mjs';
 import { MetricCaptureDialog } from '../components/MetricCaptureDialog';
 import { hasDesktopCommentCapture } from '../desktop';
 import { useState } from 'react';
@@ -40,7 +41,7 @@ export function AnalyticsPage() {
     <PageTitle eyebrow="OPERATING DATA" title="让每次运营，留下可比较的数据。" subtitle="先积累作品与评论记录，再逐步连接指标、复盘和下一轮行动。">
       <>{hasDesktopCommentCapture()&&<button className="button" disabled={!project.publications.some(p=>p.status==='published'&&!p.sample&&p.url)} onClick={()=>setCapturing(true)}>从作品采集</button>}</><button className="button" onClick={()=>go('comments')}><ArrowRight size={16}/>评论分析</button><button className="button primary" disabled={!project.publications.some(p=>p.status==='published')} onClick={()=>setEditing('new')}><Plus size={16}/>记录作品数据</button>
     </PageTitle>
-    <div className="panel data-scope"><div className="row wrap gap-10"><Pill color="green">本地数据空间</Pill><select aria-label="运营数据平台" value={platform} onChange={e=>setPlatform(e.target.value)}><option value="all">全部平台</option><option value="xiaohongshu">小红书</option><option value="douyin">抖音</option></select><label className="checkbox-row"><input type="checkbox" checked={samples} onChange={e=>setSamples(e.target.checked)}/>包含示例数据</label></div><span className="small-note">未知显示“—”；可从官方作品页采集，或手动记录。</span></div>
+    <div className="panel data-scope"><div className="row wrap gap-10"><Pill color="green">本地数据空间</Pill><select aria-label="运营数据平台" value={platform} onChange={e=>setPlatform(e.target.value)}><option value="all">全部平台</option>{PLATFORM_IDS.map(id=><option key={id} value={id}>{PLATFORM_NAMES[id]}</option>)}</select><label className="checkbox-row"><input type="checkbox" checked={samples} onChange={e=>setSamples(e.target.checked)}/>包含示例数据</label></div><span className="small-note">未知显示“—”；可从官方作品页采集，或手动记录。</span></div>
     <div className="lab-stat-grid">{[['已登记发布',summary.published,'个作品'],['已有数据记录',summary.recorded,`/ ${summary.published} 个作品`],['已导入评论',summary.imported,'条原文'],['有效分析样本',summary.valid,'条，排除无关内容']].map(([label,value,hint])=><article className="panel lab-stat" key={label}><span>{label}</span><strong>{value}</strong><small>{hint}</small></article>)}</div>
     <div className="lab-tabs" role="tablist" aria-label="运营数据分类">{[['overview','作品表现'],['history','采集记录'],['sources','数据接入规划']].map(([key,label])=><button role="tab" aria-selected={tab===key} className={tab===key?'active':''} key={key} onClick={()=>setTab(key)}>{label}</button>)}</div>
     {tab==='overview'?<>

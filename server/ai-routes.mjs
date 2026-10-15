@@ -14,6 +14,7 @@ import { verifyQwen } from './qwen.mjs';
 import { normalizeQwenKey, qwenConnection, qwenConnectionSchema, QWEN_CONNECTION_OPTIONS } from './qwen-connection.mjs';
 import { verifyDeepSeek } from './deepseek.mjs';
 import { selectedResearchContext } from './research-data.mjs';
+import { documentContextPayload, saveDocumentContextCandidate, documentContextStatus, adoptDocumentContext, clearAdoptedDocumentContext, adoptedDocumentContext, documentStyleReferences } from './document-context.mjs';
 
 const loopback = address => ['127.0.0.1', '::1', '::ffff:127.0.0.1', 'localhost', '[::1]'].includes(address);
 export function isLocalClient(req) {
@@ -42,7 +43,7 @@ export function mountAIRoutes(app, store, config, { project, mutate, activeJobs,
     const q = config.qwenVault?.status() || { supported: false, configured: false, suffix: '', problem: '', protection: '' };
     providers.qwen = { configured: local && q.configured && !q.problem, credential: { ...q, suffix: local ? q.suffix : '', local, editable: local && q.supported, source: q.configured ? 'vault' : 'none' }, connection: qwenConnection(local ? store.get().qwenConnection : undefined), connectionOptions: QWEN_CONNECTION_OPTIONS.map(({ id, label, requiresWorkspace }) => ({ id, label, requiresWorkspace: !!requiresWorkspace })), verification: local ? qwenVerification : null, apiDiagnostic: local ? config.qwenTransport?.diagnostic() : null };
     return { model: strategy.model, openaiConfigured: local && (v.configured || !!config.apiKey) && !v.problem, authEnabled: !!config.password || !!config.profileMode, inputPrice: strategy.inputPrice, outputPrice: strategy.outputPrice,
-      version: '1.17.0', profileMode: !!config.profileMode, routes, models: MODELS, stages: STAGES, priceDate: '2026-09-14', verification: local ? verification : null, apiDiagnostic: local ? config.openaiTransport?.diagnostic() : null,
+      version: '1.19.0', profileMode: !!config.profileMode, routes, models: MODELS, stages: STAGES, priceDate: '2026-09-14', verification: local ? verification : null, apiDiagnostic: local ? config.openaiTransport?.diagnostic() : null,
       credential, providers,
       capabilities: { image: 'gpt-image-2-or-seedream-keyframes', video: 'seedance-and-local', publishing: 'confirmed-mcp-and-manual', comments: 'mcp-page-douyin-api-and-import', ai: ['strategy', 'planning', 'copy', 'classification', 'analysis'] } };
   };
@@ -92,10 +93,32 @@ export function mountAIRoutes(app, store, config, { project, mutate, activeJobs,
   app.post('/api/settings/providers/qwen/credential/check', (req, res) => changeSettings(req, res, async () => { qwenVerification = null; qwenVerification = await verifyQwen(await getKey(req, 'qwen'), config.fetcher, store.get().qwenConnection); }));
   app.put('/api/settings/models', (req, res) => changeSettings(req, res, async () => { models.save(req.body); verification = null; }));
 
+  const requireDocumentWorkspace = req => {
+    requireLocal(req);
+    d.assert(config.profileMode === true && !config.authorizeCredentials && isLocalClient(req), '资料卡提炼与采纳目前仅支持本机加密工作区；浏览器版可继续导入与检索正文。', 403);
+  };
+  app.get('/api/projects/:id/corpus/context', (req, res) => { requireDocumentWorkspace(req); res.json(documentContextStatus(project(store.get(), req.params.id))); });
+  app.post('/api/projects/:id/corpus/context', (req, res) => {
+    requireDocumentWorkspace(req);
+    const { documentIds } = z.object({ documentIds: z.array(z.string().min(1).max(100)).min(1).max(8), confirmed: z.literal(true) }).strict().parse(req.body);
+    return execute(req, res, 'document-context', p => documentContextPayload(p, documentIds), (p, value, model, payload) => saveDocumentContextCandidate(p, value, model, payload));
+  });
+  app.post('/api/projects/:id/corpus/context/adopt', (req, res) => {
+    requireDocumentWorkspace(req);
+    d.assert(!activeJobs.has(req.params.id), '本项目正在生成，请等任务结束后采纳资料卡。', 409);
+    return mutate(req, res, p => { const result = adoptDocumentContext(p, req.body); d.touch(p); return result; });
+  });
+  app.delete('/api/projects/:id/corpus/context', (req, res) => {
+    requireDocumentWorkspace(req);
+    d.assert(!activeJobs.has(req.params.id), '本项目正在生成，请等任务结束后停用资料卡。', 409);
+    return mutate(req, res, p => { const result = clearAdoptedDocumentContext(p, req.body); d.touch(p); return result; });
+  });
+
   async function execute(req, res, stage, prepare, commit) {
     const basePrepare = prepare;
     prepare = p => {
-      const value = basePrepare(p);
+      let value = basePrepare(p);
+      if (['strategy', 'planning'].includes(stage)) value = { ...value, adoptedDocumentContext: adoptedDocumentContext(p), styleReferences: documentStyleReferences(p) };
       return value.retrievalQuery && !value.copyReview ? { ...value, researchReferences: selectedResearchContext(p) } : value;
     };
     requireLocal(req);
@@ -138,7 +161,9 @@ export function mountAIRoutes(app, store, config, { project, mutate, activeJobs,
         // Background video polling and comment counters may touch the project without changing model inputs.
         try { stale = JSON.stringify(prepare(p)) !== payloadFingerprint || (retrievalStamp !== undefined && rag.stamp(p) !== retrievalStamp); } catch { stale = true; }
         if (stale) { d.touch(p); return null; }
-        const result = commit(p, output.value, route.model, payload, state); d.touch(p);
+        const result = commit(p, output.value, route.model, payload, state);
+        if (['strategy', 'planning'].includes(stage)) Object.assign(result, { documentContextSnapshot: structuredClone(payload.adoptedDocumentContext), styleReferencesSnapshot: structuredClone(payload.styleReferences) });
+        d.touch(p);
         d.activity(state, `${route.label}已生成`, `${route.model} · 请检查结果`, p.id); return result;
       });
       if (stale) return res.status(409).json({ error: '生成期间项目已修改，模型结果未覆盖新内容。费用已记录，请重新生成。' });
@@ -183,7 +208,7 @@ export function mountAIRoutes(app, store, config, { project, mutate, activeJobs,
     const selected = resolveCreativeSkill(store.get(), { skillId: req.body.skillId, stage: 'copy', platform: a.channel });
     const creativeSkill = selected ? { id: selected.id, name: selected.name, version: selected.version, instructions: selected.instructions } : null;
     const retrievalQuery = corpusQuery({ ...p, brief: s.briefSnapshot || p.brief }, `${a.title} ${instruction}`);
-    return { brief: s.briefSnapshot || p.brief, strategy: { title: s.title, core: s.core, direction: s.direction, prompt: s.prompt }, task: { channel: a.channel, kind: a.kind, title: a.title, body: a.body, prompt: taskPromptContext(a.prompt, s.prompt) }, instruction, creativeSkill, retrievalQuery, corpusReferences: searchCorpus(p, retrievalQuery) };
+    return { brief: s.briefSnapshot || p.brief, strategy: { title: s.title, core: s.core, direction: s.direction, prompt: s.prompt }, task: { channel: a.channel, kind: a.kind, title: a.title, body: a.body, prompt: taskPromptContext(a.prompt, s.prompt) }, instruction, creativeSkill, retrievalQuery, corpusReferences: searchCorpus(p, retrievalQuery), adoptedDocumentContext: s.documentContextSnapshot || null, styleReferences: s.styleReferencesSnapshot || [] };
   }, (p, value, model, payload, state) => {
     const a = p.assets.find(a => a.id === req.params.assetId);
     if (payload.copyReview?.mode === 'semantic') {

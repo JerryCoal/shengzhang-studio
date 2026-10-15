@@ -6,6 +6,7 @@ export const categories: [string, ...string[]];
 export const briefSchema: ZodType<Project['brief']>;
 export function assert(value: unknown, message: string, status?: number): asserts value;
 export function seedState(): State;
+export function addAccount(state: State, input: unknown): State['accounts'][number];
 export function newProject(input: unknown): Project;
 export function touch(project: Project): void;
 export function activity(state: State, title: string, detail: string, projectId: string): void;

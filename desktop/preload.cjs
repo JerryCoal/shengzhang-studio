@@ -1,7 +1,12 @@
 const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('studioDesktop', {
+  documentParserStatus: args => ipcRenderer.invoke('studio:document-parser-status', args),
+  configureDocumentParser: args => ipcRenderer.invoke('studio:document-parser-configure', args),
+  parseDocument: args => ipcRenderer.invoke('studio:document-parse', args),
+  cancelDocumentParse: args => ipcRenderer.invoke('studio:document-parse-cancel', args),
   startExternalMCP: args => ipcRenderer.invoke('studio:mcp-external-start', args),
   stopExternalMCP: args => ipcRenderer.invoke('studio:mcp-external-stop', args),
+  getExternalMCPStatus: args => ipcRenderer.invoke('studio:mcp-external-status', args),
   restartMCP: () => ipcRenderer.invoke('studio:mcp-restart'),
   openPlatformLogin: args => ipcRenderer.invoke('studio:platform-login', args),
   resetPlatformConnections: () => ipcRenderer.invoke('studio:platform-lock'),

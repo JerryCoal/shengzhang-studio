@@ -14,14 +14,14 @@ export function MCPCommentsDialog({ onClose }: { onClose: () => void }) {
   const [publicationId, setPublicationId] = useState(publications[0]?.id || ''), [url, setUrl] = useState(''), [limit, setLimit] = useState(200), [replies, setReplies] = useState(false);
   const [preview, setPreview] = useState<Preview | null>(null), [selected, setSelected] = useState<Set<number>>(new Set()), [confirmed, setConfirmed] = useState(false), [working, setWorking] = useState(false), [message, setMessage] = useState('');
   const publication = publications.find(p => p.id === publicationId), connection = connections.find(c => c.platform === publication?.platform);
-  const unsupported = publication?.platform === 'douyin' && connection?.mode === 'external' || !!connection?.connected && connection.capabilities?.comments === false;
+  const unsupported = publication?.platform === 'tiktok' || !!connection?.connected && connection.capabilities?.comments === false;
   const openSetup = () => { onClose(); openPublishingSettings(go); };
   const path = `/projects/${project!.id}/publications/${publicationId}/mcp/comments`;
   const clear = () => { setPreview(null); setSelected(new Set()); setConfirmed(false); setMessage(''); };
   async function collect() {
     if (working) return;
     setWorking(true); clear();
-    try { const result = await api<Preview>(path, 'POST', { ...(url.trim() ? { sourceUrl: url.trim() } : {}), limit, includeReplies: replies }); if (result.cancelled) { setMessage('本次采集已取消'); return; } setPreview(result); setSelected(new Set(result.rows.map((_, i) => i))); }
+    try { const result = await api<Preview>(path, 'POST', { ...(url.trim() ? { sourceUrl: url.trim() } : {}), limit, includeReplies: replies, accountId:connection?.accountId||'default' }); if (result.cancelled) { setMessage('本次采集已取消'); return; } setPreview(result); setSelected(new Set(result.rows.map((_, i) => i))); }
     catch (e) { setMessage(e instanceof Error ? e.message : '读取未完成'); }
     finally { setWorking(false); }
   }
@@ -34,8 +34,9 @@ export function MCPCommentsDialog({ onClose }: { onClose: () => void }) {
   return <Modal title="通过 MCP 获取评论" description="选择自有作品 → 自动读取 → 核对并导入。保留原文、发表时间与评论归属。" wide onClose={() => { if (!working) onClose(); }}>
     <Field label="已发布作品"><select disabled={working} value={publicationId} onChange={e => { setPublicationId(e.target.value); setUrl(''); clear(); }}><option value="" disabled>请选择真实作品</option>{publications.map(p => <option key={p.id} value={p.id}>{p.title} · {p.accountName}</option>)}</select></Field>
     {!publications.length && <p className="info-box">请先在发布中心登记自己作品的链接。</p>}
+    {connection&&<p className="small-note">本次平台连接：<strong>{connection.accountName||'默认账号'}</strong>；请确认是所选作品的所属账号。</p>}
     {connectionError && <p className="info-box" role="alert">{connectionError}</p>}
-    {unsupported ? <div className="info-box mcp-dialog-note"><p>{publication?.platform === 'douyin' ? '当前抖音独立 MCP 提供发布与登录，尚未提供评论读取。请在账号与发布中将抖音切换为“自带页面助手”，即可打开自有作品页面采集。' : '当前 MCP 没有兼容的评论读取工具，请检查服务版本或改用自带页面助手。'}</p><button className="text-button" disabled={working} onClick={openSetup}>前往连接设置</button></div> : <p className="small-note">{connection?.mode === 'external' ? '使用已配置的小红书 MCP。先在账号与发布中连接服务并完成扫码登录。需要带 xsec_token 的完整作品链接，不能用平台主页或其他作品代替。' : '使用自带页面助手，会打开官方作品页并自动滚动。首次使用需在窗口中登录，遇到验证码时等待你处理。'}</p>}
+    {unsupported ? <div className="info-box mcp-dialog-note"><p>{publication?.platform === 'tiktok' ? '当前 TikTok 开源 MCP 没有评论读取接口，可用文件或粘贴导入评论。' : connection?.capabilities?.notice || '当前服务未提供评论读取。抖音可选择 browser-mcp 或自带页面助手；其他平台请核对服务和授权。'}</p><button className="text-button" disabled={working} onClick={openSetup}>前往连接设置</button></div> : <p className="small-note">{connection?.mode === 'external' ? publication?.platform==='xiaohongshu'?'使用当前账号的小红书 MCP；先连接并扫码登录，再提供含 xsec_token 的完整作品链接。':'使用当前选定的独立 MCP 与授权账号。只读取所选作品的实际返回评论，先预览再导入。' : '使用自带页面助手，会打开官方作品页并自动滚动。首次使用需在窗口中登录，遇到验证码时等待你处理。'}</p>}
     {!unsupported && connection?.mode === 'builtin' && !connection.builtinAvailable && <div className="info-box mcp-dialog-note"><p>尚未检测到 Windows 页面助手，请从新版桌面程序打开工作台，或前往设置修复连接。</p><button className="text-button" disabled={working} onClick={openSetup}>前往连接设置</button></div>}
     <Field label="本次作品完整链接（可选）" hint={publication?.platform === 'xiaohongshu' && connection?.mode === 'external' ? '不填使用发布记录中的链接。若提示缺少 xsec_token，请粘贴同一作品的新分享链接；不会保存链接中的令牌。' : '不填使用发布记录中的链接。请使用这条作品的链接，不能用账号主页或其他作品代替。'}><input type="url" disabled={working} value={url} placeholder={publication?.url || 'https://…'} onChange={e => { setUrl(e.target.value); clear(); }}/></Field>
     <div className="comment-capture-options"><Field label="本次数量上限"><select disabled={working} value={limit} onChange={e => { setLimit(Number(e.target.value)); clear(); }}><option value={50}>50 条</option><option value={200}>200 条</option><option value={1000}>1,000 条</option></select></Field><label className="checkbox-row"><input type="checkbox" disabled={working} checked={replies} onChange={e => { setReplies(e.target.checked); clear(); }}/>包含回复</label></div>

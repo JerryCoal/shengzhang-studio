@@ -17,12 +17,12 @@ function chunksOf(project) {
   if (!project || typeof project.id !== 'string' || !project.id || !Array.isArray(project.corpus || [])) fail('项目语料格式无效');
   const chunks = [], identities = new Set(), documents = new Set();
   for (const doc of project.corpus || []) {
-    if (doc?.enabled !== true) continue;
+    if (doc?.enabled !== true || doc.purpose === 'style_sample') continue;
     if (typeof doc.id !== 'string' || !doc.id || documents.has(doc.id) || typeof doc.name !== 'string' || !doc.name.trim() || doc.name.length > 160 || !Array.isArray(doc.chunks)) fail('项目语料标识或分段格式无效');
     documents.add(doc.id);
     for (const item of doc.chunks) {
       if (!item || !Number.isSafeInteger(item.index) || item.index < 1 || typeof item.text !== 'string' || !item.text.trim()) fail('项目语料分段格式无效');
-      const chunk = { documentId: doc.id, name: doc.name, chunk: item.index, text: item.text };
+      const chunk = { documentId: doc.id, name: doc.name, chunk: item.index, text: item.text, ...(item.page ? { page: item.page } : {}), ...(item.heading ? { heading: item.heading } : {}) };
       const id = identity(chunk); if (identities.has(id)) fail('项目语料含重复段落标识');
       identities.add(id);
       chunk.hash = hash([project.id, chunk.documentId, chunk.chunk, chunk.name, chunk.text]);

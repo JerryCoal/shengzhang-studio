@@ -1,3 +1,4 @@
+import { PLATFORM_IDS, PLATFORM_NAMES } from '../../server/platform-catalog.mjs';
 import { useEffect, useState } from 'react';
 import { ArrowRight, CheckCheck, ClipboardPaste, Download, Filter, ListChecks, MessageSquareText, Pencil, Search } from 'lucide-react';
 import { useStudio } from '../context';
@@ -64,7 +65,7 @@ export function CommentsPage() {
         <div className="feedback-filters">
           <label className="searchbox"><Search size={16}/><input aria-label="搜索评论原文" placeholder="搜索评论关键词" value={search} onChange={e=>setSearch(e.target.value)}/></label>
           <select aria-label="作品范围" value={work} onChange={e=>setWork(e.target.value)}><option value="all">全部作品</option>{p.publications.filter(r => r.status === 'published').map(r=><option key={r.id} value={r.id}>{r.title}</option>)}</select>
-          <select aria-label="平台范围" value={platform} onChange={e=>setPlatform(e.target.value)}><option value="all">全部平台</option><option value="xiaohongshu">小红书</option><option value="douyin">抖音</option></select>
+          <select aria-label="平台范围" value={platform} onChange={e=>setPlatform(e.target.value)}><option value="all">全部平台</option>{PLATFORM_IDS.map(id=><option key={id} value={id}>{PLATFORM_NAMES[id]}</option>)}</select>
           <select aria-label="主题范围" value={category} onChange={e=>setCategory(e.target.value)}><option value="all">全部主题</option>{COMMENT_CATEGORIES.map(c=><option key={c}>{c}</option>)}</select>
           <select aria-label="核对状态" value={review} onChange={e=>setReview(e.target.value)}><option value="all">全部状态</option><option value="needs">待核对</option><option value="human">人工已核对</option><option value="ai">AI 已分类</option><option value="rules">仅规则初筛</option><option value="excluded">已排除</option></select>
           <select aria-label="情绪范围" value={mood} onChange={e=>setMood(e.target.value)}><option value="all">全部情绪</option>{Object.entries(moods).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select>

@@ -1,12 +1,12 @@
 .skill-trace-details{margin:14px 0;border:1px solid var(--border);border-radius:10px;background:#fafcf9;min-width:0}
-.skill-trace-details>summary{padding:10px 12px;font-size:12px;color:#52675a;overflow-wrap:anywhere}
-.skill-trace-details summary>span{margin-left:8px;color:#778279;font-size:11px;font-weight:400}
+.skill-trace-details>summary{padding:10px 12px;font-size:12px;color:var(--ui-text-secondary);overflow-wrap:anywhere}
+.skill-trace-details summary>span{margin-left:8px;color:var(--ui-text-secondary);font-size:11px;font-weight:400}
 .skill-trace-details[open]>summary{border-bottom:1px solid var(--border)}
 .skill-trace-content{padding:10px 12px;min-width:0}
-.skill-trace-note{color:#68776e;font-size:12px;line-height:1.7}
-.skill-trace-time{margin:5px 0 10px;color:#7c887f;font-size:11px}
+.skill-trace-note{color:var(--ui-text-secondary);font-size:12px;line-height:1.7}
+.skill-trace-time{margin:5px 0 10px;color:var(--ui-text-secondary);font-size:11px}
 .skill-trace-rule+.skill-trace-rule{margin-top:8px}
 .skill-trace-rule>summary{font-size:12px;overflow-wrap:anywhere}
 .skill-trace-rule pre{max-height:260px;overflow:auto;margin:8px 0 12px;padding:12px;background:#fff;border:1px solid var(--border);font-family:inherit;font-size:12px;line-height:1.8;white-space:pre-wrap;overflow-wrap:anywhere}
-.skill-trace-default{margin-top:9px;color:#7c887f;font-size:11px}
+.skill-trace-default{margin-top:9px;color:var(--ui-text-secondary);font-size:11px}
 @media(max-width:600px){.skill-trace-details summary>span{display:block;margin:3px 0 0 16px}.skill-trace-rule pre{max-height:220px}}

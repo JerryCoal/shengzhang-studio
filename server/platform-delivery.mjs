@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import { PLATFORM_IDS } from './platform-catalog.mjs';
 import {commentSource} from '../desktop/comment-source.mjs';
 const fail = (message,status=400) => Object.assign(Error(message),{status});
 export function updatePlatformDelivery(project, publicationId, input) {
@@ -6,7 +7,7 @@ export function updatePlatformDelivery(project, publicationId, input) {
   if(!pub || pub.sample || ['published','cancelled'].includes(pub.status)) throw fail('请选择尚未发布的真实待办');
   if(pub.manualReviewRequired)throw fail('旧版投稿记录尚未核对，请先检查平台作品列表');
   const data=z.discriminatedUnion('action',[
-    z.object({action:z.literal('start'),platform:z.enum(['xiaohongshu','douyin']),attemptId:z.string().uuid(),title:z.string().trim().min(1).max(100),body:z.string().max(4000)}).strict(),
+    z.object({action:z.literal('start'),platform:z.enum(PLATFORM_IDS),attemptId:z.string().uuid(),title:z.string().trim().min(1).max(100),body:z.string().max(4000)}).strict(),
     z.object({action:z.literal('receipt'),attemptId:z.string().uuid(),url:z.string().url().max(512)}).strict(),
     z.object({action:z.literal('reset'),confirmedNotPublished:z.literal(true)}).strict(),
   ]).parse(input);

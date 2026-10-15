@@ -1,6 +1,7 @@
 import JSZip from 'jszip';
+import { CREATOR_URLS, PLATFORM_NAMES } from './platform-catalog.mjs';
 
-export const CREATOR_URLS = { douyin: 'https://creator.douyin.com/', xiaohongshu: 'https://creator.xiaohongshu.com/' };
+export { CREATOR_URLS };
 const extensions = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'video/mp4': 'mp4', 'video/webm': 'webm' };
 const fail = message => { throw Object.assign(new Error(message), { status: 400 }); };
 export function safeFilename(value, fallback = '宣传内容') {
@@ -10,13 +11,13 @@ export function safeFilename(value, fallback = '宣传内容') {
 }
 export function exportDetails(content) {
   const platform = content.platform || content.channel;
-  if (!CREATOR_URLS[platform]) fail('请选择小红书或抖音内容');
+  if (!CREATOR_URLS[platform]) fail('请选择已支持的平台内容');
   const extension = extensions[content.mime];
   if (!extension) fail('暂不支持此素材格式，请重新制作 PNG / JPG 图片或 MP4 / WebM 视频');
   if (!content.mediaData || !content.mediaData.startsWith(`data:${content.mime};base64,`) || !/^[A-Za-z0-9+/]+={0,2}$/.test(content.mediaData.split(',')[1] || '')) fail('素材数据不完整或格式不一致，请重新制作后导出');
   if ('channel' in content && content.status !== 'ready') fail('当前内容已修改，请先重新制作再导出');
   const revision = content.assetRevision || content.revision || 1;
-  const label = platform === 'douyin' ? '抖音' : '小红书';
+  const label = PLATFORM_NAMES[platform];
   const stem = `${safeFilename(content.title)}-${label}-R${revision}`;
   const mediaName = `${stem}-${content.mime.startsWith('image/') ? '封面' : '视频'}.${extension}`;
   const warnings = [];

@@ -2,6 +2,7 @@ const { app, BrowserWindow, WebContentsView, Menu, Tray, nativeImage, shell, dia
 const { startDesktopMCP } = require('./mcp-server.cjs');
 const { createPlatformLogin } = require('./platform-login.cjs');
 const { createMCPLauncher } = require('./mcp-launcher.cjs');
+const { createDocumentParser } = require('./document-parser.cjs');
 const { randomBytes, createHash } = require('node:crypto');
 const mcpSecret = randomBytes(32).toString('base64url');
 let mcpServer;
@@ -21,6 +22,7 @@ mkdirSync(dataRoot, { recursive: true });
 app.setPath('userData', join(dataRoot, 'browser'));
 const reportFile = join(dataRoot, 'startup-status.json');
 const externalMCP = createMCPLauncher({dataRoot:join(dataRoot,'external-mcp')});
+const documentParser = createDocumentParser({dataRoot:join(dataRoot,'document-parser')});
 let launchEpoch=0, activePlatformTask=null;
 const report = event => writeFileSync(reportFile, JSON.stringify({ ...event, at: new Date().toISOString() }));
 let window, tray, backend, website = '', quitting = false, shutdownRequested = false, proxyEnabled = false;
@@ -69,31 +71,78 @@ async function openCreator(draft, automatic = false) {
 }
 ipcMain.handle('studio:creator-open',(event,draft)=>{if(!trustedRenderer(event))throw Error('请从工作台打开发布助手');return openCreator(draft);});
 ipcMain.handle('studio:creator-cancel', event => { if (trustedRenderer(event)) creator.cancel(); });
-ipcMain.handle('studio:platform-lock', async event => {if (!trustedRenderer(event)) return;launchEpoch++;await externalMCP.stopAll();platformLogin.cancel();commentCollector.cancel();creator.cancel();await platformSessions.clear();});
-async function externalScope(args) {
-  if(!['xiaohongshu','douyin'].includes(args?.platform)||typeof args?.sessionToken!=='string'||!args.sessionToken||args.sessionToken.length>1024)throw Error('请先登录工作台');
+ipcMain.handle('studio:platform-lock', async event => {if (!trustedRenderer(event)) return;launchEpoch++;await documentParser.close();await externalMCP.stopAll();platformLogin.cancel();commentCollector.cancel();creator.cancel();await platformSessions.clear();});
+async function profileScope(args) {
+  if(typeof args?.sessionToken!=='string'||!args.sessionToken||args.sessionToken.length>1024)throw Error('请先登录工作台');
   const response=await fetch(website+'/api/profiles/session',{headers:{'X-Studio-Client':'studio-v1',Authorization:'Bearer '+args.sessionToken},signal:AbortSignal.timeout(8000)});
   if(!response.ok)throw Error('工作台登录已失效');
   const profile=await response.json();
   if(typeof profile.username!=='string'||!profile.username)throw Error('无法确认工作台用户');
   return createHash('sha256').update(profile.username).digest('hex');
 }
+async function externalScope(args) {
+  if(!['xiaohongshu','douyin'].includes(args?.platform))throw Error('平台无效');
+  return profileScope(args);
+}
+ipcMain.handle('studio:document-parser-status',async(event,args)=>{
+  if(!trustedRenderer(event))throw Error('请从工作台检查文档解析器');
+  const scope=await profileScope(args);return documentParser.status({scope});
+});
+ipcMain.handle('studio:document-parser-configure',async(event,args)=>{
+  if(!trustedRenderer(event))throw Error('请从工作台配置文档解析器');
+  const epoch=launchEpoch,scope=await profileScope(args);
+  const chosen=await dialog.showOpenDialog(window,{title:'选择已安装 Docling 环境中的 python.exe',buttonLabel:'选择并检查',properties:['openFile'],filters:[{name:'Python 程序',extensions:['exe']}]});
+  if(chosen.canceled||!chosen.filePaths[0])return documentParser.status({scope});
+  if(epoch!==launchEpoch||scope!==await profileScope(args))throw Error('工作台用户已切换，请重新配置');
+  return documentParser.configure({scope,pythonPath:chosen.filePaths[0]});
+});
+ipcMain.handle('studio:document-parse',async(event,args)=>{
+  if(!trustedRenderer(event))throw Error('请从工作台导入文档');
+  const epoch=launchEpoch,scope=await profileScope(args);
+  if(epoch!==launchEpoch)throw Error('工作台用户已切换，请重新导入');
+  return documentParser.parse({scope,requestId:args?.requestId,name:args?.name,base64:args?.base64});
+});
+ipcMain.handle('studio:document-parse-cancel',async(event,args)=>{
+  if(!trustedRenderer(event))throw Error('请从工作台取消文档解析');
+  const scope=await profileScope(args);return documentParser.cancel({scope,requestId:args?.requestId});
+});
+async function selectedExternalAccount(args) {
+  const response=await fetch(website+'/api/mcp/settings',{headers:{'X-Studio-Client':'studio-v1',Authorization:'Bearer '+args.sessionToken},signal:AbortSignal.timeout(8000)});
+  if(!response.ok)throw Error('无法读取本机平台账号设置');
+  const platform=(await response.json()).platforms?.find(value=>value.platform===args.platform);
+  const accountId=args.accountId||platform?.accountId||'default';
+  if(!platform||platform.accountId&&platform.accountId!==accountId)throw Error('当前平台账号已切换，请重新操作');
+  return accountId;
+}
 ipcMain.handle('studio:mcp-external-start',async(event,args)=>{
   if(!trustedRenderer(event))throw Error('请从工作台选择 MCP 程序');
   const epoch=launchEpoch;
   try {
     const scope=await externalScope(args);
-    const selected=await dialog.showOpenDialog(window,{title:'选择已从对应项目下载的 MCP 程序（选择后将启动）',buttonLabel:'选择并启动',properties:['openFile'],filters:[{name:'Windows MCP 程序',extensions:['exe']}]});
-    if(selected.canceled||!selected.filePaths[0])return {cancelled:true};
+    const accountId=await selectedExternalAccount(args);
+    const previous=(await externalMCP.status({platform:args.platform,scope,accountId}))[0];
+    let exePath;
+    if(args.chooseProgram===true||!previous.programSaved){
+      const selected=await dialog.showOpenDialog(window,{title:'为当前平台账号选择 MCP 程序（选择后将启动）',buttonLabel:'选择并启动',properties:['openFile'],filters:[{name:'Windows MCP 程序',extensions:['exe']}]});
+      if(selected.canceled||!selected.filePaths[0])return {cancelled:true};
+      exePath=selected.filePaths[0];
+    }
     if(epoch!==launchEpoch||scope!==await externalScope(args))throw Error('工作台用户已切换，请重新选择');
-    const result=await externalMCP.start({platform:args.platform,scope,exePath:selected.filePaths[0]});
-    if(epoch!==launchEpoch){await externalMCP.stop({platform:args.platform,scope});return {error:'用户已切换，本次启动已取消。'};}
-    return {endpoint:result.endpoint,token:result.apiKey,note:result.note,ready:result.ready};
+    if(accountId!==await selectedExternalAccount(args))throw Error('当前平台账号已切换，请重新操作');
+    const result=await externalMCP.start({platform:args.platform,scope,accountId,exePath});
+    if(epoch!==launchEpoch){await externalMCP.stop({platform:args.platform,scope,accountId});return {error:'用户已切换，本次启动已取消。'};}
+    try { if(scope!==await externalScope(args)||accountId!==await selectedExternalAccount(args))throw Error('工作台账号已切换'); }
+    catch {await externalMCP.stop({platform:args.platform,scope,accountId});return {error:'工作台或平台账号已切换，本次启动已取消。'};}
+    return {endpoint:result.endpoint,token:result.apiKey,note:result.note,ready:result.ready,accountId};
   }catch(error){return {error:error.message||'外部服务未能启动，请核对下载的程序。'};}
 });
 ipcMain.handle('studio:mcp-external-stop',async(event,args)=>{
   if(!trustedRenderer(event))throw Error('请从工作台停止服务');
-  try {const scope=await externalScope(args);await externalMCP.stop({platform:args.platform,scope});return {note:'已停止工作台为当前用户启动的对应服务；其他程序未受影响。'};}catch{return {error:'服务尚未确认停止，请完成平台任务后重试。'};}
+  try {const scope=await externalScope(args),accountId=await selectedExternalAccount(args);await externalMCP.stop({platform:args.platform,scope,accountId});return {note:'已停止当前平台账号的外部服务，程序位置和本机登录资料仍保留。'};}catch{return {error:'服务尚未确认停止，请完成平台任务后重试。'};}
+});
+ipcMain.handle('studio:mcp-external-status',async(event,args)=>{
+  if(!trustedRenderer(event))throw Error('请从工作台检查服务');
+  try {const scope=await externalScope(args),accountId=await selectedExternalAccount(args);return {items:await externalMCP.status({platform:args.platform,scope,accountId})};}catch(error){return {error:error.message||'无法读取当前账号服务状态'};}
 });
 ipcMain.handle('studio:mcp-restart', async event => {
   if (!trustedRenderer(event)) throw Error('请从工作台修复连接');
@@ -175,7 +224,7 @@ else {
   });
 }
 app.on('before-quit', event => {
-  launchEpoch++; const externalClosed=externalMCP.stopAll().catch(()=>{});
+  launchEpoch++; const externalClosed=Promise.allSettled([externalMCP.stopAll(),documentParser.close()]);
   mcpServer?.close();
   douyinAuth.cancel();
   platformLogin.cancel();

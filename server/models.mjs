@@ -26,6 +26,7 @@ export function createModelStore(file) {
   return { get: () => ({ ...routes }), save(value) { const next = routesSchema.parse(value); if (file) atomicJSON(file, next); routes = next; return this.get(); } };
 }
 export function stageConfig(stage, routes) {
+  if (stage === 'document-context') return { ...stageConfig('strategy', routes), id: stage, label: '项目资料提炼', maxTokens: 7000 };
   const definition = STAGES.find(s => s.id === stage), model = routes[stage], metadata = MODELS[model];
   const thinking = ['strategy', 'planning', 'analysis'].includes(stage);
   return { ...definition, model, ...metadata, ...(metadata.provider === 'deepseek' ? { thinking, maxTokens: thinking ? 8000 : definition.maxTokens } : {}) };

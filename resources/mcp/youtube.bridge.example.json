@@ -1,0 +1,6 @@
+{
+  "command": "C:/Program Files/nodejs/node.exe",
+  "args": ["--env-file=C:/MCP/youtube/account.env", "C:/MCP/youtube/dist/studio-entry.js"],
+  "cwd": "C:/MCP/youtube",
+  "port": 18120
+}

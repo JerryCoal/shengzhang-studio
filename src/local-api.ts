@@ -14,7 +14,7 @@ import type { State, Integrations, Settings, Project } from './types';
 import { defaultSeedream } from '../server/seedream-config.mjs';
 
 const unavailable = '静态体验版未连接在线服务。请在本地完整版中配置 AI 或平台授权；此处不会发出请求或收取费用。';
-const settings: Settings = { ...modelSettings, openaiConfigured: false, authEnabled: true, version: '1.17.0 · 本地静态版', verification: null,
+const settings: Settings = { ...modelSettings, openaiConfigured: false, authEnabled: true, version: '1.19.0 · 本地静态版', verification: null,
   credential: { local: false, editable: false, supported: false, configured: false, source: 'none', suffix: '', protection: '', problem: '静态版不接收 API 密钥。请在本地完整版中配置 AI 服务。' } } as Settings;
 const integrations: Integrations = { local: false, imageProvider: 'openai', seedream: { ...defaultSeedream, configured: false, supported: false, suffix: '', problem: unavailable }, seedance: { region: 'volcengine', model: '', reservationUsd: 2, outputPriceUsd: 0, configured: false, supported: false, suffix: '', problem: unavailable }, douyin: { configured: false, supported: false, redirectUri: '', accounts: [] } };
 function project(state: State, id: string) { const p = state.projects.find(p => p.id === id); d.assert(p, '项目不存在'); return p; }
@@ -69,6 +69,7 @@ export async function localAPI<T>(path: string, method: string, input: unknown):
       if (body.mode === 'openai' || path.startsWith('/integrations') || path.startsWith('/settings')) throw new Error(unavailable);
       if (path === '/projects' && method === 'POST') { const p = d.newProject(body); consumeEditorDraft(state, body); state.projects.unshift(p); d.activity(state, '新项目已创建', p.brief.name, p.id); return p; }
       const parts = path.split('/').filter(Boolean);
+      if (parts[0] === 'accounts' && parts.length === 1 && method === 'POST') return d.addAccount(state,body);
       if (parts[0] === 'accounts' && parts.length === 2 && method === 'PATCH') {
         const account = state.accounts.find(a => a.id === parts[1]); d.assert(account, '账号不存在'); account.name = z.string().trim().min(1).max(100).parse(body.name); return account;
       }

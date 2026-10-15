@@ -1,7 +1,8 @@
-export type ResearchKind = 'web' | 'xiaohongshu' | 'rss';
+export type ResearchPlatform = 'xiaohongshu' | 'douyin' | 'tiktok' | 'youtube' | 'instagram';
+export type ResearchKind = 'web' | 'rss' | ResearchPlatform;
 export type ResearchRisk = 'review' | 'unverified';
 export type ResearchMetric = { value: number | null; raw: string; approximate: boolean };
-export type XhsDiscovery = { timeRange: 'week' | 'month' | 'all'; sortBy: 'general' | 'likes' | 'favorites' | 'comments'; noteType: 'all' | 'image' | 'video' };
+export type XhsDiscovery = { timeRange: 'week' | 'month' | 'all'; sortBy: 'general' | 'views' | 'likes' | 'favorites' | 'comments' | 'shares'; noteType: 'all' | 'image' | 'video'; platform?: ResearchPlatform };
 export type XhsDiscoveryRanking = {
   sampleRank: number; sortBy: XhsDiscovery['sortBy']; sortValue: number | null; matchedKeywords: string[];
   visibleInteractions: number | null; knownMetrics: ('likes' | 'comments' | 'favorites' | 'shares')[]; approximate: boolean;
@@ -13,15 +14,18 @@ export type ResearchReference = {
   id: string; kind: ResearchKind; title: string; url: string; text: string;
   noteType?: 'image' | 'video' | 'unknown';
   publishedAt: string; collectedAt: string; dateBasis: string; sourceName: string;
-  metrics: Record<'likes' | 'comments' | 'favorites' | 'shares', ResearchMetric>;
+  sourceAccountId?: string; sourceAccountName?: string;
+  metrics: Record<'likes' | 'comments' | 'favorites' | 'shares', ResearchMetric> & { views?: ResearchMetric };
   risk: ResearchRisk; riskReason: string;
   discoveryRanking?: XhsDiscoveryRanking;
+  topicRanking?: { platform: ResearchPlatform; metric: string; sortBy: XhsDiscovery['sortBy']; sampleRank: number | null; matchedKeywords: string[]; relevant: boolean; value: number | null; approximate: boolean; knownSamples: number; relevantSamples: number; sampleMedian: number | null; comparison: string };
 };
 export type RawResearchReference = {
   kind: ResearchKind; externalId?: string; title: string; url?: string; text: string;
   noteType?: 'image' | 'video' | 'unknown';
   publishedAt?: string | number; collectedAt?: string | number; dateBasis?: string; sourceName?: string;
-  metrics?: Partial<Record<'likes' | 'comments' | 'favorites' | 'shares', number | string | null | ResearchMetric>> | null;
+  sourceAccountId?: string; sourceAccountName?: string;
+  metrics?: Partial<Record<'views' | 'likes' | 'comments' | 'favorites' | 'shares', number | string | null | ResearchMetric>> | null;
 };
 export type ResearchEvidence = { referenceId: string; quote: string };
 export type ResearchAnalysis = {

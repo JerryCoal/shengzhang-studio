@@ -1,10 +1,11 @@
 import { z } from 'zod';
+import { PLATFORM_NAMES } from './platform-catalog.mjs';
 import { readBounded } from './integration-http.mjs';
 
 const fail = (message, extra = {}) => Object.assign(new Error(message), { status: 400, ...extra });
 export const FEISHU_FIELDS = [
   { field_name: '计划编号', type: 1 }, { field_name: '项目', type: 1 },
-  { field_name: '平台', type: 3, property: { options: [{ name: '小红书' }, { name: '抖音' }] } },
+  { field_name: '平台', type: 3, property: { options: Object.values(PLATFORM_NAMES).map(name => ({ name })) } },
   { field_name: '发布账号', type: 1 }, { field_name: '标题', type: 1 },
   { field_name: '计划发布时间', type: 5, property: { date_formatter: 'yyyy/MM/dd HH:mm' } },
   { field_name: '发布状态', type: 3, property: { options: ['待发布', '已导出', '已发布', '已取消'].map(name => ({ name })) } },
@@ -50,7 +51,7 @@ export function planFields(project, record) {
   if (!Number.isFinite(time)) throw fail('计划时间无效，请重新安排');
   return {
     '计划编号': `${project.id}:${record.id}`, '项目': project.brief.name,
-    '平台': record.platform === 'xiaohongshu' ? '小红书' : '抖音', '发布账号': record.accountName,
+    '平台': PLATFORM_NAMES[record.platform], '发布账号': record.accountName,
     '标题': record.title, '计划发布时间': time,
     '发布状态': ({ scheduled: '待发布', exported: '已导出', published: '已发布', cancelled: '已取消' })[record.status],
     '作品链接': record.url ? { link: record.url, text: '查看作品' } : null,

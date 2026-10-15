@@ -29,7 +29,7 @@ test('metadata supports quoted fields, folded descriptions and indented platform
 
 test('preview rejects malformed metadata, unsupported scope, unsafe file names and oversized UTF-8', () => {
   for (const fileName of ['rules.py', 'rules.zip', '../SKILL.md', 'C:\\SKILL.md', '.md', 'folder/rules.md', 'bad\0.md']) assert.throws(() => previewCreativeSkill({ fileName, text: source() }));
-  for (const text of [source('name: repeated\n'), source('stages: [analysis]\n'), source('platforms: [tiktok]\n'), source('platforms: []\n'), source('version: bad version\n'), source('description: !tag value\n'), '---\nname: missing-close', '---\nname: empty\n---', source('', 'bad\0text'), source('', 'bad\ufffdtext'), source('platforms: [xiaohongshu\n'), source('name: "bad\\nname"\n')]) assert.throws(() => previewCreativeSkill({ fileName: 'SKILL.md', text }));
+  for (const text of [source('name: repeated\n'), source('stages: [analysis]\n'), source('platforms: [unsupported-platform]\n'), source('platforms: []\n'), source('version: bad version\n'), source('description: !tag value\n'), '---\nname: missing-close', '---\nname: empty\n---', source('', 'bad\0text'), source('', 'bad\ufffdtext'), source('platforms: [xiaohongshu\n'), source('name: "bad\\nname"\n')]) assert.throws(() => previewCreativeSkill({ fileName: 'SKILL.md', text }));
   assert.throws(() => previewCreativeSkill({ fileName: 'SKILL.md', text: '汉'.repeat(CREATIVE_SKILL_MAX_BYTES / 3 + 1) }), /24 KB/);
   assert.throws(() => previewCreativeSkill({ fileName: 'SKILL.md', text: 'unpaired\ud800' }), /Unicode/);
   assert.throws(() => previewCreativeSkill({ fileName: 'SKILL.md', text: source(), command: 'run' }));

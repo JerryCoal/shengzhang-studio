@@ -202,6 +202,7 @@ export function createApp(store, options = {}) {
   app.patch('/api/projects/:id/comments/:commentId', (req, res) => mutate(req, res, p => { const result = correctComment(p, req.params.commentId, req.body); domain.touch(p); return result; }));
   app.post('/api/projects/:id/metrics', (req, res) => mutate(req, res, p => { const result = saveMetricSnapshot(p, req.body); domain.touch(p); return result; }));
   app.patch('/api/projects/:id/insights/:insightId', (req, res) => mutate(req, res, p => domain.decideInsight(p, req.params.insightId, req.body)));
+  app.post('/api/accounts', (req,res) => { const result = store.mutate(state => domain.addAccount(state,req.body)); res.status(201).json({result,state:store.get()}); });
   app.patch('/api/accounts/:accountId', (req, res) => {
     const data = z.object({ name: z.string().trim().min(1).max(100) }).parse(req.body);
     store.mutate(state => { const a = state.accounts.find(a => a.id === req.params.accountId); domain.assert(a, '账号不存在', 404); a.name = data.name; });

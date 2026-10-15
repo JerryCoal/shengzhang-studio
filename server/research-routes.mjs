@@ -6,7 +6,8 @@ import { stageConfig, MODELS } from './models.mjs';
 import { generateStructured, estimateStructuredReservation, tokenCost } from './ai.mjs';
 import { researchDefinition, researchInstructions } from './research-ai.mjs';
 import { skillVersionsFor } from './ai-skill-registry.mjs';
-import { researchOf, cleanReferences, researchCorpus, selectResearch, rankXhsReferences } from './research-data.mjs';
+import { researchOf, cleanReferences, researchCorpus, selectResearch } from './research-data.mjs';
+import { RESEARCH_PLATFORMS, RESEARCH_PLATFORM_NAMES, TOPIC_SORTS, rankTopicReferences } from './topic-performance.mjs';
 import { searchWeb } from './research-sources.mjs';
 import { searchQwen, qwenSearchSupport, QWEN_SEARCH_RESERVATION_CNY } from './qwen-search.mjs';
 import { enrichResearchPages } from './research-page-reader.mjs';
@@ -17,8 +18,8 @@ import { planIndex, buildIndex, retrieve, estimateQueryCny } from './rag.mjs';
 
 const budgetCny = 1;
 const spendCny = p => (p.researchPreviousCny || 0) + (p.researchUsage || []).reduce((n, u) => n + u.amountCny, 0);
-const discoverySchema = z.object({ timeRange: z.enum(['week','month','all']), sortBy: z.enum(['general','likes','favorites','comments']), noteType: z.enum(['all','image','video']) }).strict();
-const runInput = z.object({ keywords: z.array(z.string().trim().min(1).max(30)).min(1).max(8), sources: z.array(z.enum(['web','xiaohongshu','rss'])).min(1).max(3), expectedRevision: z.number().int().nonnegative(), confirmed: z.literal(true), useSemantic: z.boolean().default(false), reuseCollected: z.boolean().default(false), discovery: discoverySchema.optional(), analysisModel: z.string().max(80).optional() }).strict();
+const discoverySchema = z.object({ timeRange: z.enum(['week','month','all']), sortBy: z.enum(TOPIC_SORTS), noteType: z.enum(['all','image','video']), platform: z.enum(RESEARCH_PLATFORMS).optional() }).strict();
+const runInput = z.object({ keywords: z.array(z.string().trim().min(1).max(30)).min(1).max(8), sources: z.array(z.enum(['web','rss', ...RESEARCH_PLATFORMS])).min(1).max(3), expectedRevision: z.number().int().nonnegative(), confirmed: z.literal(true), useSemantic: z.boolean().default(false), reuseCollected: z.boolean().default(false), discovery: discoverySchema.optional(), analysisModel: z.string().max(80).optional(), accountId: z.string().regex(/^[\w-]{1,100}$/u).optional() }).strict();
 const xhsAnalysisModel = routes => MODELS[routes.analysis]?.provider === 'deepseek' ? routes.analysis : 'deepseek-flash';
 
 export function mountResearchRoutes(app, store, config, { project, activeJobs }) {
@@ -42,10 +43,17 @@ export function mountResearchRoutes(app, store, config, { project, activeJobs })
   }
   async function settings(req) {
     const routes = config.modelStore.get();
-    let mcp = {};
-    if (available(req)) { try { mcp = await app.locals.integrations?.mcpResearchStatus?.(req) || {}; } catch { /* no secrets or raw MCP error */ } }
+    let mcp = {}; const platformSources = [];
+    if (available(req)) for (const platform of RESEARCH_PLATFORMS) {
+      let status = {};
+      try { status = await app.locals.integrations?.mcpResearchStatus?.(req, { platform }) || {}; } catch { /* no secrets or raw MCP error */ }
+      if (platform === 'xiaohongshu') mcp = status;
+      platformSources.push({ platform, name: RESEARCH_PLATFORM_NAMES[platform], configured: !!status.configured, supported: status.supported ?? !!status.configured, note: status.note || '请连接此平台 MCP 并检查搜索能力。',
+        accountId: status.sourceAccountId || status.accountId || '', accountName: status.sourceAccountName || status.accountName || '',
+        accounts: Array.isArray(status.accounts) ? status.accounts.map(account => ({ id: account.id, name: account.name, configured: !!account.configured })).slice(0, 20) : [] });
+    }
     const deepseek = available(req) ? config.deepseekVault?.status() || {} : {};
-    return { available: available(req), search: searchSettings(req), models: { query: routes.classification, analysis: routes.analysis, xiaohongshuAnalysis: xhsAnalysisModel(routes) }, deepseekConfigured: !!deepseek.configured && !deepseek.problem, mcpSearchSupported: mcp.supported ?? mcp.configured ?? false, mcpConfigured: mcp.configured || false, mcpNote: mcp.note || '', budgetCny };
+    return { available: available(req), search: searchSettings(req), models: { query: routes.classification, analysis: routes.analysis, xiaohongshuAnalysis: xhsAnalysisModel(routes) }, deepseekConfigured: !!deepseek.configured && !deepseek.problem, mcpSearchSupported: mcp.supported ?? mcp.configured ?? false, mcpConfigured: mcp.configured || false, mcpNote: mcp.note || '', platformSources, budgetCny };
   }
   app.get('/api/research/settings', async (req,res) => res.json(await settings(req)));
   app.put('/api/research/settings', async (req,res) => {
@@ -82,10 +90,13 @@ export function mountResearchRoutes(app, store, config, { project, activeJobs })
   app.post('/api/projects/:id/research/run', async (req,res) => {
     local(req); const input = runInput.parse(req.body), pid = req.params.id;
     const discovery = input.discovery;
-    assert(!discovery || input.sources.length === 1 && input.sources[0] === 'xiaohongshu', '小红书内容研究只使用小红书 MCP，请在近期热点模式选择其他来源。');
-    assert(discovery || !input.analysisModel, '单独选择分析模型仅用于小红书内容研究。');
-    assert(!discovery || input.keywords.length <= 3, '小红书每轮最多 3 个关键词，请分批查找更具体的受众或场景。');
-    assert(!discovery || !input.useSemantic, '小红书内容研究使用本地匹配与互动排序，无需额外语义检索密钥。');
+    const platform = discovery?.platform || 'xiaohongshu', platformName = RESEARCH_PLATFORM_NAMES[platform];
+    assert(!discovery || input.sources.length === 1 && input.sources[0] === platform, '同话题内容研究每轮只比较一个平台，请选择对应来源。');
+    assert(discovery || input.sources.every(source => ['web','xiaohongshu','rss'].includes(source)), '跨平台内容请在同话题内容研究中逐个平台采集。');
+    assert(!input.accountId || discovery, '请在同话题内容研究中选择采集账号。');
+    assert(discovery || !input.analysisModel, '单独选择分析模型仅用于同话题内容研究。');
+    assert(!discovery || input.keywords.length <= 3, '每轮最多 3 个关键词，请分批查找更具体的受众或场景。');
+    assert(!discovery || !input.useSemantic, '同话题内容研究使用本地匹配与指标排序，无需额外语义检索密钥。');
     assert(!settingsBusy && !activeJobs.has(pid), '此项目正在执行任务，请等待完成。', 409);
     const initial = project(store.get(),pid), previous = researchOf(initial);
     assert(previous.revision === input.expectedRevision, '参考库已变化，请刷新后重试。', 409);
@@ -94,10 +105,10 @@ export function mountResearchRoutes(app, store, config, { project, activeJobs })
     const queryRoute = { ...stageConfig('classification',routes), id: 'research_query', label: '热点检索方向', maxTokens: 800, thinking: false };
     const analysisModel = input.analysisModel || xhsAnalysisModel(routes);
     assert(!discovery || MODELS[analysisModel]?.provider === 'deepseek', '请选择工作台支持的 DeepSeek 分析模型。');
-    const analysisRoute = { ...stageConfig('analysis',discovery ? { ...routes, analysis: analysisModel } : routes), id: 'research_analysis', label: discovery ? '小红书选题与流量建议' : '热点参考分析', maxTokens: discovery ? 6500 : 4500 };
+    const analysisRoute = { ...stageConfig('analysis',discovery ? { ...routes, analysis: analysisModel } : routes), id: 'research_analysis', label: discovery ? `${platformName}同话题内容与改进建议` : '热点参考分析', maxTokens: discovery ? 6500 : 4500 };
     const sources = [...new Set(input.sources)], webSettings = searchSettings(req), searchPrice = webSettings.reservationCny, useQwenSearch = sources.includes('web') && webSettings.provider === 'qwen';
     const qwenConnection = config.getQwenConnection();
-    let searchKey = '', queryKey = '', analysisKey, embeddingKey = '';
+    let searchKey = '', queryKey = '', analysisKey, embeddingKey = '', sourceAccount = null;
     activeJobs.add(pid);
     const runId = randomUUID(), startedAt = now(), briefFingerprint = JSON.stringify(initial.brief);
     const filters = { blockTerms: trendsOf(initial).settings.blockTerms || [], genericTerms: trendsOf(initial).settings.genericTerms || [] };
@@ -144,11 +155,13 @@ export function mountResearchRoutes(app, store, config, { project, activeJobs })
         assert(spendCny(initial)+searchPrice*webSettings.maxRequests<=budgetCny+1e-9, '剩余检索预算不足以执行本轮搜索，请取消网络来源或重用已保存参考。');
       }
       if (input.useSemantic) { assert(config.getQwenConnection().ragSupported, '本版语义检索的模型和预算按北京地域核验；请配置北京地域配套 Qwen Key，或取消语义检索使用本地关键词。尚未发送付费研究请求。'); embeddingKey = await modelKey({provider:'qwen'}); }
-      if (sources.includes('xiaohongshu')&&!input.reuseCollected) {
-        const status=await app.locals.integrations?.mcpResearchStatus?.(req);assert(status?.supported ?? status?.configured,'请先在“账号与发布”中配置并登录小红书外部 MCP，内置发布助手不提供热点搜索。');
+      if ((discovery || sources.includes('xiaohongshu'))&&!input.reuseCollected) {
+        const status=await app.locals.integrations?.mcpResearchStatus?.(req, { platform, accountId: input.accountId });
+        assert(status?.supported ?? status?.configured,status?.note || `请先在“账号与发布”中配置并登录${platformName}外部 MCP；内置发布助手不提供热点搜索。`);
+        sourceAccount = { id: status?.sourceAccountId || status?.accountId || input.accountId || '', name: status?.sourceAccountName || status?.accountName || '' };
       }
       assert(current().research?.revision===previous.revision || !current().research&&previous.revision===0, '参考库已变化，请刷新。',409);
-      store.mutate(state=>{const p=project(state,pid);p.research={...researchOf(p),keywords:input.keywords,...filters,revision:previous.revision+1,run:{id:runId,status:'running',phase:input.reuseCollected?'clean':useQwenSearch||discovery?'search':'query',startedAt,webProvider:sources.includes('web')?webSettings.provider:'none',...(discovery?{discovery,analysisModel}: {})},reports:[],...(!input.reuseCollected?{pendingReferences:[]}: {})};touch(p);}); started=true;
+      store.mutate(state=>{const p=project(state,pid);p.research={...researchOf(p),keywords:input.keywords,...filters,revision:previous.revision+1,run:{id:runId,status:'running',phase:input.reuseCollected?'clean':useQwenSearch||discovery?'search':'query',startedAt,webProvider:sources.includes('web')?webSettings.provider:'none',...(discovery?{discovery,analysisModel,sourceAccount}: {})},reports:[],...(!input.reuseCollected?{pendingReferences:[]}: {})};touch(p);}); started=true;
       const groupedKeywords = input.keywords.reduce((groups, word) => { const last = groups.length - 1; if (last >= 0 && groups[last].length + word.length + 1 <= 100) groups[last] += '、' + word; else groups.push(word); return groups; }, []);
       let queries = useQwenSearch ? groupedKeywords : input.keywords.slice(0,3), raw=[],reports=[];
       if(!input.reuseCollected){
@@ -169,19 +182,22 @@ export function mountResearchRoutes(app, store, config, { project, activeJobs })
             phase('search',{reports,pendingReferences});
           } else {const result=await searchWeb(queries,{key:searchKey,fetcher:config.searchFetcher,at:Date.now(),onRequest:()=>reserveCny(searchPrice,'web')});raw.push(...result.items);reports.push(...result.reports);phase('search',{reports});}
         }
-        if(sources.includes('xiaohongshu')){try{const result=await app.locals.integrations.mcpResearchSearch(req,{queries,at:Date.now(),assertActive,...(discovery?{discovery}: {})});raw.push(...result.items);reports.push(...result.reports);}catch(error){assertActive();reports.push({sourceId:'xiaohongshu',name:'小红书 MCP',status:'failed',count:0,message:'MCP 搜索未完成，请检查本机服务、登录或平台验证后重试。'});}phase('search',{reports});}
+        if(discovery || sources.includes('xiaohongshu')){try{const result=await app.locals.integrations.mcpResearchSearch(req,{platform,accountId:sourceAccount?.id || input.accountId,queries,at:Date.now(),assertActive,...(discovery?{discovery}: {})});raw.push(...result.items);reports.push(...result.reports);}catch(error){assertActive();reports.push({sourceId:platform,name:`${platformName} MCP`,status:'failed',count:0,message:'MCP 搜索未完成，请检查本机服务、登录或平台验证后重试。'});}phase('search',{reports});}
         if(sources.includes('rss')){const selected=trendsOf(initial).settings;const collected=await collectNews({...selected,keywords:input.keywords},{fetcher:config.newsFetcher,resolver:config.newsResolver});raw.push(...collected.articles.map(a=>({kind:'rss',title:a.title,url:a.url,text:a.excerpt,publishedAt:a.publishedAt,collectedAt:a.fetchedAt,dateBasis:'publisher-feed',sourceName:a.source,metrics:null})));reports.push(...collected.reports.map(r=>({...r,sourceId:'rss'})));}
       } else raw=previous.references.map(r=>({...r,metrics:Object.fromEntries(Object.entries(r.metrics).map(([k,v])=>[k,v.raw||v.value]))}));
       phase('clean',{queries,reports});
-      if (discovery) raw = raw.filter(item => item.kind === 'xiaohongshu');
+      if (discovery) raw = raw.filter(item => item.kind === platform);
       const cleaned=cleanReferences(raw,{...filters,keywords:input.keywords,at:Date.now(),...(discovery?{discovery}: {})});
-      if (discovery) cleaned.references = rankXhsReferences(cleaned.references,{keywords:input.keywords,sortBy:discovery.sortBy});
+      const ranked = discovery ? rankTopicReferences(cleaned.references,{keywords:input.keywords,sortBy:discovery.sortBy,platform}) : null;
+      if (ranked) cleaned.references = ranked.references;
       // Retain sources required by the last analysis if this run later fails.
       const merged=[...new Map([...cleaned.references,...previous.references].map(r=>[r.id,r])).values()].slice(-160);
       const knownURLs = new Set(cleaned.references.map(reference => reference.url.replace(/\/$/, '')));
       const pendingReferences = (researchOf(current()).pendingReferences || []).filter(item => !knownURLs.has(item.url.replace(/\/$/, '')));
-      phase('retrieve',{references:merged,excluded:cleaned.excluded,pendingReferences});
-      assert(cleaned.references.length,discovery?'没有取得符合所选时间范围、可核对正文与日期的小红书帖子。旧参考已保留；请检查 MCP 登录与来源报告，或扩大范围、更换具体关键词。':'本次没有取得可核对发布时间的近七天内容。旧参考已保留；请检查来源报告或更换关键词。');
+      phase('retrieve',{references:merged,excluded:cleaned.excluded,pendingReferences,...(ranked?{retrieval:{method:'sample-interaction',count:ranked.analysisReferences.length,note:ranked.summary.note,comparison:ranked.summary}}:{})});
+      assert(cleaned.references.length,discovery?`没有取得符合所选时间范围、可核对正文与日期的${platformName}内容。旧参考已保留；请检查 MCP 登录与来源报告，或扩大范围、更换具体关键词。`:'本次没有取得可核对发布时间的近七天内容。旧参考已保留；请检查来源报告或更换关键词。');
+      assert(!ranked || ranked.analysisReferences.length, '候选内容未命中本次主题，已保留候选供核对，没有发起 AI 分析。请使用更具体的关键词或添加同义词后重试。');
+      assert(!ranked || ranked.summary.knownMetrics > 0, '同话题候选均未提供所选比较指标，已保存供核对，没有发起 AI 分析。请改选确实可见的点赞、收藏或评论指标，或检查来源服务。');
       const corpus=researchCorpus(cleaned.references,pid), query=queries.join(' ').slice(0,500);
       let retrieved={results:searchCorpus(corpus,query,10),method:'keyword'}, index=previous.ragIndex;
       if(input.useSemantic){
@@ -193,12 +209,12 @@ export function mountResearchRoutes(app, store, config, { project, activeJobs })
       // this as a recent-candidate fallback rather than a semantic match.
       const byId=new Map(cleaned.references.map(r=>[r.id,r]));
       const relevant=[...new Set(retrieved.results.map(r=>r.documentId))].map(id=>byId.get(id)).filter(Boolean).slice(0,10);
-      const references=discovery?cleaned.references.slice(0,10):relevant.length?relevant:cleaned.references.slice(0,8);
-      const retrieval=discovery?{method:'sample-interaction',count:references.length,note:'按本次小红书候选的关键词与可见互动排序，最多分析前 10 条；未知指标不当作零。不代表全站热榜、曝光量或增长趋势。'}:{method:relevant.length?retrieved.method:'recent-candidates',count:references.length,note:relevant.length?'已检索相关原文，仍须核对用途与语境。':'没有关键词命中，使用本轮少量近期候选供 AI 判断；不代表语义匹配。'};
+      const references=ranked?ranked.analysisReferences:relevant.length?relevant:cleaned.references.slice(0,8);
+      const retrieval=ranked?{method:'sample-interaction',count:references.length,note:ranked.summary.note,comparison:ranked.summary}:{method:relevant.length?retrieved.method:'recent-candidates',count:references.length,note:relevant.length?'已检索相关原文，仍须核对用途与语境。':'没有关键词命中，使用本轮少量近期候选供 AI 判断；不代表语义匹配。'};
       phase('analyze',{retrieval,ragIndex:index});
-      const result=await ai(discovery?'xhs-analysis':'analysis',{brief:{product:initial.brief.product,audience:initial.brief.audience,goal:initial.brief.goal,facts:initial.brief.facts},keywords:input.keywords,...filters,references,...(discovery?{discovery}: {})},analysisRoute,analysisKey);
+      const result=await ai(discovery?'xhs-analysis':'analysis',{brief:{product:initial.brief.product,audience:initial.brief.audience,goal:initial.brief.goal,facts:initial.brief.facts},keywords:input.keywords,...filters,references:references.map(({sourceAccountId,sourceAccountName,...reference})=>reference),...(discovery?{discovery,sampleComparison:ranked.summary}: {})},analysisRoute,analysisKey);
       assertActive();
-      store.mutate(state=>{const p=project(state,pid),r=researchOf(p);p.research={...r,references:cleaned.references,analyses:result.analyses.map(a=>({...a,id:runId+':'+a.id})),selectedIds:[],acknowledgedIds:[],revision:r.revision+1,run:{...r.run,status:'completed',phase:'completed',finishedAt:now()},analysisModel:analysisRoute.model,skillVersions:skillVersionsFor('research-analysis')};touch(p);activity(state,discovery?'小红书内容研究已完成':'近期内容研究已完成',`${cleaned.references.length} 条来源 · ${result.analyses.length} 个参考方向，等待选用`,pid);});
+      store.mutate(state=>{const p=project(state,pid),r=researchOf(p);p.research={...r,references:cleaned.references,analyses:result.analyses.map(a=>({...a,id:runId+':'+a.id})),selectedIds:[],acknowledgedIds:[],revision:r.revision+1,run:{...r.run,status:'completed',phase:'completed',finishedAt:now()},analysisModel:analysisRoute.model,skillVersions:skillVersionsFor('research-analysis')};touch(p);activity(state,discovery?`${platformName}同话题研究已完成`:'近期内容研究已完成',`${cleaned.references.length} 条来源 · ${result.analyses.length} 个参考方向，等待选用`,pid);});
       res.json({result:researchOf(current()),state:store.get()});
     }catch(error){
       if(started)store.mutate(state=>{const p=project(state,pid),r=researchOf(p);if(r.run?.id!==runId)return;p.research={...r,revision:r.revision+1,run:{...r.run,status:'failed',phase:'failed',finishedAt:now(),error:'本轮未完成，已保留此前参考及本轮已采集资料；请查看来源报告、连接状态和费用后重试。'}};touch(p);});

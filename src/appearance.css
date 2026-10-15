@@ -2,33 +2,33 @@
 pre,.creative-skill-details pre{font-size:12px}
 .appearance-settings .section-heading h2{display:flex;align-items:center;gap:9px}
 .appearance-sizes{border:0;margin:24px 0;padding:0;min-width:0}
-.appearance-sizes legend{font-size:14px;font-weight:600;margin-bottom:12px;color:#365140}
+.appearance-sizes legend{font-size:14px;font-weight:600;margin-bottom:12px;color:var(--ui-text)}
 .appearance-sizes>div{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
-.appearance-sizes label{display:flex;align-items:center;gap:10px;padding:15px 14px;border:1px solid #dbe5d8;border-radius:12px;cursor:pointer;background:#fff;min-width:0}
-.appearance-sizes label.selected{border-color:#41775b;background:#eff6ee;box-shadow:0 0 0 1px #41775b inset}
+.appearance-sizes label{display:flex;align-items:center;gap:10px;padding:15px 14px;border:1px solid var(--ui-border);border-radius:12px;cursor:pointer;background:#fff;min-width:0}
+.appearance-sizes label.selected{border-color:var(--ui-border);background:var(--ui-surface-subtle);box-shadow:0 0 0 1px var(--ui-shadow-color) inset}
 .appearance-sizes label span{display:grid;gap:5px;flex:1;min-width:0}
-.appearance-sizes b{font-size:15px;color:#39523d}
-.appearance-sizes small{font-size:11px;color:#697b66}
-.appearance-emphasis{display:flex;align-items:flex-start;gap:12px;padding:18px;border:1px solid #dbe5d8;border-radius:12px;background:#f7f9f4;cursor:pointer}
+.appearance-sizes b{font-size:15px;color:var(--ui-text)}
+.appearance-sizes small{font-size:11px;color:var(--ui-text-secondary)}
+.appearance-emphasis{display:flex;align-items:flex-start;gap:12px;padding:18px;border:1px solid var(--ui-border);border-radius:12px;background:var(--ui-surface);cursor:pointer}
 .appearance-emphasis input{margin-top:5px;flex-shrink:0}
 .appearance-emphasis span{display:grid;gap:7px;min-width:0}
-.appearance-emphasis b{font-size:14px;color:#365140}
-.appearance-emphasis small{font-size:12px;color:#64735f;line-height:1.8}
-.appearance-save-status{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:48px;padding:10px 0;font-size:12px;color:#47745b}
+.appearance-emphasis b{font-size:14px;color:var(--ui-text)}
+.appearance-emphasis small{font-size:12px;color:var(--ui-text-secondary);line-height:1.8}
+.appearance-save-status{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:48px;padding:10px 0;font-size:12px;color:var(--ui-text-secondary)}
 .appearance-save-status.error{color:#964c36}
-.appearance-preview{padding:22px;border:1px solid #dbe5d8;border-radius:12px;margin:12px 0 16px;background:#fff}
-.appearance-preview h3{font-size:19px;color:#436047;margin:12px 0}
-.appearance-preview p{font-size:14px;line-height:1.9;color:#62745d;white-space:pre-wrap;overflow-wrap:anywhere}
-.appearance-preview small{font-size:12px;line-height:1.8;color:#6b7a64}
+.appearance-preview{padding:22px;border:1px solid var(--ui-border);border-radius:12px;margin:12px 0 16px;background:#fff}
+.appearance-preview h3{font-size:19px;color:var(--ui-text);margin:12px 0}
+.appearance-preview p{font-size:14px;line-height:1.9;color:var(--ui-text-secondary);white-space:pre-wrap;overflow-wrap:anywhere}
+.appearance-preview small{font-size:12px;line-height:1.8;color:var(--ui-text-secondary)}
 .appearance-preview .info-box{display:flex;flex-wrap:wrap;gap:5px;margin:16px 0}
-.copy-keyword{font-weight:800;color:#163d29}
-.copy-keyword-preview{margin:18px 0;padding:14px 16px;border:1px solid #dce7d8;border-radius:10px;background:#f7faf5}
-.copy-keyword-preview summary{font-size:13px;color:#365b41;cursor:pointer}
+.copy-keyword{font-weight:800;color:var(--ui-text)}
+.copy-keyword-preview{margin:18px 0;padding:14px 16px;border:1px solid var(--ui-border);border-radius:10px;background:var(--ui-surface)}
+.copy-keyword-preview summary{font-size:13px;color:var(--ui-text);cursor:pointer}
 .copy-keyword-preview h4{margin:14px 0 8px;font-size:15px}
 .copy-keyword-preview p{font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow-y:auto;line-height:1.9}
-html[data-studio-emphasis=true] :is(.page-title h1,.section-heading h2,.section-heading h3,.settings-card h2,.appearance-preview h3,.field>span,.appearance-sizes legend,.appearance-emphasis b,.generation-workflow>span,.research-steps b,.publishing-steps h3,.mcp-setup-steps b,.guide-topic summary b,.background-task h3,.strategy-card .prompt-toggle){font-weight:800;color:#183c2a}
+html[data-studio-emphasis=true] :is(.page-title h1,.section-heading h2,.section-heading h3,.settings-card h2,.appearance-preview h3,.field>span,.appearance-sizes legend,.appearance-emphasis b,.generation-workflow>span,.research-steps b,.publishing-steps h3,.mcp-setup-steps b,.guide-topic summary b,.background-task h3,.strategy-card .prompt-toggle){font-weight:800;color:var(--ui-text)}
 html[data-studio-emphasis=true] :is(.button.primary,.nav-item.active,.pill,.info-box b,.background-work-notice b){font-weight:800}
-html[data-studio-emphasis=true] :is(.info-box b,.appearance-preview b,.research-findings dt,.setting-row b){color:#183c2a}
+html[data-studio-emphasis=true] :is(.info-box b,.appearance-preview b,.research-findings dt,.setting-row b){color:var(--ui-text)}
 html[data-studio-emphasis=true] :is(.error-box,.research-warning,.mcp-error) b{color:inherit}
 /* Larger text should wrap without changing the dimensions of produced media. */
 html[data-studio-text-size]:not([data-studio-text-size="1"]) .topbar{min-height:74px;height:auto;gap:12px;padding-block:12px;flex-wrap:wrap}

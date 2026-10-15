@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { COMMON_WORDS } from './trends.mjs';
+import { RESEARCH_PLATFORMS, TOPIC_SORTS } from './topic-performance.mjs';
 
 export const RESEARCH_WEEK = 7 * 86400000;
 export const RESEARCH_MAX_REFERENCES = 80;
@@ -17,12 +18,12 @@ const entity = /《[^》]+》|电影|影视|动漫|动画|角色|明星|艺人|�
 const restrictedBasis = /unknown|未知|updated|更新时间|更新日期|crawl|collect|采集|抓取|搜索(?:时间|过滤|筛选)|search[-_ ]?filter|推算|估算|解码/iu;
 const limitation = '仅反映本次采集样本，不代表全网排名；互动量不能证明曝光、成交、转化或因果，应用建议需验证。';
 const discoverySchema = z.object({
-  timeRange: z.enum(['week', 'month', 'all']), sortBy: z.enum(['general', 'likes', 'favorites', 'comments']), noteType: z.enum(['all', 'image', 'video']),
+  timeRange: z.enum(['week', 'month', 'all']), sortBy: z.enum(TOPIC_SORTS), noteType: z.enum(['all', 'image', 'video']), platform: z.enum(RESEARCH_PLATFORMS).optional(),
 }).strict();
 function discoveryOf(value) {
   if (value === undefined) return undefined;
   const parsed = discoverySchema.safeParse(value);
-  if (!parsed.success) fail('小红书内容发现筛选无效');
+  if (!parsed.success) fail('内容发现筛选无效');
   return parsed.data;
 }
 
@@ -92,7 +93,18 @@ function publicURL(raw) {
 }
 
 function canonicalURL(item) {
-  if (item.kind !== 'xiaohongshu') return publicURL(item.url)?.href || null;
+  if (item.kind !== 'xiaohongshu') {
+    const url = publicURL(item.url); if (!url) return null;
+    if (item.kind === 'web' || item.kind === 'rss') return url.href;
+    if (item.kind === 'youtube') {
+      const id = ['youtube.com', 'www.youtube.com', 'm.youtube.com'].includes(url.hostname) ? url.pathname === '/watch' ? url.searchParams.get('v') : url.pathname.match(/^\/(?:shorts|live)\/([\w-]{11})\/?$/u)?.[1] : url.hostname === 'youtu.be' ? url.pathname.slice(1) : '';
+      return /^[\w-]{11}$/u.test(id || '') ? `https://www.youtube.com/watch?v=${id}` : null;
+    }
+    if (item.kind === 'douyin') { const path = ['douyin.com', 'www.douyin.com'].includes(url.hostname) ? url.pathname.match(/^\/(video|note)\/(\d{10,30})\/?$/u) : null; return path ? `https://www.douyin.com/${path[1]}/${path[2]}` : null; }
+    if (item.kind === 'instagram') { const path = ['instagram.com', 'www.instagram.com'].includes(url.hostname) ? url.pathname.match(/^\/(p|reel)\/([\w-]{5,80})\/?$/u) : null; return path ? `https://www.instagram.com/${path[1]}/${path[2]}` : null; }
+    if (item.kind === 'tiktok') { const path = ['tiktok.com', 'www.tiktok.com'].includes(url.hostname) ? url.pathname.match(/^\/@([\w.-]{1,80})\/video\/(\d{10,30})\/?$/u) : null; return path ? `https://www.tiktok.com/@${path[1]}/video/${path[2]}` : null; }
+    return null;
+  }
   const external = typeof item.externalId === 'string' && /^[\da-f]{24}$/iu.test(item.externalId) ? item.externalId.toLowerCase() : null;
   const url = item.url ? publicURL(item.url) : null;
   if (item.url && (!url || !['xiaohongshu.com', 'www.xiaohongshu.com'].includes(url.hostname))) return null;
@@ -133,26 +145,28 @@ export function cleanReferences(raw, { keywords = [], blockTerms = [], genericTe
   // Synonyms need not literally contain keywords; relevance is evaluated by retrieval/analysis.
   void keywords; void genericTerms;
   for (const item of raw.slice(0, 2000)) {
-    if (!item || !['web', 'xiaohongshu', 'rss'].includes(item.kind) || typeof item.title !== 'string' || typeof item.text !== 'string' || item.title.length > 3000 || item.text.length > 200000) { excluded.invalid++; continue; }
+    if (!item || !['web', 'rss', ...RESEARCH_PLATFORMS].includes(item.kind) || typeof item.title !== 'string' || typeof item.text !== 'string' || item.title.length > 3000 || item.text.length > 200000) { excluded.invalid++; continue; }
     const url = canonicalURL(item); if (!url) { excluded.unsafeUrl++; continue; }
     const dateBasis = cut(plain(item.dateBasis || '来源提供的发布时间，未独立复核'), 120);
     if (restrictedBasis.test(dateBasis)) { excluded.uncertainDate++; continue; }
     const date = sourceDate(item.publishedAt); if (date.error) { excluded[date.error]++; continue; }
     if (date.time > now) { excluded.future++; continue; }
-    const window = item.kind === 'xiaohongshu' && discoveryOptions ? ({ week: RESEARCH_WEEK, month: 30 * 86400000, all: Infinity })[discoveryOptions.timeRange] : RESEARCH_WEEK;
+    const social = RESEARCH_PLATFORMS.includes(item.kind);
+    const window = social && discoveryOptions ? ({ week: RESEARCH_WEEK, month: 30 * 86400000, all: Infinity })[discoveryOptions.timeRange] : RESEARCH_WEEK;
     if (date.time < now - window) { excluded.expired++; continue; }
-    const noteType = item.kind === 'xiaohongshu' ? (['image', 'video'].includes(item.noteType) ? item.noteType : 'unknown') : undefined;
-    if (item.kind === 'xiaohongshu' && discoveryOptions && discoveryOptions.noteType !== 'all' && noteType !== discoveryOptions.noteType) { excluded.noteType++; continue; }
+    const noteType = social ? (['image', 'video'].includes(item.noteType) ? item.noteType : 'unknown') : undefined;
+    if (social && discoveryOptions && discoveryOptions.noteType !== 'all' && noteType !== discoveryOptions.noteType) { excluded.noteType++; continue; }
     const title = plain(item.title), text = plain(item.text), all = `${title}\n${text}`;
     if (!title || !text) { excluded.emptyContent++; continue; }
     if (disputed(all)) { excluded.dispute++; continue; }
     if (blocked(all, terms)) { excluded.blocked++; continue; }
-    const titleKey = norm(title).replace(/[\p{P}\p{S}\s]/gu, '');
+    const titleKey = `${item.kind}:${norm(title).replace(/[\p{P}\p{S}\s]/gu, '')}`;
     if (urls.has(url) || titles.has(titleKey)) { excluded.duplicate++; continue; }
     urls.add(url); titles.add(titleKey);
     const collected = sourceDate(item.collectedAt), collectedAt = new Date(!collected.error && collected.time <= now && collected.time >= date.time ? collected.time : now).toISOString();
     references.push({ id: stableId(url), kind: item.kind, ...(noteType ? { noteType } : {}), title: cut(title, 180), url, text: cut(text, RESEARCH_MAX_TEXT), publishedAt: new Date(date.time).toISOString(), collectedAt, dateBasis,
-      sourceName: cut(plain(item.sourceName) || new URL(url).hostname, 160), metrics: Object.fromEntries(metricNames.map(name => [name, metric(item.metrics?.[name])])), ...riskFor(all, dateBasis) });
+      ...(typeof item.sourceAccountId === 'string' && /^[\w-]{1,100}$/u.test(item.sourceAccountId) ? { sourceAccountId: item.sourceAccountId, sourceAccountName: cut(plain(item.sourceAccountName), 80) } : {}),
+      sourceName: cut(plain(item.sourceName) || new URL(url).hostname, 160), metrics: { ...Object.fromEntries(metricNames.map(name => [name, metric(item.metrics?.[name])])), ...(item.metrics && Object.hasOwn(item.metrics, 'views') ? { views: metric(item.metrics.views) } : {}) }, ...riskFor(all, dateBasis) });
   }
   references.sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt) || a.id.localeCompare(b.id));
   excluded.limit = Math.max(0, raw.length - 2000) + Math.max(0, references.length - RESEARCH_MAX_REFERENCES);
@@ -253,7 +267,7 @@ function validateAnalyses(value, payload, stored = false) {
     for (const evidence of item.evidence) {
       const reference = byId.get(evidence.referenceId);
       if (!reference) fail('热点分析引用了本次输入之外的来源', 502);
-      if (discovery && reference.kind !== 'xiaohongshu') fail('小红书内容发现引用了非小红书来源', 502);
+      if (discovery && reference.kind !== (discovery.platform || 'xiaohongshu')) fail(discovery.platform ? '同话题内容分析引用了其他平台的来源' : '小红书内容发现引用了非小红书来源', 502);
       if (![reference.title, reference.text].some(text => typeof text === 'string' && text.includes(evidence.quote))) fail('热点分析的引用不是来源中的连续原文', 502);
       used.push(reference);
     }

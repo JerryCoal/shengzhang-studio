@@ -75,7 +75,32 @@ test('MCP settings do not reveal access tokens, disallow origin/proxy access and
   assert.equal((await req('/mcp/xiaohongshu/check',{},'POST',{Origin:'https://untrusted.example'})).status,403);
   assert.equal((await req('/mcp/xiaohongshu/check',{},'POST',{'X-Forwarded-For':'1.2.3.4'})).status,403);
   const checked=await req('/mcp/xiaohongshu/check',{});assert.equal(checked.data.capabilities.comments,true);assert.equal(calls,0);
-  await req('/mcp/xiaohongshu',{mode:'external',endpoint:'http://127.0.0.1:18061/mcp'},'PUT');assert.equal(JSON.parse(await mcpVaults.xiaohongshu.getKey()).apiKey,'');
+  await req('/mcp/xiaohongshu',{mode:'external',endpoint:'http://127.0.0.1:18061/mcp'},'PUT');assert.equal(JSON.parse(await mcpVaults.xiaohongshu.getKey()).accounts.find(account=>account.id==='default').apiKey,'');
+});
+
+test('MCP accounts migrate legacy settings, isolate credentials and guard stale account actions',async t=>{
+  let calls=0;const f=await fixture(t,async()=>{calls++;return{content:[{type:'text',text:'✅ 已登录\n仅测试'}]};});
+  await f.mcpVaults.xiaohongshu.save(JSON.stringify({mode:'external',endpoint:'http://127.0.0.1:18060/mcp',apiKey:'legacy-fixture-token'}));
+  let settings=(await f.req('/mcp/settings')).data.platforms[0];assert.equal(settings.accountId,'default');assert.equal(settings.accounts.length,1);assert(!JSON.stringify(settings).includes('legacy-fixture-token'));
+  const created=await f.req('/mcp/xiaohongshu/accounts',{name:'校园账号'});assert.equal(created.status,201);const second=created.data.accountId;assert.notEqual(second,'default');assert.equal(created.data.endpoint,'');assert.equal(created.data.tokenConfigured,false);
+  assert.equal((await f.req('/mcp/xiaohongshu',{accountId:second,mode:'external',endpoint:'http://127.0.0.1:18060/mcp'},'PUT')).status,400,'same service cannot masquerade as a second account');
+  assert.equal((await f.req('/mcp/xiaohongshu',{accountId:second,mode:'external',endpoint:'http://127.0.0.1:18100/mcp',apiKey:'second-fixture-token'},'PUT')).status,200);
+  for(const action of ['check','login','login-status'])assert.equal((await f.req('/mcp/xiaohongshu/'+action,{accountId:'default'})).status,409);
+  assert.equal((await f.req(f.base+'/publish',{confirmed:true,expectedRevision:1,title:'测试',body:'测试正文',accountId:'default'})).status,409);assert.equal(calls,0);assert.equal(f.store.get().projects[0].publications.find(p=>p.id===f.publication.id).delivery,undefined);
+  assert.equal((await f.req('/mcp/xiaohongshu/accounts/'+second,{name:'校园运营号'},'PUT')).status,200);
+  const switched=await f.req('/mcp/xiaohongshu/accounts/default/activate',{});assert.equal(switched.status,200);assert.equal(switched.data.endpoint,'http://127.0.0.1:18060/mcp');assert.equal(switched.data.tokenConfigured,true);assert.equal(switched.data.connected,false);
+  const saved=JSON.parse(await f.mcpVaults.xiaohongshu.getKey());assert.equal(saved.accounts.find(a=>a.id==='default').apiKey,'legacy-fixture-token');assert.equal(saved.accounts.find(a=>a.id===second).apiKey,'second-fixture-token');
+  for(const path of ['/mcp/settings','/backup','/state']){const output=JSON.stringify((await f.req(path)).data);assert(!output.includes('legacy-fixture-token'));assert(!output.includes('second-fixture-token'));}
+  assert.equal((await f.req('/mcp/xiaohongshu/accounts',{name:'校园运营号'})).status,400);assert.equal((await f.req('/mcp/xiaohongshu/accounts',{name:'\u0000bad'})).status,400);
+});
+
+test('MCP account changes are blocked for an in-flight login and release afterwards',async t=>{
+  let entered,release;const begun=new Promise(resolve=>entered=resolve);const f=await fixture(t,async()=>{entered();await new Promise(resolve=>release=resolve);return{content:[{type:'text',text:'✅ 已登录\n测试'}]};});
+  const running=f.req('/mcp/xiaohongshu/login-status',{accountId:'default'});await begun;
+  assert.equal((await f.req('/mcp/xiaohongshu/accounts',{name:'新账号'})).status,409);
+  assert.equal((await f.req('/mcp/xiaohongshu/accounts/default/activate',{})).status,409);
+  assert.equal((await f.req('/mcp/xiaohongshu/accounts/default',{name:'改名'},'PUT')).status,409);
+  release();assert.equal((await running).status,200);assert.equal((await f.req('/mcp/xiaohongshu/accounts',{name:'新账号'})).status,201);
 });
 test('external MCP publishing requires explicit consent, journals before dispatch, cleans media and locks unknown results',async t=>{
   let calls=0,mediaFile;

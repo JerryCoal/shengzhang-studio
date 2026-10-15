@@ -1,4 +1,43 @@
 import JSZip from 'jszip';
+import { desktopSessionToken } from './desktop';
+import type { DocumentBlock, DocumentExtraction, DocumentFormat, DocumentParserStatus, DocumentReadMode } from './document-parser-types';
+export type { DocumentExtraction, DocumentReadMode } from './document-parser-types';
+
+const defaultLimits = { maxBytes: 16 * 1024 * 1024, maxPages: 100, timeoutMs: 180000, maxCharacters: 300000 };
+export async function getDocumentParserStatus(): Promise<DocumentParserStatus> {
+  if (!window.studioDesktop?.documentParserStatus) return { available: false, configured: false, ready: false, pdfReady: false, formats: [], limits: defaultLimits, message: '本机增强解析仅在 Windows 客户端可用；网页版可使用简单提取' };
+  try { return await window.studioDesktop.documentParserStatus({ sessionToken: desktopSessionToken() }); }
+  catch { return { available: true, configured: false, ready: false, pdfReady: false, formats: [], limits: defaultLimits, message: '暂时无法连接本机解析组件，可使用简单提取' }; }
+}
+
+export async function readDocument(file: File, { mode = 'auto' }: { mode?: DocumentReadMode } = {}): Promise<{ text: string; format: DocumentFormat; extraction: DocumentExtraction }> {
+  if (file.size > defaultLimits.maxBytes) throw new Error('请选择 16 MB 以内的文档');
+  const format = file.name.split('.').at(-1)?.toLowerCase();
+  const enhancedFormat = ['pdf', 'docx', 'pptx', 'xlsx'].includes(format || '');
+  const warnings: string[] = [];
+  if (enhancedFormat && mode !== 'simple') {
+    const status = await getDocumentParserStatus();
+    if (status.ready && status.formats.includes(format!) && window.studioDesktop?.parseDocument) {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let binary = '';
+      for (let offset = 0; offset < bytes.length; offset += 32768) binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768));
+      try {
+        const result = await window.studioDesktop.parseDocument({ sessionToken: desktopSessionToken(), requestId: crypto.randomUUID(), name: file.name, base64: btoa(binary) });
+        if (!result.ok) throw new Error(result.error);
+        const { text, format: parsedFormat, parser, sourceName, blocks, warnings: parsedWarnings, metadata } = result;
+        return { text, format: parsedFormat, extraction: { parser, sourceName, blocks, warnings: parsedWarnings, metadata } };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '本机增强解析失败';
+        if (mode === 'enhanced' || format === 'pptx' || format === 'xlsx') throw new Error(message);
+        warnings.push(`增强解析未完成：${message}。本次已改用简单提取，复杂版式和扫描文字可能缺失。`);
+      }
+    } else if (mode === 'enhanced' || format === 'pptx' || format === 'xlsx') throw new Error(status.message);
+    else warnings.push('本次使用简单提取；本机增强组件尚未就绪，复杂表格或扫描文字可能缺失。');
+  }
+  const result = await readSimpleDocument(file);
+  result.extraction.warnings.unshift(...warnings);
+  return result;
+}
 
 let pdfResources: Promise<JSZip> | undefined;
 class LocalPDFResources {
@@ -12,10 +51,12 @@ class LocalPDFResources {
   }
 }
 
-export async function readDocument(file: File): Promise<{ text: string; format: 'txt' | 'md' | 'docx' | 'pdf' }> {
+async function readSimpleDocument(file: File): Promise<{ text: string; format: DocumentFormat; extraction: DocumentExtraction }> {
   if (file.size > 8 * 1024 * 1024) throw new Error('请选择 8 MB 以内的介绍文档');
   const format = file.name.split('.').at(-1)?.toLowerCase();
   let text = '';
+  let pageCount: number | undefined;
+  const blocks: DocumentBlock[] = [];
   if (format === 'txt' || format === 'md') {
     const data = await file.arrayBuffer();
     try { text = new TextDecoder('utf-8', { fatal: true }).decode(data); } catch { text = new TextDecoder('gb18030').decode(data); }
@@ -41,16 +82,22 @@ export async function readDocument(file: File): Promise<{ text: string; format: 
     try {
       const pdf = await task.promise;
       if (pdf.numPages > 100) throw new Error('请选择 100 页以内的 PDF，或拆分后导入');
+      pageCount = pdf.numPages;
       for (let n = 1; n <= pdf.numPages; n++) {
         const page = await pdf.getPage(n), content = await page.getTextContent();
-        text += content.items.map(item => 'str' in item ? item.str + (item.hasEOL ? '\n' : ' ') : '').join('') + '\n\n';
+        const pageText = content.items.map(item => 'str' in item ? item.str + (item.hasEOL ? '\n' : ' ') : '').join('').replace(/\u0000/g, '').trim();
+        text += pageText + '\n\n';
+        if (pageText) blocks.push({ id: `page-${n}`, kind: 'paragraph', text: pageText, page: n });
         if (text.length > 300000) throw new Error('正文超过 30 万字，请拆分文档');
       }
     } catch (error) { if (passwordProtected) throw new Error('请先解除 PDF 阅读密码，再导入副本'); throw error; }
     finally { await task.destroy(); }
-  } else throw new Error('支持 TXT、MD、DOCX 和文字型 PDF；旧版 DOC 请先另存为 DOCX');
+  } else if (format === 'pptx' || format === 'xlsx') throw new Error('PPTX、XLSX 需要 Windows 客户端安装本机增强解析组件，或先导出为文字文档');
+  else throw new Error('支持 TXT、MD、DOCX、PDF，以及本机增强解析的 PPTX、XLSX；旧版 DOC 请先另存为 DOCX');
   text = text.replace(/\u0000/g, '').trim();
   if (!text) throw new Error('未提取到正文；扫描件或图片型 PDF 请先转为文字');
   if (text.length > 300000) throw new Error('正文超过 30 万字，请拆分文档');
-  return { text, format };
+  if (!blocks.length) text.split(/\n\s*\n/).filter(Boolean).forEach((value, index) => blocks.push({ id: `paragraph-${index + 1}`, kind: 'paragraph', text: value }));
+  if (blocks.length > 4000) throw new Error('文档分段过多，请拆分后导入');
+  return { text, format, extraction: { parser: 'simple', sourceName: file.name.slice(-180), blocks, warnings: format === 'pdf' || format === 'docx' ? ['简单提取可能丢失版式、表格关系和图片中的文字，请核对原文。'] : [], metadata: pageCount ? { pageCount } : {} } };
 }

@@ -9,7 +9,7 @@ export function creativeSkillCatalog(state) {
     workflows: aiSkillWorkflows(),
     builtin: { id: 'builtin', name: '平台内置宣传文案', description: '以产品事实为基础，明确受众、场景、利益点与行动引导；按目标平台自动叠加小红书或抖音写作规范。',
       version: COPY_SKILL_VERSIONS['marketing-copywriting'],
-      instructions: COPY_SKILLS['marketing-copywriting'] + '\n\n【仅小红书叠加以下规则】\n' + COPY_SKILLS['xiaohongshu-copywriting'] + '\n\n【仅抖音叠加以下规则】\n' + COPY_SKILLS['douyin-copywriting'] },
+      instructions: COPY_SKILLS['marketing-copywriting'] + '\n\n【仅小红书叠加以下规则】\n' + COPY_SKILLS['xiaohongshu-copywriting'] + '\n\n【仅抖音叠加以下规则】\n' + COPY_SKILLS['douyin-copywriting'] + '\n\n【普通文案的自然表达检查】\n' + COPY_SKILLS['natural-copy-editing'] },
     skills: structuredClone(state.installedSkills),
   };
 }

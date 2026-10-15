@@ -8,6 +8,7 @@ import { qwenConnectionSchema } from './qwen-connection.mjs';
 import { createIntegrationPreferences } from './integrations.mjs';
 import { briefSchema } from './domain.mjs';
 import { createWebJobs } from './web-jobs.mjs';
+import { hasLocalDocumentData } from './local-document-privacy.mjs';
 
 const failure = (message, status = 400) => Object.assign(new Error(message), { status });
 const identifier = z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/);
@@ -25,7 +26,7 @@ const stateSchema = z.object({
     strategies: rows(100), assets: rows(100), publications: rows(200), comments: rows(10000),
     insights: rows(500), experiences: rows(500), usage: rows(2000), corpus: rows(50).optional(),
   }).passthrough().refine(p => !['ragIndex', 'ragEnabled', 'ragConsent', 'ragUsage', 'ragPreviousCny', 'ragRevision', 'research', 'researchUsage', 'researchPreviousCny'].some(key => key in p), '本地语义索引和研究库不可上传到中转服务')).max(1),
-}).strict().refine(value => !hasLocalResearch(value), '本地研究引用不可上传到中转服务');
+}).strict().refine(value => !hasLocalResearch(value) && !hasLocalDocumentData(value), '本地研究引用、资料卡及原始文档结构不可上传到中转服务');
 const envelopeSchema = z.object({
   path: z.string().max(350), method: z.enum(['GET', 'POST', 'PUT', 'DELETE']), body: z.unknown().optional(),
   state: stateSchema,
@@ -76,7 +77,7 @@ export function createWebRelay({ staticDirectory = resolve('web-dist'), publicOr
     const requestOrigin = req.get('Origin');
     if (requestOrigin && !allowedOrigins.includes(requestOrigin)) return res.status(403).json({ error: '请从网站的正式地址访问' });
     if (requestOrigin) { res.set('Access-Control-Allow-Origin', requestOrigin); res.vary('Origin'); }
-    if (req.path === '/api/health' && req.method === 'GET') return res.status(closing ? 503 : 200).json({ ok: !closing, mode: 'web-local', storage: 'browser-encrypted', serverStoresWorkspaces: false, asyncJobs: true, version: '1.17.0' });
+    if (req.path === '/api/health' && req.method === 'GET') return res.status(closing ? 503 : 200).json({ ok: !closing, mode: 'web-local', storage: 'browser-encrypted', serverStoresWorkspaces: false, asyncJobs: true, version: '1.19.0' });
     if (req.get('Host') !== origin.host) return res.status(403).json({ error: '请从网站的正式地址访问' });
     if (req.method === 'OPTIONS') { res.set({ 'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, X-Studio-Client, Authorization', 'Access-Control-Max-Age': '600' }); return res.sendStatus(204); }
     if (closing) return res.status(503).json({ error: '联网服务正在更新，请稍后重试' });

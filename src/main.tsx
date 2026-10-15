@@ -7,6 +7,7 @@ import './sensitive-checker.css';
 import './guide.css';
 import './input-assist.css';
 import './trends.css';
+import './ui-theme.css';
 import { IS_WEB, LOCAL_DATA } from './api';
 const WebAuth = lazy(() => import('./WebAuth'));
 const LocalAuth = lazy(() => import('./LocalAuth'));
