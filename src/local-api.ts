@@ -1,9 +1,12 @@
 import { applyRuleClassification, correctComment } from '../server/comment-analysis.mjs';
 import { saveMetricSnapshot } from '../server/operating-data.mjs';
 import { z } from 'zod';
-import { previewCreativeSkill, installCreativeSkill, setCreativeSkillEnabled, removeCreativeSkill } from '../server/creative-skills.mjs';
+import { previewCreativeSkill, installCreativeSkill, setCreativeSkillEnabled, removeCreativeSkill, setWorkflowSkill } from '../server/creative-skills.mjs';
 import { creativeSkillCatalog } from '../server/creative-skill-catalog.mjs';
+import { setBuiltinSkill, resetBuiltinSkill } from '../server/builtin-skills.mjs';
+import { saveAccountCreationProfile, saveProjectCreationSelection } from '../server/account-creation.mjs';
 import * as d from '../server/domain.mjs';
+import { validateSceneReference } from '../server/nurture.mjs';
 import { configureTrends, selectTrends, changeTrendTag } from '../server/trends.mjs';
 import { updateGuide } from '../server/guide.mjs';
 import { appearanceOf, saveAppearance } from '../server/appearance.mjs';
@@ -12,11 +15,15 @@ import { changeLocalState, lockLocalWorkspace, readLocalState } from './local-va
 import modelSettings from './static-settings.json';
 import type { State, Integrations, Settings, Project } from './types';
 import { defaultSeedream } from '../server/seedream-config.mjs';
+import { createContentDraft, updateContentBrief, createKnowledge, updateKnowledge, previewKnowledge } from '../server/content-workflow.mjs';
+import { agentWorkspace, saveAgentWorkspace, createAgentHandoff } from '../server/agent-workspace.mjs';
+import { registerReviewWork } from '../server/review-work.mjs';
+import { readContentEditDraft, saveContentEditDraft, removeContentEditDraft } from '../server/content-edit-drafts.mjs';
 
 const unavailable = '静态体验版未连接在线服务。请在本地完整版中配置 AI 或平台授权；此处不会发出请求或收取费用。';
-const settings: Settings = { ...modelSettings, openaiConfigured: false, authEnabled: true, version: '1.19.0 · 本地静态版', verification: null,
+const settings: Settings = { ...modelSettings, openaiConfigured: false, authEnabled: true, version: '2.0.0 · 本地静态版', verification: null,
   credential: { local: false, editable: false, supported: false, configured: false, source: 'none', suffix: '', protection: '', problem: '静态版不接收 API 密钥。请在本地完整版中配置 AI 服务。' } } as Settings;
-const integrations: Integrations = { local: false, imageProvider: 'openai', seedream: { ...defaultSeedream, configured: false, supported: false, suffix: '', problem: unavailable }, seedance: { region: 'volcengine', model: '', reservationUsd: 2, outputPriceUsd: 0, configured: false, supported: false, suffix: '', problem: unavailable }, douyin: { configured: false, supported: false, redirectUri: '', accounts: [] } };
+const integrations: Integrations = { local: false, imageProvider: 'seedream', seedream: { ...defaultSeedream, configured: false, supported: false, suffix: '', problem: unavailable }, seedance: { region: 'volcengine', model: '', reservationUsd: 2, outputPriceUsd: 0, configured: false, supported: false, suffix: '', problem: unavailable }, douyin: { configured: false, supported: false, redirectUri: '', accounts: [] } };
 function project(state: State, id: string) { const p = state.projects.find(p => p.id === id); d.assert(p, '项目不存在'); return p; }
 function sampleComments(p: Project) {
   d.assert(p.sample, '示例评论仅可添加到示例项目');
@@ -34,6 +41,8 @@ export async function localAPI<T>(path: string, method: string, input: unknown):
     const state = await readLocalState();
     if (path === '/state' || path === '/backup') { const copy = structuredClone(state); delete copy.webPrivate; return copy as T; }
     if (path === '/settings') return structuredClone(settings) as T;
+    if (path === '/agent-workspace') return agentWorkspace(state) as T;
+    if (path.startsWith('/content-edit-drafts/')) return readContentEditDraft(state, decodeURIComponent(path.slice('/content-edit-drafts/'.length))) as T;
     if (path === '/appearance') return appearanceOf(state) as T;
     if (path === '/creative-skills') return creativeSkillCatalog(state) as T;
     if (path === '/content-rules') return { rules: rulesOf(state), revision: state.rulesRevision || 0 } as T;
@@ -43,6 +52,24 @@ export async function localAPI<T>(path: string, method: string, input: unknown):
     throw new Error(unavailable);
   }
   if (path === '/creative-skills/preview' && method === 'POST') return previewCreativeSkill(input as Parameters<typeof previewCreativeSkill>[0]) as T;
+  if (path === '/agent-workspace' && method === 'PUT') return (await changeLocalState(state => saveAgentWorkspace(state, input as Parameters<typeof saveAgentWorkspace>[1]))).result as T;
+  if (path.startsWith('/content-edit-drafts/') && ['PUT', 'DELETE'].includes(method)) {
+    const key = decodeURIComponent(path.slice('/content-edit-drafts/'.length));
+    return (await changeLocalState(state => method === 'PUT' ? saveContentEditDraft(state, key, input as Parameters<typeof saveContentEditDraft>[2]) : removeContentEditDraft(state, key, input as Parameters<typeof removeContentEditDraft>[2]))).result as T;
+  }
+  if (/^\/projects\/[^/]+\/knowledge\/preview$/.test(path) && method === 'POST') { const state = await readLocalState(); return previewKnowledge(state, project(state, path.split('/')[2]), input as Parameters<typeof previewKnowledge>[2]) as T; }
+  if (path === '/creative-skills/default' && ['PUT', 'DELETE'].includes(method)) {
+    const result = await changeLocalState(state => method === 'PUT'
+      ? setBuiltinSkill(state, input as Parameters<typeof setBuiltinSkill>[1])
+      : resetBuiltinSkill(state, input as Parameters<typeof resetBuiltinSkill>[1]));
+    const visible = structuredClone(result.state); delete visible.webPrivate;
+    return { result: result.result, state: visible } as T;
+  }
+  if (path === '/creative-skills/selection' && method === 'PUT') {
+    const result = await changeLocalState(state => setWorkflowSkill(state, input as Parameters<typeof setWorkflowSkill>[1]));
+    const visible = structuredClone(result.state); delete visible.webPrivate;
+    return { result: result.result, state: visible } as T;
+  }
   if (path.startsWith('/editor-drafts/')) {
     const key = path.split('/')[2];
     const result = await changeLocalState(state => {
@@ -67,14 +94,22 @@ export async function localAPI<T>(path: string, method: string, input: unknown):
       if (path === '/appearance' && method === 'PUT') return saveAppearance(state, body);
       if (path === '/content-rules' && method === 'PUT') return saveRules(state, body);
       if (body.mode === 'openai' || path.startsWith('/integrations') || path.startsWith('/settings')) throw new Error(unavailable);
-      if (path === '/projects' && method === 'POST') { const p = d.newProject(body); consumeEditorDraft(state, body); state.projects.unshift(p); d.activity(state, '新项目已创建', p.brief.name, p.id); return p; }
+      if (path === '/projects' && method === 'POST') { const p = d.newProject(body, rulesOf(state)); consumeEditorDraft(state, body); state.projects.unshift(p); d.activity(state, '新项目已创建', p.brief.name, p.id); return p; }
       const parts = path.split('/').filter(Boolean);
+      if (parts[0] === 'accounts' && parts[2] === 'creation-profile' && method === 'PUT') return saveAccountCreationProfile(state, parts[1], body as Parameters<typeof saveAccountCreationProfile>[2]);
       if (parts[0] === 'accounts' && parts.length === 1 && method === 'POST') return d.addAccount(state,body);
       if (parts[0] === 'accounts' && parts.length === 2 && method === 'PATCH') {
         const account = state.accounts.find(a => a.id === parts[1]); d.assert(account, '账号不存在'); account.name = z.string().trim().min(1).max(100).parse(body.name); return account;
       }
       if (parts[0] !== 'projects') throw new Error(unavailable);
       const p = project(state, parts[1]); const kind = parts[2], itemId = parts[3], action = parts[4];
+      if (kind === 'content-drafts' && method === 'POST') return createContentDraft(state, p, body as Parameters<typeof createContentDraft>[2], rulesOf(state));
+      if (kind === 'agent-handoffs' && method === 'POST') return createAgentHandoff(state, p, body as Parameters<typeof createAgentHandoff>[2], rulesOf(state), modelSettings.models);
+      if (kind === 'review-works' && method === 'POST') return registerReviewWork(state, p, body as Parameters<typeof registerReviewWork>[2]);
+      if (kind === 'knowledge' && !itemId && method === 'POST') return createKnowledge(state, p, body as Parameters<typeof createKnowledge>[2]);
+      if (kind === 'knowledge' && itemId && method === 'PATCH') return updateKnowledge(state, p, itemId, body as Parameters<typeof updateKnowledge>[3]);
+      if (kind === 'assets' && action === 'brief' && method === 'PUT') return updateContentBrief(state, p, itemId, body as Parameters<typeof updateContentBrief>[3]);
+      if (kind === 'creation-selection' && method === 'PUT') return saveProjectCreationSelection(state, p, body as Parameters<typeof saveProjectCreationSelection>[2]);
       if (kind === 'trends') { const result = itemId === 'settings' && method === 'PUT' ? configureTrends(p, body) : itemId === 'select' && method === 'POST' ? selectTrends(p, body) : itemId === 'tags' && action && method === 'PUT' ? changeTrendTag(p, action, body) : undefined; if (!result) throw new Error(unavailable); d.touch(p); return result; }
       if (kind === 'corpus') { const result = method === 'POST' ? importCorpus(p, body) : changeCorpus(p, itemId, body, method); d.touch(p); return result; }
       if (parts.length === 2 && method === 'PATCH') {
@@ -82,6 +117,7 @@ export async function localAPI<T>(path: string, method: string, input: unknown):
       }
       if (kind === 'media' && method === 'PUT') {
         const data = z.object({ kind: z.enum(['image', 'audio']), data: z.string().max(12000000) }).parse(body);
+        if (data.kind === 'image' && p.brief.type === 'nurture') validateSceneReference(data.data);
         d.assert(data.data === '' || (data.kind === 'image' ? /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/ : /^data:audio\/(mpeg|wav|mp3|x-wav|mp4|ogg|webm);base64,[A-Za-z0-9+/=]+$/).test(data.data), '不支持此素材格式');
         p[data.kind === 'image' ? 'imageData' : 'audioData'] = data.data; d.touch(p); return { ok: true };
       }
@@ -92,8 +128,8 @@ export async function localAPI<T>(path: string, method: string, input: unknown):
       }
       if (kind === 'assets') {
         if (!action && method === 'PUT') return d.updateAsset(p, itemId, body, rulesOf(state));
-        if (action === 'restore' && method === 'POST') { const asset = p.assets.find(a => a.id === itemId); const version = asset?.history.find(v => v.revision === body.revision); d.assert(asset && version?.mediaData, '该版本没有成品'); const restored = d.updateAsset(p, itemId, { ...version, expectedRevision: asset.revision }, rulesOf(state)); if (version.skillTrace) restored.skillTrace = structuredClone(version.skillTrace); else delete restored.skillTrace; return restored; }
-        if (action === 'review' && method === 'POST') { const asset = p.assets.find(a => a.id === itemId); d.assert(asset, '内容不存在'); d.assert(asset.revision === body.expectedRevision, '成品已更新'); const old = JSON.stringify([asset.title, asset.body, asset.scenes, asset.prompt]), visual = JSON.stringify([asset.title, asset.scenes]); const prior = { title: asset.title, body: asset.body, mediaData: asset.mediaData, mime: asset.mime, revision: asset.revision, at: d.now(), ...(asset.skillTrace ? { skillTrace: structuredClone(asset.skillTrace) } : {}) }, wasReady = asset.status === 'ready'; reviewObject(asset, rulesOf(state)); if (old !== JSON.stringify([asset.title, asset.body, asset.scenes, asset.prompt])) { if (wasReady) asset.history = [prior, ...asset.history].slice(0, 5); if (visual !== JSON.stringify([asset.title, asset.scenes])) asset.status = 'queued'; asset.revision++; d.touch(p); } return asset; }
+        if (action === 'restore' && method === 'POST') { const asset = p.assets.find(a => a.id === itemId); const version = asset?.history.find(v => v.revision === body.revision); d.assert(asset && version?.mediaData, '该版本没有成品'); const restored = d.updateAsset(p, itemId, { ...version, expectedRevision: asset.revision }, rulesOf(state)); if (version.knowledgeContext) restored.knowledgeContext = structuredClone(version.knowledgeContext); else delete restored.knowledgeContext; if (version.skillTrace) restored.skillTrace = structuredClone(version.skillTrace); else delete restored.skillTrace; if (version.creationTrace) restored.creationTrace = structuredClone(version.creationTrace); else delete restored.creationTrace; return restored; }
+        if (action === 'review' && method === 'POST') { const asset = p.assets.find(a => a.id === itemId); d.assert(asset, '内容不存在'); d.assert(asset.revision === body.expectedRevision, '成品已更新'); const old = JSON.stringify([asset.title, asset.body, asset.scenes, asset.prompt]), visual = JSON.stringify([asset.title, asset.scenes]); const prior = { title: asset.title, body: asset.body, mediaData: asset.mediaData, mime: asset.mime, revision: asset.revision, at: d.now(), ...(asset.skillTrace ? { skillTrace: structuredClone(asset.skillTrace) } : {}), ...(asset.creationTrace ? { creationTrace: structuredClone(asset.creationTrace) } : {}) }, wasReady = asset.status === 'ready'; reviewObject(asset, rulesOf(state)); if (old !== JSON.stringify([asset.title, asset.body, asset.scenes, asset.prompt])) { if (wasReady) asset.history = [prior, ...asset.history].slice(0, 5); if (visual !== JSON.stringify([asset.title, asset.scenes])) asset.status = 'queued'; asset.revision++; d.touch(p); } return asset; }
       }
       if (kind === 'publications') {
         if (!itemId && method === 'POST') { const pub = d.schedulePublication(p, state.accounts, body); d.activity(state, '已加入发布计划', `${pub.title} · 等待手动发布`, p.id); return pub; }

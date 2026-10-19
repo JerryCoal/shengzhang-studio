@@ -1,6 +1,8 @@
 import { COMMENT_CATEGORIES, COMMENT_WORKFLOW_VERSION, classifyComment, selectCommentScope } from './comment-analysis.mjs';
 import { z } from 'zod';
-import { PLATFORM_IDS, PLATFORM_WORK } from './platform-catalog.mjs';
+import { currentActivityActor } from './activity-actor.mjs';
+import { PLATFORM_IDS, PLATFORM_NAMES, PLATFORM_WORK } from './platform-catalog.mjs';
+import { NURTURE_CHANNELS, nurtureTemplate, validateSceneReference } from './nurture.mjs';
 import { commentSource } from '../desktop/comment-source.mjs';
 import { importCapturedComments } from './comment-import.mjs';
 import { strategyPrompt, taskPrompt } from './prompts.mjs';
@@ -9,23 +11,45 @@ import { reviewObject, defaultRules, corpusQuery, searchCorpus, corpusPrompt } f
 export const id = () => globalThis.crypto.randomUUID();
 export const now = () => new Date().toISOString();
 const text = (max = 8000) => z.string().trim().max(max);
-export const briefSchema = z.object({
+const briefFields = z.object({
   name: text(100).min(1), brand: text(100).min(1), product: text(100).min(1),
-  type: z.enum(['launch', 'daily']), goal: text(1000).min(1), audience: text(1000).min(1),
+  type: z.enum(['launch', 'daily', 'nurture']), goal: text(1000).min(1), audience: text(1000).min(1),
   sellingPoints: text(2000).min(1), facts: text(), requirements: text(2000),
+  nurture: z.object({ topic: text(100), scene: text(2000), copyPrompt: text(4000) }).optional(),
   channels: z.array(z.enum(PLATFORM_IDS)).min(1).max(5).refine(values => new Set(values).size === values.length, '请勿重复选择渠道'),
   deadline: z.string().refine(v => /^\d{4}-\d{2}-\d{2}$/.test(v) && Number.isFinite(Date.parse(v)), '请选择截止日期'),
   budgetUsd: z.number().finite().min(0).max(10000),
 });
+export const briefSchema = z.preprocess(input => {
+  if (!input || typeof input !== 'object' || input.type !== 'nurture') return input;
+  const topic = typeof input.nurture?.topic === 'string' ? input.nurture.topic.trim() : '';
+  const values = { ...input };
+  const defaults = { name: topic, brand: '账号日常', product: topic, goal: '围绕主题持续发布真实、有价值的日常内容', audience: '对该主题感兴趣的用户', sellingPoints: '主题与场景分享', facts: '', requirements: '' };
+  for (const [key, value] of Object.entries(defaults)) if (values[key] === undefined || (typeof values[key] === 'string' && !values[key].trim())) values[key] = value;
+  return values;
+}, briefFields.superRefine((brief, context) => {
+  if (brief.type !== 'nurture') return;
+  if (!brief.nurture) context.addIssue({ code: 'custom', path: ['nurture'], message: '请填写养号发布主题、主要场景和文案 prompt' });
+  else for (const [key, label] of Object.entries({ topic: '养号发布主题', scene: '主要场景', copyPrompt: '文案 prompt' })) if (!brief.nurture[key]) context.addIssue({ code: 'custom', path: ['nurture', key], message: `请输入${label}` });
+  if (brief.channels.some(channel => !NURTURE_CHANNELS.includes(channel))) context.addIssue({ code: 'custom', path: ['channels'], message: '养号图文支持小红书、抖音、TikTok 和 Instagram，请移除 YouTube' });
+}));
 export const strategyTextSchema = z.object({
   title: text(200).min(1), core: text(2000).min(1), direction: text(4000).min(1), prompt: text(16000).min(1),
 });
 export function assert(condition, message, status = 400) {
   if (!condition) throw Object.assign(new Error(message), { status });
 }
-export function newProject(input) {
-  return { id: id(), brief: briefSchema.parse(input), revision: 1, createdAt: now(), updatedAt: now(), sample: false,
-    strategies: [], assets: [], publications: [], comments: [], insights: [], experiences: [], usage: [], corpus: [], imageData: '', audioData: '', lastImportAt: null };
+export function newProject(input, rules = defaultRules()) {
+  const brief = briefSchema.parse(input);
+  assert(!input.imageData || brief.type === 'nurture', '创建时的场景参考图仅用于养号项目');
+  const imageData = brief.type === 'nurture' ? validateSceneReference(input.imageData) : '';
+  const project = { id: id(), brief, revision: 1, createdAt: now(), updatedAt: now(), sample: false,
+    strategies: [], assets: [], publications: [], comments: [], insights: [], experiences: [], usage: [], corpus: [], imageData, audioData: '', lastImportAt: null };
+  if (brief.type === 'nurture') {
+    const strategy = makeDraft(project, {}, '', 'demo', rules);
+    confirmStrategy(project, strategy.id, rules);
+  }
+  return project;
 }
 export function touch(p) { p.revision += 1; p.updatedAt = now(); }
 export function addAccount(state, input) {
@@ -36,10 +60,19 @@ export function addAccount(state, input) {
   state.accounts.push(account); return account;
 }
 export function activity(state, title, detail, projectId) {
-  state.activities.unshift({ id: id(), title, detail, projectId, at: now() });
+  const actor = currentActivityActor();
+  state.activities.unshift({ id: id(), title, detail, projectId, at: now(), ...(actor ? { actor: { ...actor } } : {}) });
   state.activities = state.activities.slice(0, 100);
 }
 export function tasksFor(brief, strategy, rules = defaultRules()) {
+  if (brief.type === 'nurture') {
+    const template = nurtureTemplate(brief);
+    return brief.channels.map(channel => {
+      assert(NURTURE_CHANNELS.includes(channel), '该平台暂不支持养号图文');
+      return reviewObject({ key: `${channel}-nurture-note`, channel, kind: 'image', name: `${PLATFORM_NAMES[channel]} · 养号图文`, title: strategy.title,
+        body: template.body, prompt: taskPrompt(brief, strategy, channel), scenes: [brief.nurture.scene] }, rules);
+    });
+  }
   return brief.channels.flatMap(channel => [reviewObject({
     key: PLATFORM_WORK[channel].key, channel,
     kind: PLATFORM_WORK[channel].kind,
@@ -54,10 +87,11 @@ export function makeDraft(p, changes = {}, instruction = '', source = 'demo', ru
   const brief = p.brief;
   const accepted = p.experiences.filter(e => e.active);
   const feedback = accepted.map(e => e.text).join('\n');
+  const nurture = brief.type === 'nurture' ? nurtureTemplate(brief) : null;
   const base = {
-    title: `${brief.product}，让日常多一点期待`,
-    core: brief.sellingPoints,
-    direction: `面向${brief.audience}，用真实使用场景呈现${brief.product}。${brief.requirements}`,
+    title: nurture?.title || `${brief.product}，让日常多一点期待`,
+    core: nurture ? `记录${brief.nurture.topic}中的具体场景与日常细节` : brief.sellingPoints,
+    direction: nurture?.direction || `面向${brief.audience}，用真实使用场景呈现${brief.product}。${brief.requirements}`,
     prompt: strategyPrompt(brief),
     ...changes,
   };
@@ -73,11 +107,11 @@ export function makeDraft(p, changes = {}, instruction = '', source = 'demo', ru
   }
   const retrievalQuery = query || corpusQuery(p, instruction);
   const corpusReferences = searchCorpus(p, retrievalQuery);
-  if (!['openai', 'deepseek', 'qwen'].includes(source)) base.prompt = (base.prompt + corpusPrompt(corpusReferences)).slice(0, 16000);
+  if (!['openai', 'deepseek', 'qwen', 'glm'].includes(source)) base.prompt = (base.prompt + corpusPrompt(corpusReferences)).slice(0, 16000);
   reviewObject(base, rules);
   const draft = { ...base, retrievalQuery, corpusReferences, briefSnapshot: structuredClone(brief), id: id(), version: Math.max(0, ...p.strategies.map(s => s.version)) + 1,
     status: 'draft', source, createdAt: now(), confirmedAt: null, feedbackIds: accepted.map(e => e.id), tasks: [],
-    changes: instruction ? ['核心表达已更新', '图文标题、正文要求与视频分镜要求已同步', '已确认版本及其成品保留'] : ['根据项目资料建立策略', ...(feedback ? ['已写入采用的复盘建议'] : [])],
+    changes: instruction ? ['核心表达已更新', nurture ? '养号图文制作要求已同步' : '图文标题、正文要求与视频分镜要求已同步', '已确认版本及其成品保留'] : [nurture ? '根据养号主题与场景建立图文方案' : '根据项目资料建立策略', ...(feedback ? ['已写入采用的复盘建议'] : [])],
   };
   draft.tasks = tasksFor(brief, draft, rules);
   p.strategies.push(draft);
@@ -92,6 +126,7 @@ export function editStrategy(p, strategyId, input, rules = defaultRules()) {
     const draft = makeDraft(p, edits, '', 'manual', rules, previous.retrievalQuery);
     if (Object.hasOwn(previous, 'documentContextSnapshot')) draft.documentContextSnapshot = structuredClone(previous.documentContextSnapshot);
     if (Object.hasOwn(previous, 'styleReferencesSnapshot')) draft.styleReferencesSnapshot = structuredClone(previous.styleReferencesSnapshot);
+    if (previous.creationTrace) draft.creationTrace = structuredClone(previous.creationTrace);
     return draft;
   }
   reviewObject(edits, rules);
@@ -106,7 +141,10 @@ export function confirmStrategy(p, strategyId, rules = defaultRules()) {
   reviewObject(strategy, rules);
   strategy.tasks = tasksFor(strategy.briefSnapshot || p.brief, strategy, rules);
   strategy.status = 'confirmed'; strategy.confirmedAt = now();
-  for (const task of strategy.tasks) p.assets.push({ ...task, id: id(), strategyId, status: 'queued', revision: 1, mediaData: '', mime: '', history: [], createdAt: now(), error: '' });
+  for (const task of strategy.tasks) {
+    const accounts = strategy.creationTrace?.accounts?.filter(account => account.platform === task.channel) || [];
+    p.assets.push({ ...task, id: id(), strategyId, status: 'queued', revision: 1, mediaData: '', mime: '', history: [], createdAt: now(), error: '', ...(accounts.length ? { creationTrace: { accounts: structuredClone(accounts) } } : {}) });
+  }
   touch(p);
   return strategy;
 }
@@ -128,7 +166,7 @@ export function updateAsset(p, assetId, input, rules = defaultRules()) {
     assert(data.mime === 'image/png' ? hex(bytes.slice(0, 8)) === '89504e470d0a1a0a' : data.mime === 'image/jpeg' ? hex(bytes.slice(0, 3)) === 'ffd8ff' : data.mime === 'video/webm' ? hex(bytes.slice(0, 4)) === '1a45dfa3' : bytes.slice(4, 8) === 'ftyp', '文件内容与格式不一致');
   }
   const titleChanged = asset.title !== data.title;
-  if (asset.status === 'ready') asset.history.unshift({ title: asset.title, body: asset.body, mediaData: asset.mediaData, mime: asset.mime, revision: asset.revision, at: now(), ...(asset.skillTrace ? { skillTrace: structuredClone(asset.skillTrace) } : {}), ...(asset.researchReferences ? { researchReferences: structuredClone(asset.researchReferences) } : {}) });
+  if (asset.status === 'ready') asset.history.unshift({ title: asset.title, body: asset.body, mediaData: asset.mediaData, mime: asset.mime, revision: asset.revision, at: now(), ...(asset.skillTrace ? { skillTrace: structuredClone(asset.skillTrace) } : {}), ...(asset.creationTrace ? { creationTrace: structuredClone(asset.creationTrace) } : {}), ...(asset.researchReferences ? { researchReferences: structuredClone(asset.researchReferences) } : {}), ...(asset.knowledgeContext ? { knowledgeContext: structuredClone(asset.knowledgeContext) } : {}) });
   asset.history = asset.history.slice(0, 5);
   asset.title = data.title; asset.body = data.body;
   asset.copyReview = data.copyReview.hits.length ? data.copyReview : { ...data.copyReview, previousHits: asset.copyReview?.hits?.length ? asset.copyReview.hits : asset.copyReview?.previousHits || [] };
@@ -138,10 +176,11 @@ export function updateAsset(p, assetId, input, rules = defaultRules()) {
   return asset;
 }
 export function schedulePublication(p, accounts, input) {
-  const data = z.object({ assetId: z.string(), accountId: z.string(), scheduledAt: z.string().datetime({ offset: true }) }).parse(input);
+  const data = z.object({ assetId: z.string(), accountId: z.string(), scheduledAt: z.string().datetime({ offset: true }), expectedAssetRevision: z.number().int().positive().optional() }).parse(input);
   const asset = p.assets.find(a => a.id === data.assetId);
   const account = accounts.find(a => a.id === data.accountId);
   assert(asset?.status === 'ready' && asset.mediaData, '请先完成内容制作');
+  assert(data.expectedAssetRevision === undefined || data.expectedAssetRevision === asset.revision, '内容已更新，请重新核对当前版本再安排发布', 409);
   assert(account && account.platform === asset.channel, '请选择与内容平台一致的账号');
   assert(!p.publications.some(r => r.assetId === asset.id && r.assetRevision === asset.revision && r.accountId === account.id && r.status !== 'cancelled'), '此版本已加入该账号的发布计划，请处理现有记录');
   const publication = { id: id(), ...data, strategyId: asset.strategyId, assetRevision: asset.revision,

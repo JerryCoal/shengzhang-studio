@@ -7,6 +7,7 @@ import { DEFAULT_ROUTES } from '../server/models.mjs';
 import { seedState, makeDraft, confirmStrategy } from '../server/domain.mjs';
 import { mergeRelayState } from '../server/web-merge.mjs';
 import { defaultSeedream } from '../server/seedream-config.mjs';
+import { removeWebSkillHistory } from '../server/web-skill-privacy.mjs';
 
 async function fixture(t, fetcher, extra = {}) {
   const root = express(), server = root.listen(0, '127.0.0.1'); await once(server, 'listening');
@@ -19,7 +20,11 @@ async function fixture(t, fetcher, extra = {}) {
   };
   return { request, base, app };
 }
-const envelope = (path, state = seedState(), credentials = { openai: 'sk-test-web-only-1234567890123456' }, body = {}) => ({ path, method: 'POST', body, state, credentials, routes: DEFAULT_ROUTES, authorizations: [] });
+const envelope = (path, state = seedState(), credentials = { openai: 'sk-test-web-only-1234567890123456' }, body = {}) => {
+  // Real browser requests omit prior recipes/traces before the next operation.
+  const minimized = structuredClone(state); removeWebSkillHistory(minimized);
+  return { path, method: 'POST', body, state: minimized, credentials, routes: DEFAULT_ROUTES, authorizations: [] };
+};
 
 test('web relay uses only supplied Qwen credentials and never exposes local MCP routes', async t => {
   const key='sk-qwen-browser-test-only-123456789', calls=[];
@@ -147,17 +152,20 @@ test('web AI returns corpus references, sensitive replacements and usage for loc
 test('web relay waits for keyframe completion and carries Seedance task state across independent requests', async t => {
   const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aRZkAAAAASUVORK5CYII=';
   const f = await fixture(t, async url => {
-    if (url.includes('/images/')) return Response.json({ data: [{ b64_json: png }], usage: { input_tokens_details: { text_tokens: 10, image_tokens: 0 }, output_tokens: 10 } });
+    if (url.includes('/images/')) { assert.match(url, /^https:\/\/api\.openai\.com\/v1\/images\//); return Response.json({ data: [{ b64_json: png }], usage: { input_tokens_details: { text_tokens: 10, image_tokens: 0 }, output_tokens: 10 } }); }
     if (url.endsWith('/tasks')) return Response.json({ id: 'seedance-task-a' });
     return Response.json({ id: 'seedance-task-a', status: 'running' });
   });
   let state = seedState(), p = state.projects[0]; const draft = makeDraft(p); confirmStrategy(p, draft.id);
   let asset = p.assets.find(a => a.kind === 'video');
-  const frame = await f.request(envelope(`/projects/${p.id}/assets/${asset.id}/keyframes`, state, undefined, { expectedRevision: asset.revision, role: 'first_frame', prompt: '真实咖啡产品', quality: 'low' }));
-  assert.equal(frame.value.status, 202);
+  // This workflow tests the existing OpenAI-keyframe + Seedance path. New
+  // workspaces default to Seedream, so carry the user's explicit selection.
+  const frame = await f.request({ ...envelope(`/projects/${p.id}/assets/${asset.id}/keyframes`, state, undefined, { expectedRevision: asset.revision, role: 'first_frame', prompt: '真实咖啡产品', quality: 'low' }), imageProvider: 'openai' });
+  assert.equal(frame.value.status, 202, JSON.stringify(frame.value.response));
   state = frame.value.state; p = state.projects[0]; asset = p.assets.find(a => a.id === asset.id);
-  assert.equal(asset.aiProduction.phase, 'frames'); assert.equal(asset.aiProduction.frames.length, 1);
-  const last = await f.request(envelope(`/projects/${p.id}/assets/${asset.id}/keyframes`, state, undefined, { expectedRevision: asset.revision, role: 'last_frame', prompt: '真实咖啡产品尾帧', quality: 'low' }));
+  assert.equal(asset.aiProduction.phase, 'frames'); assert.equal(asset.aiProduction.frames.length, 1); assert.equal(asset.aiProduction.frames[0].provider, 'openai');
+  const last = await f.request({ ...envelope(`/projects/${p.id}/assets/${asset.id}/keyframes`, state, undefined, { expectedRevision: asset.revision, role: 'last_frame', prompt: '真实咖啡产品尾帧', quality: 'low' }), imageProvider: 'openai' });
+  assert.equal(last.value.status, 202, JSON.stringify(last.value.response));
   state = last.value.state; asset = state.projects[0].assets.find(a => a.id === asset.id);
   const video = envelope(`/projects/${p.id}/assets/${asset.id}/seedance`, state, { seedance: 'seed-test-only-12345' }, { productionId: asset.aiProduction.id, confirmed: true, expectedRevision: asset.revision, prompt: '咖啡产品短片', duration: 5, generateAudio: false });
   video.seedance = { region: 'volcengine', model: 'ep-seed-test', reservationUsd: 2, outputPriceUsd: 0 };

@@ -13,5 +13,5 @@ export function PlanningPage() {
 }
 
 export { CommentsPage } from './CommentsPage';
-export { PublishPage } from './PublishPage';
+export { PublishWorkspace as PublishPage } from './PublishWorkspace';
 export { SettingsPage } from './SettingsPage';

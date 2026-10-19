@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { readBounded } from './integration-http.mjs';
 import { assert } from './domain.mjs';
+import { structuredVisionContent } from './structured-vision.mjs';
 
 const HOST = 'https://api.deepseek.com';
 const models = ['deepseek-flash', 'deepseek-v4-pro'];
@@ -77,14 +78,35 @@ function schemaExample(schema) {
 export function deepseekInstructions(instructions, definition) {
   return `${instructions}\n仅输出 json 对象。字段与约束：${JSON.stringify(definition.schema)}\n格式示例（只参考结构，不抄示例内容）：${JSON.stringify(schemaExample(definition.schema))}`;
 }
+function outputError(outputKind, message, usage) {
+  return Object.assign(new Error(`${message}现有内容已保留；费用按返回用量或预留金额记录。`), { status: 502, outputKind, usage });
+}
+function jsonContent(content) {
+  const text = content.replace(/^\uFEFF/u, '').trim();
+  // Only unwrap a complete JSON fence. Never extract a plausible object from
+  // explanations or repair a truncated response, which could change its meaning.
+  return /^```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```$/iu.exec(text)?.[1].trim() ?? text;
+}
 export async function generateDeepSeek(payload, config, definition, instructions, fetcher) {
+  const content = structuredVisionContent(payload, { ...config, provider: 'deepseek' });
   const result = await request('/chat/completions', config.apiKey, { model: config.model, stream: false, max_tokens: config.maxTokens,
     thinking: { type: config.thinking ? 'enabled' : 'disabled' }, ...(config.thinking ? { reasoning_effort: config.effort === 'low' ? 'low' : 'high' } : {}),
-    response_format: { type: 'json_object' }, messages: [{ role: 'system', content: deepseekInstructions(instructions, definition) }, { role: 'user', content: JSON.stringify(payload) }],
+    response_format: { type: 'json_object' }, messages: [{ role: 'system', content: deepseekInstructions(instructions, definition) }, { role: 'user', content }],
   }, fetcher);
-  const usage = deepseekUsage(result.usage);
+  const usage = deepseekUsage(result?.usage);
+  const choice = result?.choices?.[0];
+  if (choice?.finish_reason === 'length') throw outputError('truncated', 'DeepSeek 输出达到长度上限，结果不完整。', usage);
+  if (choice?.finish_reason !== 'stop') throw outputError('incomplete', 'DeepSeek 未正常完成输出，结果不完整。', usage);
+  if (typeof choice.message?.content !== 'string' || !choice.message.content.trim()) throw outputError('empty', 'DeepSeek 返回空内容，未得到可用结果。', usage);
+  let value;
+  try { value = JSON.parse(jsonContent(choice.message.content)); }
+  catch { throw outputError('json', 'DeepSeek 返回的 JSON 格式无法解析。', usage); }
   try {
-    const choice = result.choices?.[0]; assert(choice?.finish_reason === 'stop' && typeof choice.message?.content === 'string', 'DeepSeek 未完成', 502);
-    return { value: definition.validate(JSON.parse(choice.message.content), payload), usage };
-  } catch { throw Object.assign(new Error('DeepSeek 结果不完整或引用不符合要求。现有内容已保留；费用按返回用量或预留金额记录。'), { status: 502, usage }); }
+    return { value: definition.validate(value, payload), usage };
+  } catch (error) {
+    // Only locally authored research validation messages are safe to surface;
+    // arbitrary validator/provider errors can contain private input or output.
+    if (['schema', 'evidence'].includes(error?.researchOutputKind)) throw outputError(error.researchOutputKind, `DeepSeek ${error.message}。`, usage);
+    throw outputError('schema', 'DeepSeek 结果不完整，缺少必填字段或字段不符合要求。', usage);
+  }
 }

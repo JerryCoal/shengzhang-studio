@@ -1,0 +1,23 @@
+.account-profile-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; }
+.account-profile-layout section, .creation-account-fields > * { min-width: 0; }
+.account-profile-layout h3 { margin: 4px 0 10px; }
+.account-profile-layout textarea { width: 100%; resize: vertical; }
+.identity-file-drop { padding: 16px; margin: 12px 0; border: 1px dashed var(--border, #c9d5ce); border-radius: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 12px; color: var(--muted, #687a70); }
+.identity-file-drop.dragging { background: #e8f4eb; border-color: #397c53; }
+.creation-presets { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.creation-presets select { flex: 1; min-width: 150px; }
+.account-step-skills { margin: 18px 0; }
+.account-step-skills summary { cursor: pointer; font-weight: 600; margin-bottom: 12px; }
+.account-memory-entry { margin: 12px 0; }
+.creation-account-picker { margin: 16px 0; padding: 18px; border: 1px solid var(--border, #dce4de); border-radius: 16px; background: var(--surface, #fff); }
+.creation-account-picker > .row { flex-wrap: wrap; gap: 8px; }
+.creation-account-picker > .row b { display: inline-flex; gap: 6px; align-items: center; }
+.creation-account-row { padding-top: 12px; }
+.creation-account-row + .creation-account-row { border-top: 1px solid var(--border, #e4e9e5); margin-top: 12px; }
+.creation-account-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.creation-account-fields select { width: 100%; min-width: 0; }
+.creation-memory-status { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
+.creation-memory-status p { margin: 0; }
+.creation-memory-status details { flex: 0 0 100%; margin-top: 8px; font-size: 12px; }
+.creation-memory-status pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow-y: auto; background: var(--canvas, #f4f7f3); padding: 12px; border-radius: 8px; }
+@media (max-width: 680px) { .account-profile-layout, .creation-account-fields { grid-template-columns: minmax(0, 1fr); } .creation-account-picker { padding: 12px; } }

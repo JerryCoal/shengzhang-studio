@@ -9,9 +9,9 @@ import '../comment-import.css';
 
 type Preview = { cancelled?: boolean; previewId: string; rows: CapturedComment[]; notice: string };
 export function MCPCommentsDialog({ onClose }: { onClose: () => void }) {
-  const { project, refresh, notify, go } = useStudio(), { connections, error: connectionError } = useMCPConnections();
+  const { project, refresh, notify, go, target } = useStudio(), { connections, error: connectionError } = useMCPConnections();
   const publications = project!.publications.filter(p => p.status === 'published' && !p.sample);
-  const [publicationId, setPublicationId] = useState(publications[0]?.id || ''), [url, setUrl] = useState(''), [limit, setLimit] = useState(200), [replies, setReplies] = useState(false);
+  const [publicationId, setPublicationId] = useState(publications.find(p => p.id === target.publicationId)?.id || publications[0]?.id || ''), [url, setUrl] = useState(''), [limit, setLimit] = useState(200), [replies, setReplies] = useState(false);
   const [preview, setPreview] = useState<Preview | null>(null), [selected, setSelected] = useState<Set<number>>(new Set()), [confirmed, setConfirmed] = useState(false), [working, setWorking] = useState(false), [message, setMessage] = useState('');
   const publication = publications.find(p => p.id === publicationId), connection = connections.find(c => c.platform === publication?.platform);
   const unsupported = publication?.platform === 'tiktok' || !!connection?.connected && connection.capabilities?.comments === false;

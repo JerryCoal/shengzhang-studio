@@ -6,9 +6,9 @@ import {METRICS} from '../../server/operating-data.mjs';
 import {commentSource,sameCommentWork} from '../../desktop/comment-source.mjs';
 
 export function MetricCaptureDialog({onClose}:{onClose:()=>void}) {
-  const {project,mutate,run,busy,notify}=useStudio();
+  const {project,mutate,run,busy,notify,target}=useStudio();
   const works=project!.publications.filter(p=>p.status==='published'&&!p.sample&&p.url);
-  const [publicationId,setPublicationId]=useState(works[0]?.id||''),[capture,setCapture]=useState<CommentCaptureResult|null>(null);
+  const [publicationId,setPublicationId]=useState(works.find(p=>p.id===target.publicationId)?.id||works[0]?.id||''),[capture,setCapture]=useState<CommentCaptureResult|null>(null);
   const [reading,setReading]=useState(false),[message,setMessage]=useState(''),[confirmed,setConfirmed]=useState(false);
   const mounted=useRef(true),pub=works.find(p=>p.id===publicationId);
   useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;void window.studioDesktop?.cancelCommentCapture?.();};},[]);

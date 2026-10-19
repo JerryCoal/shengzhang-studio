@@ -1,0 +1,21 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createStore } from '../server/store.mjs';
+import { registerReviewWork } from '../server/review-work.mjs';
+import { saveMetricSnapshot } from '../server/operating-data.mjs';
+test('external work registration validates account/platform, is idempotent and never invents publish time or submits a post', () => {
+  const store = createStore(':memory:'), state = store.get(); store.close(); const p = state.projects[0], count = p.assets.length;
+  const data = { accountId: 'account-xhs', url: 'https://www.xiaohongshu.com/explore/687df3a1000000000d0184a1?xsec_token=example', title: '以前发布的办公记录', confirmed: true };
+  const row = registerReviewWork(state, p, data);
+  assert.equal(row.status, 'published'); assert.equal(row.publishedAt, null); assert.equal(row.confirmationSource, 'user-external-registration'); assert.equal(row.external, true);
+  assert.equal(row.platformItemId, '687df3a1000000000d0184a1'); assert.equal(row.accountId, 'account-xhs'); assert.equal(row.assetId, ''); assert.equal(p.assets.length, count); assert.equal(row.automation, undefined);
+  assert.equal(registerReviewWork(state, p, { ...data, url: data.url.split('?')[0] }).id, row.id);
+  assert.throws(() => registerReviewWork(state, p, { ...data, accountId: 'account-dy' }), /不一致/);
+  state.accounts.push({ id: 'xhs-b', name: '其他账号', platform: 'xiaohongshu' });
+  assert.throws(() => registerReviewWork(state, p, { ...data, accountId: 'xhs-b' }), /另一个账号/);
+  assert.throws(() => registerReviewWork(state, p, { ...data, confirmed: false }));
+  assert.throws(() => registerReviewWork(state, p, { ...data, url: 'https://xhslink.com/a/1234' }), /完整作品/);
+  assert.throws(() => registerReviewWork(state, p, { ...data, url: 'https://localhost/private' }), /对应平台/);
+  const snapshot = saveMetricSnapshot(p, { publicationId: row.id, capturedAt: new Date().toISOString(), metrics: { views: null, likes: 3, comments: 1, favorites: null, shares: null } });
+  assert.equal(snapshot.publicationId, row.id); assert.equal(snapshot.metrics.views, null); assert.equal(snapshot.metrics.likes, 3);
+});

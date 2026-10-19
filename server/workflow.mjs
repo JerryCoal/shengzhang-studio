@@ -118,7 +118,10 @@ export function corpusPrompt(references) {
 export function saveEditorDraft(state, key, input, briefSchema) {
   const project = state.projects.find(p => p.id === key);
   if (key !== 'new' && !project) fail('项目不存在', 404);
-  const data = z.object({ brief: briefSchema.partial().extend({ name: z.string().max(100), brand: z.string().max(100), product: z.string().max(100), goal: z.string().max(1000), audience: z.string().max(1000), sellingPoints: z.string().max(2000), channels: z.array(z.enum(PLATFORM_IDS)).max(5), deadline: z.string().max(10) }), expectedVersion: z.number().int().min(0), baseBrief: z.unknown().optional() }).parse(input);
+  // Drafts intentionally accept empty fields; only a complete brief is applied
+  // to a project. Keep this independent from the validated/derived brief schema.
+  const draftBriefSchema = z.object({ name: z.string().max(100), brand: z.string().max(100), product: z.string().max(100), type: z.enum(['launch', 'daily', 'nurture']).optional(), goal: z.string().max(1000), audience: z.string().max(1000), sellingPoints: z.string().max(2000), facts: z.string().max(8000).optional(), requirements: z.string().max(2000).optional(), channels: z.array(z.enum(PLATFORM_IDS)).max(5), deadline: z.string().max(10), budgetUsd: z.number().finite().min(0).max(10000).optional(), nurture: z.object({ topic: z.string().max(100).optional(), scene: z.string().max(2000).optional(), copyPrompt: z.string().max(4000).optional() }).optional() });
+  const data = z.object({ brief: draftBriefSchema, expectedVersion: z.number().int().min(0), baseBrief: z.unknown().optional() }).parse(input);
   const drafts = state.projectDrafts ||= {}, previous = drafts[key];
   if ((previous?.version || 0) !== data.expectedVersion) fail('该编辑草稿已在另一窗口更新，请关闭编辑框后重新打开', 409);
   const valid = briefSchema.safeParse(data.brief);

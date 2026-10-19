@@ -102,6 +102,43 @@ test('MCP account changes are blocked for an in-flight login and release afterwa
   assert.equal((await f.req('/mcp/xiaohongshu/accounts/default',{name:'改名'},'PUT')).status,409);
   release();assert.equal((await running).status,200);assert.equal((await f.req('/mcp/xiaohongshu/accounts',{name:'新账号'})).status,201);
 });
+test('external XHS image and video publishing sends separate normalized topics and keeps a reviewable snapshot',async t=>{
+  for (const video of [false,true]) await t.test(video ? 'video' : 'image',async t=>{
+    let calls=0,mediaFile;
+    const f=await fixture(t,async(name,args)=>{
+      calls++;assert.equal(name,video?'publish_with_video':'publish_content');
+      assert.equal(args.content,'真实正文');assert.deepEqual(args.tags,['大学生','学习搭子']);
+      mediaFile=video?args.video:args.images[0];assert(existsSync(mediaFile));
+      const current=f.store.get().projects[0].publications.find(p=>p.id===f.publication.id);
+      assert.deepEqual(current.delivery.tags,args.tags);assert.equal(current.delivery.topicBinding,'unverified');
+      assert.equal(current.delivery.body,'真实正文\n\n#大学生 #学习搭子');
+      return {content:[{type:'text',text:'已提交'}]};
+    });
+    if(video)f.store.mutate(s=>Object.assign(s.projects[0].publications.find(p=>p.id===f.publication.id),{mime:'video/mp4',mediaData:'data:video/mp4;base64,'+Buffer.from('\u0000\u0000\u0000\u0018ftypisom\u0000\u0000\u0000\u0000','binary').toString('base64')}));
+    const input={confirmed:true,expectedRevision:f.publication.assetRevision,title:'测试标题',body:'真实正文\n\n#大学生[话题]# #学习搭子#'};
+    const result=await f.req(f.base+'/publish',input);assert.equal(result.status,200,JSON.stringify(result.data));
+    assert.match(result.data.result.note,/未返回逐项话题关联结果/);assert.equal(calls,1);assert(!existsSync(mediaFile));
+    const current=f.store.get().projects[0].publications.find(p=>p.id===f.publication.id);assert.equal(current.body,'真实内容','Do not rewrite the original publication');
+    assert.equal((await f.req(f.base+'/publish',input)).status,409);assert.equal(calls,1);
+  });
+});
+
+test('XHS explicit topic replacement or deletion overrides old body hashtags',async t=>{
+  for (const tags of [[],['新话题']]) await t.test(JSON.stringify(tags),async t=>{
+    const f=await fixture(t,async(_name,args)=>{assert.equal(args.content,'正文');assert.deepEqual(args.tags,tags);return{content:[{type:'text',text:'已提交'}]};});
+    const r=await f.req(f.base+'/publish',{confirmed:true,expectedRevision:f.publication.assetRevision,title:'测试',body:'正文\n#旧话题',tags});assert.equal(r.status,200,JSON.stringify(r.data));
+  });
+});
+
+test('XHS topic errors stop before publishing, media staging and delivery journaling',async t=>{
+  let calls=0;const f=await fixture(t,async()=>{calls++;assert.fail('must not publish');});
+  for(const bad of [{body:'正文',tags:Array.from({length:11},(_,i)=>`话题${i}`)},{body:'字'.repeat(999),tags:['学习']},{body:'正文',tags:['一\n二']}]) {
+    const r=await f.req(f.base+'/publish',{confirmed:true,expectedRevision:f.publication.assetRevision,title:'测试',...bad});assert.equal(r.status,400,JSON.stringify(r.data));
+    assert.equal(f.store.get().projects[0].publications.find(p=>p.id===f.publication.id).delivery,undefined);
+  }
+  assert.equal(calls,0);
+});
+
 test('external MCP publishing requires explicit consent, journals before dispatch, cleans media and locks unknown results',async t=>{
   let calls=0,mediaFile;
   const f=await fixture(t,async(name,args)=>{calls++;assert.equal(name,'publish_content');assert.equal(args.title,'测试标题');mediaFile=args.images[0];assert(existsSync(mediaFile));assert.equal(f.store.get().projects[0].publications.find(p=>p.id===f.publication.id).delivery.phase,'submitting');return{content:[{type:'text',text:'内容发布成功（未返回作品编号）'}]};});

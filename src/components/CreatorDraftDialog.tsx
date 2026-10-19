@@ -7,12 +7,15 @@ import { useStudio } from '../context';
 import { prepareExport } from '../export';
 import type { Asset, Publication } from '../types';
 import { CREATOR_URLS } from '../../server/content-export.mjs';
+import { publicationAccountChoice } from '../../server/publish-readiness.mjs';
 
 export function CreatorDraftDialog({content,onClose}:{content:Asset|Publication;onClose:()=>void}) {
   const {project,state,mutate,refresh,run,busy}=useStudio();
   const platform='channel' in content?content.channel:content.platform;
   const accounts=state.accounts.filter(a=>a.platform===platform);
-  const [accountId,setAccountId]=useState('accountId' in content?content.accountId:accounts[0]?.id||'');
+  const identityChoice='channel' in content?publicationAccountChoice(content,state.accounts):null;
+  const [accountId,setAccountId]=useState('accountId' in content?content.accountId:identityChoice?.defaultAccountId||'');
+  const selectedAccount=accounts.find(account=>account.id===accountId);
   const [recordId,setRecordId]=useState('accountId' in content?content.id:'');
   const record=project?.publications.find(p=>p.id===recordId);
   const [receipt,setReceipt]=useState<PublicationReceipt|null>(null),[checked,setChecked]=useState(false);
@@ -21,7 +24,7 @@ export function CreatorDraftDialog({content,onClose}:{content:Asset|Publication;
   const mounted=useRef(true),maxTitle=20;
   useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;void window.studioDesktop?.cancelCreatorDraft?.();};},[]);
   const supported=['image/png','image/jpeg','image/webp','video/mp4'].includes(content.mime);
-  const valid=title.trim()&&[...title].length<=maxTitle&&[...body].length<=1000&&supported&&accountId;
+  const valid=title.trim()&&[...title].length<=maxTitle&&[...body].length<=1000&&supported&&!!selectedAccount;
   async function open(){
     setOpening(true);setMessage('');
     try {
@@ -46,7 +49,10 @@ export function CreatorDraftDialog({content,onClose}:{content:Asset|Publication;
     finally{if(mounted.current)setOpening(false);}
   }
   return <Modal title="官方页面发布助手" description="登录 → 自动上传与填写 → 核对并确认提交 → 保存回执。计划时间只作待办，不会无人值守定时投稿。" onClose={onClose} wide>
-    <Field label="关联发布账号" hint="这是工作台的记录名称，请同时核对官方页面实际登录的账号。首次打开助手会建立发布待办。"><select disabled={opening||!!recordId} value={accountId} onChange={e=>setAccountId(e.target.value)}>{accounts.map(a=><option value={a.id} key={a.id}>{a.name}</option>)}</select></Field>
+    <Field label="关联发布账号" hint="这是工作台的记录名称，请同时核对官方页面实际登录的账号。首次打开助手会建立发布待办。"><select disabled={opening||!!recordId} value={accountId} onChange={e=>setAccountId(e.target.value)}><option value="" disabled>{accounts.length?'请选择发布账号':'请先添加发布账号'}</option>{accounts.map(a=><option value={a.id} key={a.id}>{a.name}</option>)}</select></Field>
+    {identityChoice?.sourceAccountId && <p className="small-note">本份内容使用「{identityChoice.sourceAccountName}」的身份和创作方案生成。</p>}
+    {identityChoice?.sourceAccountId && !identityChoice.sourceAvailable && <p className="info-box" role="status">生成时的账号已不在当前列表中。请明确选择其他同平台账号，并核对内容中的身份。</p>}
+    {identityChoice?.sourceAccountId && selectedAccount && selectedAccount.id !== identityChoice.sourceAccountId && <p className="info-box" role="status">你选择了「{selectedAccount.name}」，与生成时的账号不同。发布前请核对文案中的身份、经历和语气。</p>}
     <div className="creator-draft-preview"><div className="creator-draft-media">{content.mime.startsWith('image/')?<img src={content.mediaData} alt="本次发布素材"/>:<video src={content.mediaData} controls preload="metadata"/>}</div><div><Channel platform={platform}/><Field label={`本次标题 · ${[...title].length} / ${maxTitle}`} hint="可在这里缩短标题；修改仅用于本次上传，不覆盖成品。"><input disabled={opening} value={title} onChange={e=>setTitle(e.target.value)}/></Field><Field label={`本次正文 · ${[...body].length} / 1000`} hint="话题和 @ 提及请在平台选择对应条目；纯文字不一定会成为有效标签。"><textarea rows={8} disabled={opening} value={body} onChange={e=>setBody(e.target.value)}/></Field></div></div>
     {!supported&&<p className="info-box">当前格式尚不能直接上传。请在“导出素材”中转换图片为 PNG / JPG；视频需使用 MP4。原始成品保留。</p>}
     <p className="small-note">同一次工作台登录中，发布与采集可复用平台登录。退出工作台、刷新主窗口或退出应用后清理；不会把平台密码或 Cookie 写入项目文件。</p>

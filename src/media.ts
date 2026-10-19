@@ -13,7 +13,7 @@ function wrapped(ctx: CanvasRenderingContext2D, text: string, x: number, y: numb
 }
 async function loadImage(data: string) {
   if (!data) return null;
-  return await new Promise<HTMLImageElement>((resolve, reject) => { const img = new Image(); img.onload = () => resolve(img); img.onerror = () => reject(new Error('产品图片无法读取，请重新上传')); img.src = data; });
+  return await new Promise<HTMLImageElement>((resolve, reject) => { const img = new Image(); img.onload = () => resolve(img); img.onerror = () => reject(new Error('参考图片无法读取，请重新上传')); img.src = data; });
 }
 function product(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number, brand: string, bg: string, ink: string) {
   ctx.save(); ctx.translate(x, y); ctx.scale(scale, scale); ctx.rotate(-0.08);
@@ -34,6 +34,19 @@ export async function renderPoster(p: Project, asset: Asset, variant = 0) {
   const canvas = document.createElement('canvas'); canvas.width = 900; canvas.height = 1200;
   const ctx = canvas.getContext('2d')!; const [bg, ink, paper] = palettes[variant % palettes.length];
   const img = await loadImage(p.imageData);
+  if (p.brief.type === 'nurture') {
+    const theme = p.brief.nurture;
+    ctx.fillStyle = paper; ctx.fillRect(0, 0, 900, 1200);
+    ctx.fillStyle = ink; ctx.font = '500 24px sans-serif'; wrapped(ctx, p.brief.brand, 64, 82, 772, 32, 1);
+    ctx.font = '600 54px sans-serif'; wrapped(ctx, asset.title, 64, 192, 772, 76, 3);
+    if (img) coverImage(ctx, img, 64, 420, 772, 570);
+    else {
+      ctx.fillStyle = bg; rounded(ctx, 64, 420, 772, 570, 28);
+      ctx.fillStyle = ink; ctx.font = '500 38px sans-serif'; wrapped(ctx, theme?.scene || asset.scenes[0], 108, 540, 684, 59, 6);
+    }
+    ctx.fillStyle = ink; ctx.font = '24px sans-serif'; wrapped(ctx, theme?.topic || p.brief.product, 64, 1070, 772, 38, 2);
+    return { mediaData: canvas.toDataURL('image/png'), mime: 'image/png' as const };
+  }
   ctx.fillStyle = bg; ctx.fillRect(0, 0, 900, 1200);
   ctx.fillStyle = ink; ctx.font = '600 28px sans-serif'; ctx.fillText(p.brief.brand, 64, 83);
   ctx.font = '16px sans-serif'; ctx.fillText('EVERYDAY, A LITTLE BETTER.', 64, 115);

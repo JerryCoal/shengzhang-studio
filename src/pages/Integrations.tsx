@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { LockKeyhole, RefreshCw, Video } from 'lucide-react';
 import { api, IS_WEB } from '../api';
 import { useStudio } from '../context';
@@ -10,8 +10,9 @@ import { SeedreamSettings } from './SeedreamSettings';
 
 export function useIntegrations() {
   const [value, setValue] = useState<Integrations | null>(null), [error, setError] = useState('');
-  const reload = async () => { try { setValue(await api<Integrations>('/integrations')); setError(''); } catch (e) { setError(e instanceof Error ? e.message : '无法读取连接设置'); } };
-  useEffect(() => { void reload(); }, []);
+  const live = useRef(true), serial = useRef(0);
+  const reload = useCallback(async () => { const request = ++serial.current; try { const next = await api<Integrations>('/integrations'); if (live.current && request === serial.current) { setValue(next); setError(''); } } catch (e) { if (live.current && request === serial.current) setError(e instanceof Error ? e.message : '无法读取连接设置'); } }, []);
+  useEffect(() => { live.current = true; const changed = () => { void reload(); }; void reload(); window.addEventListener('studio-integrations-changed', changed); return () => { live.current = false; serial.current++; window.removeEventListener('studio-integrations-changed', changed); }; }, [reload]);
   return { value, error, reload };
 }
 export function IntegrationSettings() {

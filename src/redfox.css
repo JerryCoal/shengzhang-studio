@@ -1,0 +1,25 @@
+.redfox-settings h2, .redfox-settings h3 { display: flex; align-items: center; gap: 8px; }
+.redfox-route-options { border: 1px solid var(--border, #dde3e9); border-radius: 12px; padding: 15px; margin: 18px 0; display: grid; gap: 14px; }
+.redfox-route-options legend { padding: 0 7px; font-weight: 600; }
+.redfox-route-options label { display: flex; align-items: flex-start; gap: 10px; }
+.redfox-route-options input { flex: 0 0 auto; margin-top: 4px; }
+.redfox-route-options span { display: grid; gap: 5px; }
+.redfox-route-options small { color: var(--muted, #64748b); line-height: 1.65; }
+.redfox-actions, .redfox-route-notice { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.redfox-route-notice > div { flex: 1; min-width: 200px; }
+.redfox-route-notice p { margin: 5px 0 0; }
+.redfox-capabilities, .redfox-usage { margin-top: 24px; }
+.redfox-capability-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.redfox-capability-list article { padding: 14px; border: 1px solid var(--border, #dde3e9); border-radius: 10px; }
+.redfox-capability-tags { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; color: var(--muted, #64748b); }
+.redfox-capability-tags .available { color: var(--accent, #24724d); }
+.redfox-usage { background: var(--surface-soft, #f5f7fa); border-radius: 10px; padding: 14px 18px; }
+.redfox-notes { padding-left: 22px; line-height: 1.75; }
+.redfox-hotspots { margin: 20px 0; }
+.redfox-hotspots h2 { display: flex; gap: 8px; align-items: center; }
+.redfox-hotspot-list { display: grid; gap: 12px; margin-top: 16px; }
+.redfox-hotspot-list article { display: flex; gap: 16px; align-items: center; justify-content: space-between; border-top: 1px solid var(--border, #dde3e9); padding: 14px 0; }
+.redfox-hotspot-list article > div { min-width: 0; overflow-wrap: anywhere; }
+.redfox-hotspot-list article > button { flex-shrink: 0; }
+@media (max-width: 600px) { .redfox-hotspot-list article { align-items: flex-start; flex-direction: column; } }
+@media (max-width: 600px) { .redfox-capability-list { grid-template-columns: minmax(0, 1fr); } .redfox-route-notice > div { min-width: 0; } }

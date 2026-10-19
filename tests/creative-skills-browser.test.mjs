@@ -10,6 +10,32 @@ Object.defineProperty(globalThis, 'navigator', { value: { locks: { request: asyn
 const compiled = await build({ stdin: { contents: "export { localAPI } from './src/local-api.ts'; export { webAPI } from './src/web-api.ts'; export { registerLocal, loginLocal, lockLocalWorkspace, readLocalState } from './src/local-vault.ts';", resolveDir: process.cwd(), loader: 'ts' }, bundle: true, format: 'esm', platform: 'node', write: false, logLevel: 'silent' });
 const { localAPI: api, webAPI, readLocalState, registerLocal, loginLocal, lockLocalWorkspace } = await import('data:text/javascript;base64,' + Buffer.from(compiled.outputFiles[0].text).toString('base64'));
 
+test('edited defaults persist across browser unlocks, stay isolated and are explicitly read-only in web relay mode', async () => {
+  await registerLocal('默认规则甲', 'default-skills-password-123');
+  const initial = await api('/creative-skills', 'GET');
+  const workflowId = 'copy-xiaohongshu', skillId = 'marketing-copywriting', instructions = '只用于甲的小红书规则，保留真实事实。';
+  const saved = await api('/creative-skills/default', 'PUT', { workflowId, skillId, instructions, expectedRevision: initial.revision });
+  assert.equal(saved.state.skillsRevision, initial.revision + 1);
+  assert.equal((await api('/backup', 'GET')).builtinSkillOverrides[workflowId][skillId].instructions, instructions);
+  await assert.rejects(api('/creative-skills/default', 'PUT', { workflowId, skillId, instructions: '过期修改', expectedRevision: initial.revision }), /另一处更新/);
+  lockLocalWorkspace(); await registerLocal('默认规则乙', 'default-skills-password-456');
+  assert.deepEqual((await readLocalState()).builtinSkillOverrides, {});
+  lockLocalWorkspace(); await loginLocal('默认规则甲', 'default-skills-password-123');
+  assert.equal((await api('/creative-skills', 'GET')).workflows.find(item => item.id === workflowId).skills.find(item => item.id === skillId).instructions, instructions);
+  const originalFetch = globalThis.fetch; let calls = 0;
+  globalThis.fetch = async () => { calls++; throw Error('No network permitted'); };
+  try {
+    assert.equal((await webAPI('/creative-skills', 'GET')).defaultEditable, false);
+    await assert.rejects(webAPI('/creative-skills/default', 'DELETE', { workflowId, skillId, expectedRevision: saved.state.skillsRevision }), /Windows/);
+    assert.equal(calls, 0);
+  } finally { globalThis.fetch = originalFetch; }
+  const restored = await api('/creative-skills/default', 'DELETE', { workflowId, skillId, expectedRevision: saved.state.skillsRevision });
+  assert.equal(restored.state.skillsRevision, initial.revision + 2);
+  const current = (await api('/creative-skills', 'GET')).workflows.find(item => item.id === workflowId).skills.find(item => item.id === skillId);
+  assert.equal(current.customized, false); assert.equal(current.instructions, current.defaultInstructions);
+  lockLocalWorkspace();
+});
+
 test('Skills preview, install, stale revision, disable and delete persist in isolated browser users', async () => {
   const text = '---\nname: 校园写作\ndescription: 清楚介绍真实用途\nmetadata:\n  version: "1.0"\nplatforms: [xiaohongshu]\n---\n先写大学生自习场景。保留 Emoji ✨ 和 [赞R]。';
   await registerLocal('Skills甲', 'local-skills-password-123');

@@ -2,6 +2,9 @@ import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { atomicJSON } from './vault.mjs';
 export const MODELS = {
+  'glm-5.3': { provider: 'glm', label: 'GLM-5.3', inputPrice: 1.143, outputPrice: 4, priceNote: '2026-10-19 官方 8/28 元每百万 token，按约 7 元/美元折算，未计缓存折扣', description: '智谱旗舰文字模型，适合灵感策略和复盘；始终开启思考' },
+  'glm-5.3-flash': { provider: 'glm', label: 'GLM-5.3 Flash', inputPrice: 0.115, outputPrice: 0.4, priceNote: '2026-10-19 官方 0.8/2.8 元每百万 token，按约 7 元/美元折算，未计临时折扣', description: '适合日常文案和评论分类；本工作站按文字模式接入' },
+  'glm-4.7-flash': { provider: 'glm', label: 'GLM-4.7 Flash · 免费', inputPrice: 0, outputPrice: 0, priceNote: '2026-10-19 官方免费文本模型，速率和免费政策以智谱为准', description: '适合试用与轻量文字任务，关闭思考以加快结构化生成' },
   'qwen-plus': { provider: 'qwen', label: 'Qwen Plus', inputPrice: 0.12, outputPrice: 0.3, priceNote: '北京地域非思考模式、短上下文预算估算；人民币价格按约 7 元/美元折算，仅用于预算提醒', description: '适合中文策略、文案与复盘；使用非思考模式保证结构化输出' },
   'qwen-flash': { provider: 'qwen', label: 'Qwen Flash', inputPrice: 0.022, outputPrice: 0.22, priceNote: '北京地域非思考模式、短上下文预算估算；人民币价格按约 7 元/美元折算，仅用于预算提醒', description: '低成本处理评论分类与日常文案' },
   'gpt-5.4': { provider: 'openai', label: 'GPT-5.4', inputPrice: 2.5, outputPrice: 15, description: '适合复杂策划、约束协调和迭代判断' },
@@ -29,5 +32,5 @@ export function stageConfig(stage, routes) {
   if (stage === 'document-context') return { ...stageConfig('strategy', routes), id: stage, label: '项目资料提炼', maxTokens: 7000 };
   const definition = STAGES.find(s => s.id === stage), model = routes[stage], metadata = MODELS[model];
   const thinking = ['strategy', 'planning', 'analysis'].includes(stage);
-  return { ...definition, model, ...metadata, ...(metadata.provider === 'deepseek' ? { thinking, maxTokens: thinking ? 8000 : definition.maxTokens } : {}) };
+  return { ...definition, model, ...metadata, ...(metadata.provider === 'deepseek' ? { thinking, maxTokens: thinking ? 8000 : definition.maxTokens } : {}), ...(metadata.provider === 'glm' && model.startsWith('glm-5.3') ? { maxTokens: Math.max(12000, definition.maxTokens) } : {}) };
 }

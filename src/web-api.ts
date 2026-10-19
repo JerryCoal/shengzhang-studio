@@ -11,7 +11,7 @@ import { providerLabel } from './model-provider';
 import { normalizeQwenKey, qwenConnection, qwenConnectionSchema, QWEN_CONNECTION_OPTIONS } from '../server/qwen-connection.mjs';
 import { resolveWebBackend, requestWebOperation, webCallbackUrl } from './web-connection';
 
-const defaults = (): WebPrivate => ({ credentials: {}, seedream: { ...defaultSeedream }, imageProvider: 'openai', routes: { ...catalog.routes }, seedance: { region: 'volcengine', model: '', reservationUsd: 2, outputPriceUsd: 0 }, authorizations: [], verification: null });
+const defaults = (): WebPrivate => ({ credentials: {}, seedream: { ...defaultSeedream }, imageProvider: 'seedream', routes: { ...catalog.routes }, seedance: { region: 'volcengine', model: '', reservationUsd: 2, outputPriceUsd: 0 }, authorizations: [], verification: null });
 const privateOf = (state: State) => state.webPrivate || defaults();
 export const publicState = (state: State): State => { const copy = structuredClone(state); delete copy.webPrivate; return copy; };
 let onlineBusy = false;
@@ -19,9 +19,9 @@ const pendingMessage = '有一项联网请求尚未确认。请核对服务商�
 function settingsOf(state: State): Settings {
   const saved = privateOf(state), model = saved.routes.strategy;
   const credential = (provider: TextProvider): Settings['credential'] => ({ supported: true, editable: true, local: true, configured: !!saved.credentials[provider], suffix: saved.credentials[provider]?.slice(-4) || '', source: saved.credentials[provider] ? 'vault' : 'none', protection: '浏览器 · 登录密码 AES-GCM 加密', problem: '' });
-  return { ...catalog, routes: saved.routes, model, ...catalog.models[model as keyof typeof catalog.models], authEnabled: true, version: '1.19.0 · 联网网页版', browserStorage: true,
+  return { ...catalog, routes: saved.routes, model, ...catalog.models[model as keyof typeof catalog.models], authEnabled: true, version: '2.0.0 · 联网网页版', browserStorage: true,
     openaiConfigured: !!saved.credentials.openai, verification: saved.verification, apiDiagnostic: saved.apiDiagnostic,
-    providers: { qwen: { configured: !!saved.credentials.qwen, credential: credential('qwen'), connection: qwenConnection(saved.qwenConnection || state.qwenConnection), connectionOptions: QWEN_CONNECTION_OPTIONS.map(({ id, label, requiresWorkspace }) => ({ id, label, requiresWorkspace: !!requiresWorkspace })), verification: saved.qwenVerification || null, apiDiagnostic: saved.qwenDiagnostic }, openai: { configured: !!saved.credentials.openai, credential: credential('openai'), verification: saved.verification, apiDiagnostic: saved.apiDiagnostic }, deepseek: { configured: !!saved.credentials.deepseek, credential: credential('deepseek'), verification: saved.deepseekVerification || null, apiDiagnostic: saved.deepseekDiagnostic } },
+    providers: { glm: { configured: !!saved.credentials.glm, credential: credential('glm'), verification: saved.glmVerification || null, apiDiagnostic: saved.glmDiagnostic }, qwen: { configured: !!saved.credentials.qwen, credential: credential('qwen'), connection: qwenConnection(saved.qwenConnection || state.qwenConnection), connectionOptions: QWEN_CONNECTION_OPTIONS.map(({ id, label, requiresWorkspace }) => ({ id, label, requiresWorkspace: !!requiresWorkspace })), verification: saved.qwenVerification || null, apiDiagnostic: saved.qwenDiagnostic }, openai: { configured: !!saved.credentials.openai, credential: credential('openai'), verification: saved.verification, apiDiagnostic: saved.apiDiagnostic }, deepseek: { configured: !!saved.credentials.deepseek, credential: credential('deepseek'), verification: saved.deepseekVerification || null, apiDiagnostic: saved.deepseekDiagnostic } },
     pendingWebRequest: saved.pending, recoveredWebResults: saved.recovery?.length || 0,
     credential: { supported: true, editable: true, local: true, configured: !!saved.credentials.openai, suffix: saved.credentials.openai?.slice(-4) || '', source: saved.credentials.openai ? 'vault' : 'none', protection: '浏览器 · 登录密码 AES-GCM 加密', problem: '' },
   } as Settings;
@@ -56,6 +56,7 @@ function requestProvider(saved: WebPrivate, path: string, body: unknown): TextPr
   if (path === '/settings/credential/check') return 'openai';
   if (path === '/settings/providers/qwen/credential/check') return 'qwen';
   if (path === '/settings/providers/deepseek/credential/check') return 'deepseek';
+  if (path === '/settings/providers/glm/credential/check') return 'glm';
   const model = textModel(saved, path, body);
   return model ? catalog.models[model as keyof typeof catalog.models]?.provider as TextProvider || 'openai' : undefined;
 }
@@ -65,8 +66,8 @@ async function relay(path: string, method: string, body: unknown, projectId?: st
     const started = await changeLocalState(state => {
       state.webPrivate ||= defaults();
       if (state.webPrivate.pending) throw new Error(pendingMessage);
-      const provider = requestProvider(state.webPrivate, path, body), limited = provider === 'qwen' ? state.webPrivate.qwenDiagnostic : provider === 'deepseek' ? state.webPrivate.deepseekDiagnostic : provider === 'openai' ? state.webPrivate.apiDiagnostic : null;
-      if (limited?.kind === 'rate_limit' && limited.model === textModel(state.webPrivate, path, body) && limited.retryAt && Date.parse(limited.retryAt) > Date.now()) throw new Error(`${providerLabel(provider === 'qwen' ? 'qwen' : provider === 'deepseek' ? 'deepseek' : 'openai')} 仍在限流等待期，请 ${Math.ceil((Date.parse(limited.retryAt) - Date.now()) / 1000)} 秒后再试。本次未发送新请求。`);
+      const provider = requestProvider(state.webPrivate, path, body), limited = provider === 'glm' ? state.webPrivate.glmDiagnostic : provider === 'qwen' ? state.webPrivate.qwenDiagnostic : provider === 'deepseek' ? state.webPrivate.deepseekDiagnostic : provider === 'openai' ? state.webPrivate.apiDiagnostic : null;
+      if (limited?.kind === 'rate_limit' && limited.model === textModel(state.webPrivate, path, body) && limited.retryAt && Date.parse(limited.retryAt) > Date.now()) throw new Error(`${providerLabel(provider === 'glm' ? 'glm' : provider === 'qwen' ? 'qwen' : provider === 'deepseek' ? 'deepseek' : 'openai')} 仍在限流等待期，请 ${Math.ceil((Date.parse(limited.retryAt) - Date.now()) / 1000)} 秒后再试。本次未发送新请求。`);
       const pending = { id: crypto.randomUUID(), path, projectId, at: new Date().toISOString() };
       // Validate and minimize inputs before locking a request that has not been sent yet.
       const base = webPayload(state, path, body, projectId);
@@ -81,6 +82,7 @@ async function relay(path: string, method: string, body: unknown, projectId?: st
     if (openai && saved.credentials.openai) credentials.openai = saved.credentials.openai;
     if (provider === 'qwen' && saved.credentials.qwen) credentials.qwen = saved.credentials.qwen;
     if (deepseek && saved.credentials.deepseek) credentials.deepseek = saved.credentials.deepseek;
+    if (provider === 'glm' && saved.credentials.glm) credentials.glm = saved.credentials.glm;
     if (provider === 'seedream' && saved.credentials.seedream) credentials.seedream = saved.credentials.seedream;
     if (seedance && saved.credentials.seedance) credentials.seedance = saved.credentials.seedance;
     if (douyin && saved.credentials.douyin) credentials.douyin = saved.credentials.douyin;
@@ -123,6 +125,8 @@ async function relay(path: string, method: string, body: unknown, projectId?: st
       if (path === '/settings/providers/qwen/credential/check') current.qwenVerification = response.response.providers?.qwen?.verification || null;
       if (deepseek) current.deepseekDiagnostic = response.deepseekDiagnostic || (path.endsWith('/credential/check') && current.deepseekDiagnostic?.endpoint !== 'models' ? current.deepseekDiagnostic : null);
       if (path === '/settings/providers/deepseek/credential/check') current.deepseekVerification = response.response.providers?.deepseek?.verification || null;
+      if (provider === 'glm') current.glmDiagnostic = response.glmDiagnostic || null;
+      if (path === '/settings/providers/glm/credential/check') current.glmVerification = response.response.providers?.glm?.verification || null;
       delete current.pending;
     });
     if (conflict) throw new Error('联网结果与同时进行的本地编辑有冲突。两份内容已保留；可在设置页导出保留的结果。');
@@ -132,6 +136,11 @@ async function relay(path: string, method: string, body: unknown, projectId?: st
 }
 
 export async function webAPI<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
+  if (path === '/creative-skills/default' && method !== 'GET') throw new Error('默认 Skills 编辑目前支持 Windows 版和团队版，请在那里保存修改。');
+  if (path === '/creative-skills' && method === 'GET') {
+    const catalog = await localAPI<Record<string, unknown>>(path, method, body);
+    return { ...catalog, defaultEditable: false } as T;
+  }
   if (/\/corpus\/context(?:\/|$)/.test(path)) throw new Error('文档资料提炼目前仅支持本机完整版，请在 Windows 应用中使用');
   if (/^\/projects\/[^/]+\/trends\/refresh$/.test(path) && method === 'POST') return await relay(path, method, body, path.split('/')[2]) as T;
   if (path === '/health') return { ok: true, authRequired: false, mode: 'web-local' } as T;
@@ -222,7 +231,11 @@ export async function webAPI<T>(path: string, method = 'GET', body?: unknown): P
     }
     const state = await readLocalState(); return { version: state.projects.map(p => `${p.id}:${p.revision}`).join('|') } as T;
   }
-  const online = path === '/settings/providers/qwen/credential/check' || path === '/settings/credential/check' || path === '/settings/providers/deepseek/credential/check' || path.startsWith('/integrations/douyin/') || /^\/projects\/[^/]+\/(assets\/[^/]+\/(copy|cover|cover-apply|cover-reset|keyframes|seedance|video-status|generation-reset)|publications\/[^/]+\/(platform-status|platform-item|comments-sync)|comments\/classify)$/.test(path) || (body as { mode?: string })?.mode === 'openai';
+  if (path === '/settings/providers/glm/credential' && ['PUT', 'DELETE'].includes(method)) {
+    await saveConnection(saved => { if (method === 'DELETE') delete saved.credentials.glm; else saved.credentials.glm = z.object({ apiKey: z.string().trim().min(16).max(512).regex(/^[A-Za-z0-9._-]+$/, '请填写完整的智谱标准 API Key') }).strict().parse(body).apiKey; saved.glmVerification = null; saved.glmDiagnostic = null; });
+    return settingsOf(await readLocalState()) as T;
+  }
+  const online = path === '/settings/providers/glm/credential/check' || path === '/settings/providers/qwen/credential/check' || path === '/settings/credential/check' || path === '/settings/providers/deepseek/credential/check' || path.startsWith('/integrations/douyin/') || /^\/projects\/[^/]+\/(assets\/[^/]+\/(copy|cover|cover-apply|cover-reset|keyframes|seedance|video-status|generation-reset)|publications\/[^/]+\/(platform-status|platform-item|comments-sync)|comments\/classify)$/.test(path) || (body as { mode?: string })?.mode === 'openai';
   if (online && path !== '/appearance') return await relay(path, method, body, path.startsWith('/projects/') ? path.split('/')[2] : undefined) as T;
   const result = await localAPI<unknown>(path, method, body);
   if (result && typeof result === 'object') {

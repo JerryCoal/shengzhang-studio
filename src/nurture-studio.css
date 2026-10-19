@@ -1,0 +1,7 @@
+.nurture-studio-guide { margin-bottom: 20px; }
+.nurture-studio-guide h3 { margin: 0 0 14px; }
+.nurture-studio-guide p { line-height: 1.7; }
+.nurture-studio-guide details { padding-top: 12px; border-top: 1px solid var(--border, #e5e7eb); }
+.nurture-studio-guide summary { cursor: pointer; font-weight: 600; }
+.nurture-studio-guide pre { max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.nurture-studio-guide .preserve-lines { overflow-wrap: anywhere; }

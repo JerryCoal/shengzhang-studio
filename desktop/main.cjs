@@ -26,6 +26,7 @@ const documentParser = createDocumentParser({dataRoot:join(dataRoot,'document-pa
 let launchEpoch=0, activePlatformTask=null;
 const report = event => writeFileSync(reportFile, JSON.stringify({ ...event, at: new Date().toISOString() }));
 let window, tray, backend, website = '', quitting = false, shutdownRequested = false, proxyEnabled = false;
+let taskState = { active: 0, paused: 0 }, quitPrompt = false, quitApproved = false, rendererReady = false, taskBridgeActive = false, resolveTaskSave;
 const douyinAuth = createDouyinAuthController({ BrowserWindow, session, getParent: () => window });
 const platformLogin = createPlatformLogin({ BrowserWindow, getParent: () => window });
 const commentCollector = createCommentCollector({ BrowserWindow, WebContentsView, session, Menu, dialog, ipcMain, getParent: () => window });
@@ -35,6 +36,28 @@ const platformSessions = createPlatformSessions(session, async token => {
   if (!result.ok) throw Error('工作台登录已失效，请重新登录');
 });
 function trustedRenderer(event) { try { return event.sender === window?.webContents && event.senderFrame === window.webContents.mainFrame && new URL(event.senderFrame.url).origin === website; } catch { return false; } }
+ipcMain.on('studio:task-state', (event, value) => {
+  if (!trustedRenderer(event)) return;
+  if (Number.isInteger(value?.active) && value.active >= 0 && value.active <= 256 && Number.isInteger(value?.paused) && value.paused >= 0 && value.paused <= value.active) { taskState = { active: value.active, paused: value.paused }; taskBridgeActive = value.connected !== false; }
+});
+ipcMain.handle('studio:task-save-confirmed', (event, value) => { if (trustedRenderer(event)) resolveTaskSave?.(value?.saved === true); });
+async function saveBeforeQuit() {
+  const saved = await new Promise(resolve => {
+    const timer = setTimeout(() => { resolveTaskSave = undefined; resolve(false); }, 10000);
+    resolveTaskSave = value => { clearTimeout(timer); resolveTaskSave = undefined; resolve(value); };
+    window?.webContents.send('studio:prepare-quit');
+  });
+  if (!saved) { await dialog.showMessageBox(window, { type: 'warning', message: '工作进度尚未确认保存', detail: '请保持应用运行，回到任务中心核对保存状态后再退出。', buttons: ['返回工作台'] }); showWindow(); return false; }
+  quitApproved = true; app.quit(); return true;
+}
+async function askTaskClose(background = false) {
+  if (quitPrompt) return; quitPrompt = true;
+  try {
+    const result = await dialog.showMessageBox(window, { type: 'question', message: `还有 ${taskState.active} 项 Agent 任务未完成`, detail: '退出前会保存最后检查点。已提交的模型请求无法撤销，可能继续计费；重新打开后会提示核对结果，不会自动重复生成。', buttons: background ? ['后台继续运行', '保存进度并退出', '取消'] : ['保存进度并退出', '取消'], defaultId: background ? 0 : 1, cancelId: background ? 2 : 1 });
+    if (background && result.response === 0) window.hide();
+    else if (result.response === (background ? 1 : 0)) await saveBeforeQuit();
+  } finally { quitPrompt = false; }
+}
 ipcMain.handle('studio:douyin-authorize', async (event, url) => {
   if (!trustedRenderer(event)) throw new Error('请从工作台开始授权');
   try { return await douyinAuth.open(url); } catch { return { error: '无法打开抖音授权窗口，请重新准备授权或使用官方链接。' }; }
@@ -174,7 +197,7 @@ async function startBackend() {
   backend = fork(join(__dirname, 'backend.cjs'), [], { execPath: join(process.resourcesPath, 'runtime', 'node.exe'), execArgv: ['--use-env-proxy'], cwd: __dirname, env: { ...env, STUDIO_MCP_ENDPOINT: mcpServer.endpoint, STUDIO_MCP_SECRET: mcpSecret, PORT: '0', STUDIO_DATA_DIR: join(dataRoot, 'data'), STUDIO_STATIC_DIR: join(__dirname, 'dist') }, windowsHide: true, silent: true });
   backend.stdout.resume();
   backend.stderr.on('data', () => { /* Never persist request bodies or credentials in diagnostics. */ });
-  backend.on('exit', code => { if (!quitting) { report({ status: 'backend-stopped', code }); if (!smoke) void dialog.showMessageBox({ type: 'error', message: '本地服务已停止', detail: '请退出并重新打开应用。项目数据仍保存在这台电脑。' }); app.quit(); } });
+  backend.on('exit', code => { if (!quitting) { rendererReady = false; taskBridgeActive = false; taskState = { active: 0, paused: 0 }; report({ status: 'backend-stopped', code }); if (!smoke) void dialog.showMessageBox({ type: 'error', message: '本地服务已停止', detail: '请退出并重新打开应用。项目数据仍保存在这台电脑。' }); app.quit(); } });
   return new Promise((accept, reject) => {
     const timer = setTimeout(() => reject(new Error('本地服务启动超时')), 25000);
     backend.once('error', () => { clearTimeout(timer); reject(new Error('无法启动内置服务')); });
@@ -206,9 +229,10 @@ else {
       window.webContents.setWindowOpenHandler(({ url }) => { safeExternal(url); return { action: 'deny' }; });
       window.webContents.on('will-navigate', (event, url) => { if (new URL(url).origin !== website) { event.preventDefault(); safeExternal(url); } });
       window.webContents.on('will-attach-webview', event => event.preventDefault());
-      window.webContents.on('render-process-gone', () => { report({ status: 'renderer-stopped' }); if (!smoke) void dialog.showMessageBox({ type: 'error', message: '页面已停止，请重新打开应用。' }); app.quit(); });
-      window.on('close', event => { if (!quitting && !smoke) { event.preventDefault(); window.hide(); } });
+      window.webContents.on('render-process-gone', () => { rendererReady = false; taskBridgeActive = false; taskState = { active: 0, paused: 0 }; report({ status: 'renderer-stopped' }); if (!smoke) void dialog.showMessageBox({ type: 'error', message: '页面已停止，请重新打开应用。' }); app.quit(); });
+      window.on('close', event => { if (!quitting && !smoke) { event.preventDefault(); if (taskState.active) void askTaskClose(true); else window.hide(); } });
       window.webContents.on('did-finish-load', () => {
+        rendererReady = true;
         report({ status: 'ready', url: website, version: app.getVersion(), title: window.getTitle(), proxy: proxyEnabled });
         if (smoke) setTimeout(() => app.quit(), 1200); else showWindow();
       });
@@ -224,6 +248,8 @@ else {
   });
 }
 app.on('before-quit', event => {
+  if (!smoke && !quitApproved && taskState.active && !shutdownRequested) { event.preventDefault(); void askTaskClose(); return; }
+  if (!smoke && !quitApproved && rendererReady && taskBridgeActive && !shutdownRequested && window && !window.isDestroyed()) { event.preventDefault(); if (!quitPrompt) { quitPrompt = true; void saveBeforeQuit().finally(() => { quitPrompt = false; }); } return; }
   launchEpoch++; const externalClosed=Promise.allSettled([externalMCP.stopAll(),documentParser.close()]);
   mcpServer?.close();
   douyinAuth.cancel();

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { createMCPClient, localMCPEndpoint, mcpValue } from './mcp-client.mjs';
 import { isLocalClient } from './ai-routes.mjs';
+import { canUseTeamWorkspace } from './workspace-access.mjs';
 import { assert, touch, importComments } from './domain.mjs';
 import { updatePlatformDelivery } from './platform-delivery.mjs';
 import { commentSource, sameCommentWork } from '../desktop/comment-source.mjs';
@@ -11,6 +12,7 @@ import { researchQueries, researchAt, researchText } from './research-sources.mj
 import { douyinMCPLogin, douyinMCPDraft, douyinMCPPlan } from './douyin-mcp-adapter.mjs';
 import { PLATFORM_IDS, PLATFORM_NAMES, hasBuiltinPageAssistant } from './platform-catalog.mjs';
 import { matrixCapabilities, matrixResearchSearch, matrixComments, matrixCheckLogin, matrixPublishPlan, matrixPublishReceipt, matrixPublishOptions } from './matrix-adapters.mjs';
+import { prepareXhsTopics } from './xhs-topics.mjs';
 
 const platformSchema = z.enum(PLATFORM_IDS);
 const accountIdSchema = z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/);
@@ -97,8 +99,11 @@ export function xhsMCPResearchItem(value, feedId, { at, token = '', secrets = []
 }
 export function mountMCPPlatforms(app, store, config, { project, activeJobs }) {
   const locks = new Set(), checks = new Map(), previews = new Map(), publishOptions = new Map();
-  const local = req => assert(isLocalClient(req), 'MCP 仅在本机完整版中使用；不会把本机服务暴露给网站后端', 403);
-  async function accountSettings(platform) {
+  const local = req => assert(config.teamMode === true ? canUseTeamWorkspace(req, config) : isLocalClient(req), 'MCP 需要本机完整版或已登录的团队工作区；浏览器演示版不可访问主机连接', 403);
+  const actorId = () => config.teamMode === true ? config.getActor?.()?.userId || '' : '';
+  const checkKey = (platform, accountId) => `${platform}:${accountId}`;
+  const clearChecks = platform => { for (const key of checks.keys()) if (key.startsWith(`${platform}:`)) checks.delete(key); };
+  async function rawAccountSettings(platform) {
     const vault = config.mcpVaults?.[platform];
     const saved = vault?.status().configured ? JSON.parse(await vault.getKey()) : { mode: hasBuiltinPageAssistant(platform) ? 'builtin' : 'external', endpoint: '' };
     if (saved.version === 2 && Array.isArray(saved.accounts) && saved.accounts.length) {
@@ -107,6 +112,14 @@ export function mountMCPPlatforms(app, store, config, { project, activeJobs }) {
       return saved;
     }
     return { version: 2, activeAccountId: 'default', accounts: [{ id: 'default', name: '默认账号', ...saved }] };
+  }
+  async function accountSettings(platform) {
+    // Capture the member's choice before the vault read. Other members' choices
+    // never change this value or the shared vault's legacy default.
+    const preferred = config.teamMode === true ? store.get().mcpActiveAccounts?.[platform] : undefined;
+    const saved = await rawAccountSettings(platform);
+    if (preferred && saved.accounts.some(account => account.id === preferred)) return { ...saved, activeAccountId: preferred };
+    return saved;
   }
   async function connection(platform) {
     const settings = await accountSettings(platform), saved = settings.accounts.find(account => account.id === settings.activeAccountId);
@@ -118,21 +131,38 @@ export function mountMCPPlatforms(app, store, config, { project, activeJobs }) {
   }
   async function saveAccounts(platform, settings) {
     const vault = config.mcpVaults?.[platform]; assert(vault?.status().supported, '当前系统尚未提供安全保险箱');
-    await vault.save(JSON.stringify(settings)); checks.delete(platform);
+    const prior = config.teamMode === true ? await rawAccountSettings(platform) : null;
+    const persisted = prior ? { ...settings, activeAccountId: settings.accounts.some(account => account.id === prior.activeAccountId) ? prior.activeAccountId : settings.accounts[0].id } : settings;
+    await vault.save(JSON.stringify(persisted)); clearChecks(platform);
+    if (config.teamMode === true) store.mutate(state => { state.mcpActiveAccounts ||= {}; state.mcpActiveAccounts[platform] = settings.activeAccountId; });
+    mirrorAccounts(platform, settings);
+  }
+  function mirrorAccounts(platform, settings) {
     // A platform login and a publication label are distinct, with an explicit
     // stable link. Old manual labels and historical publication IDs are retained.
     store.mutate(state => {
+      state.activeCreationAccounts ||= {};
       for (const account of settings.accounts) {
         const existing = state.accounts.find(item => item.platform === platform && item.mcpAccountId === account.id);
         if (existing) existing.name = account.name;
         else state.accounts.push({ id: `mcp-${platform}-${account.id}`, platform, name: account.name, mcpAccountId: account.id, connected: false, autoPublish: false, autoComments: false, note: 'MCP 账号关联标识；发布前核对实际平台账号' });
       }
+      state.activeCreationAccounts[platform] = state.accounts.find(item => item.platform === platform && item.mcpAccountId === settings.activeAccountId).id;
     });
   }
   async function status(platform) {
-    const saved = await connection(platform), settings = await accountSettings(platform), builtinAvailable = hasBuiltinPageAssistant(platform) && !!config.desktopMCP?.endpoint;
+    const settings = await accountSettings(platform), selected = settings.accounts.find(account => account.id === settings.activeAccountId);
+    const saved = { ...selected, accountId: selected.id, accountName: selected.name }, builtinAvailable = config.teamMode !== true && hasBuiltinPageAssistant(platform) && !!config.desktopMCP?.endpoint;
+    // Upgrade existing vault accounts lazily without rewriting credentials or
+    // requiring the user to reconnect simply to edit their identity memory.
+    if (config.mcpVaults?.[platform]?.status().configured) {
+      const state = store.get();
+      const active = state.accounts.find(item => item.platform === platform && item.mcpAccountId === settings.activeAccountId);
+      if (!active || state.activeCreationAccounts?.[platform] !== active.id || settings.accounts.some(account => !state.accounts.some(item => item.platform === platform && item.mcpAccountId === account.id && item.name === account.name))) mirrorAccounts(platform, settings);
+    }
     const accounts = settings.accounts.map(account => ({ id: account.id, name: account.name, mode: account.mode, endpoint: account.mode === 'external' ? account.endpoint : '', tokenConfigured: !!account.apiKey }));
-    return { platform, accountId: saved.accountId, accountName: saved.accountName, remoteAccount: saved.remoteAccount || '', readEndpoint:saved.readEndpoint || '',readTokenConfigured:!!saved.readApiKey,accounts, mode: saved.mode, endpoint: saved.mode === 'external' ? saved.endpoint : '', tokenConfigured: !!saved.apiKey, builtinAvailable, editable: !!config.mcpVaults?.[platform]?.status().supported, ...(checks.get(platform) || {}), connected: !!checks.get(platform)?.checkedAt };
+    const checked = checks.get(checkKey(platform, saved.accountId));
+    return { platform, accountId: saved.accountId, accountName: saved.accountName, remoteAccount: saved.remoteAccount || '', readEndpoint:saved.readEndpoint || '',readTokenConfigured:!!saved.readApiKey,accounts, mode: saved.mode, endpoint: saved.mode === 'external' ? saved.endpoint : '', tokenConfigured: !!saved.apiKey, builtinAvailable, editable: !!config.mcpVaults?.[platform]?.status().supported && (config.teamMode !== true || config.getActor?.()?.role === 'admin'), ...(checked || {}), connected: !!checked?.checkedAt };
   }
   async function connected(platform, work, requestedAccount, chooseAccount = false, purpose = 'primary') {
     assert(!locks.has(platform), '该平台正在执行 MCP 任务，请先完成当前操作', 409); locks.add(platform);
@@ -147,14 +177,16 @@ export function mountMCPPlatforms(app, store, config, { project, activeJobs }) {
       const reading = purpose === 'read' && saved.mode === 'external' && !!saved.readEndpoint;
       if(reading)saved = {...saved,endpoint:saved.readEndpoint,apiKey:saved.readApiKey || ''};
       const builtin = saved.mode === 'builtin';
+      assert(!builtin || config.teamMode !== true, '团队浏览器不能打开桌面页面助手；请由管理员在主机连接独立 MCP 服务后使用。', 409);
       assert(!builtin || hasBuiltinPageAssistant(platform) && config.desktopMCP?.endpoint, '此平台需要独立 MCP 服务，请在账号设置中按引导连接');
       client = createMCPClient({ endpoint: builtin ? config.desktopMCP.endpoint : saved.endpoint, token: builtin ? config.desktopMCP.token : saved.apiKey || '', ...(config.mcpFetcher ? { fetcher: config.mcpFetcher } : {}), timeout: builtin ? 65 * 60000 : 5 * 60000 });
-      if (saved.accountId === activeConnection.accountId && !reading) checks.delete(platform);
+      const cacheKey = checkKey(platform, saved.accountId);
+      if (saved.accountId === activeConnection.accountId && !reading) checks.delete(cacheKey);
       const tools = await client.connect(), available = capabilities(tools, saved.mode, platform);
       assert(['image','video','comments','search','login','loginStatus'].some(key => available[key] === true), `服务已响应，但没有兼容的${PLATFORM_NAMES[platform]}工具。请核对平台、服务项目与版本；不能把小红书服务地址填到抖音。`, 502);
       if (saved.accountId === activeConnection.accountId) {
-        const previous = checks.get(platform);
-        checks.set(platform, {checkedAt:new Date().toISOString(),capabilities:reading ? {...previous?.capabilities,comments:available.comments,search:available.search,readNotice:available.notice} : available,toolCount:tools.length});
+        const previous = checks.get(cacheKey);
+        checks.set(cacheKey, {checkedAt:new Date().toISOString(),capabilities:reading ? {...previous?.capabilities,comments:available.comments,search:available.search,readNotice:available.notice} : available,toolCount:tools.length});
       }
       return await work(client, saved.mode, available, saved, tools);
     } finally { await client?.close(); locks.delete(platform); }
@@ -168,7 +200,7 @@ export function mountMCPPlatforms(app, store, config, { project, activeJobs }) {
     const selected = input.accountId ? settings.accounts.find(item => item.id === input.accountId) : null;
     if (input.accountId) assert(selected, '找不到所选研究账号', 404);
     const saved = selected ? { ...selected, accountId: selected.id, accountName: selected.name } : active;
-    const cached = saved.accountId === active.accountId ? checks.get(platform) : undefined;
+    const cached = checks.get(checkKey(platform, saved.accountId));
     const identity = { sourceAccountId: saved.accountId, sourceAccountName: saved.accountName, accounts: settings.accounts.map(item => ({id:item.id,name:item.name,configured:item.mode === 'external' && !!(item.readEndpoint || item.endpoint)})) };
     const endpoint = saved.readEndpoint || saved.endpoint;
     const supported = saved.mode === 'external' && !!endpoint && (saved.readEndpoint || !cached?.capabilities || cached.capabilities.search === true);
@@ -260,7 +292,14 @@ export function mountMCPPlatforms(app, store, config, { project, activeJobs }) {
   app.post('/api/mcp/:platform/accounts/:accountId/activate', async (req, res) => {
     local(req); const platform = platformSchema.parse(req.params.platform), accountId = accountIdSchema.parse(req.params.accountId);
     assert(!locks.has(platform), 'MCP 任务尚未结束，不能切换账号', 409); locks.add(platform);
-    try { const settings = await accountSettings(platform); assert(settings.accounts.some(account => account.id === accountId), '找不到这个平台账号', 404); settings.activeAccountId = accountId; await saveAccounts(platform, settings); res.json(await status(platform)); } finally { locks.delete(platform); }
+    try {
+      const settings = await accountSettings(platform); assert(settings.accounts.some(account => account.id === accountId), '找不到这个平台账号', 404); settings.activeAccountId = accountId;
+      if (config.teamMode === true) {
+        store.mutate(state => { state.mcpActiveAccounts ||= {}; state.mcpActiveAccounts[platform] = accountId; });
+        mirrorAccounts(platform, settings);
+      } else await saveAccounts(platform, settings);
+      res.json(await status(platform));
+    } finally { locks.delete(platform); }
   });
   app.put('/api/mcp/:platform/accounts/:accountId', async (req, res) => {
     local(req); const platform = platformSchema.parse(req.params.platform), accountId = accountIdSchema.parse(req.params.accountId), { name } = z.object({ name: accountNameSchema }).strict().parse(req.body);
@@ -325,14 +364,14 @@ export function mountMCPPlatforms(app, store, config, { project, activeJobs }) {
       const options = await matrixPublishOptions({platform,client,tools,remoteAccount:saved.remoteAccount});
       for (const [key,item] of publishOptions) if(item.expires < Date.now()) publishOptions.delete(key);
       while(publishOptions.size >= 20) publishOptions.delete(publishOptions.keys().next().value);
-      const preflightId = randomUUID(); publishOptions.set(preflightId,{platform,accountId:saved.accountId,endpoint:saved.endpoint,remoteAccount:saved.remoteAccount || '',options,expires:Date.now()+10*60000});
+      const preflightId = randomUUID(); publishOptions.set(preflightId,{platform,accountId:saved.accountId,actorId:actorId(),endpoint:saved.endpoint,remoteAccount:saved.remoteAccount || '',options,expires:Date.now()+10*60000});
       return {...options,preflightId};
     }, data.accountId);
     res.json(result);
   });
   app.post('/api/projects/:id/publications/:publicationId/mcp/publish', async (req, res) => {
     local(req);
-    const data = z.object({ confirmed: z.literal(true), expectedRevision: z.number().int(), title: z.string().trim().min(1).max(100), body: z.string().max(4000), accountId: accountIdSchema.optional(), publicMediaUrl:z.string().max(2048).optional(), privacy:z.string().max(40).optional(), preflightId:z.string().uuid().optional(), brandOrganic:z.boolean().optional(),brandContent:z.boolean().optional(),aiGenerated:z.boolean().optional(),allowComments:z.boolean().optional(),allowDuet:z.boolean().optional(),allowStitch:z.boolean().optional(),musicConfirmed:z.boolean().optional(),brandedContentConfirmed:z.boolean().optional(),durationSeconds:z.number().positive().max(86400).optional() }).strict().parse(req.body);
+    const data = z.object({ confirmed: z.literal(true), expectedRevision: z.number().int(), title: z.string().trim().min(1).max(100), body: z.string().max(4000), tags:z.array(z.string().max(300)).max(100).optional(), accountId: accountIdSchema.optional(), publicMediaUrl:z.string().max(2048).optional(), privacy:z.string().max(40).optional(), preflightId:z.string().uuid().optional(), brandOrganic:z.boolean().optional(),brandContent:z.boolean().optional(),aiGenerated:z.boolean().optional(),allowComments:z.boolean().optional(),allowDuet:z.boolean().optional(),allowStitch:z.boolean().optional(),musicConfirmed:z.boolean().optional(),brandedContentConfirmed:z.boolean().optional(),durationSeconds:z.number().positive().max(86400).optional() }).strict().parse(req.body);
     assert(!activeJobs.has(req.params.id), '项目还有任务进行中', 409); activeJobs.add(req.params.id);
     try {
       const p = project(store.get(), req.params.id), pub = p.publications.find(p => p.id === req.params.publicationId);
@@ -345,11 +384,13 @@ export function mountMCPPlatforms(app, store, config, { project, activeJobs }) {
         const publicationAccount = store.get().accounts.find(item => item.id === pub.accountId);
         assert(!publicationAccount?.mcpAccountId || publicationAccount.mcpAccountId === saved.accountId, '所选发布账号与当前 MCP 账号不一致，请切换连接后重新确认', 409);
         assert(pub.mime.startsWith('image/') ? caps.image : caps.video, '所连接 MCP 没有兼容的素材发布工具，请检查服务版本');
+        assert(data.tags === undefined || mode === 'external' && pub.platform === 'xiaohongshu', '独立话题列表仅用于小红书外部 MCP；其他方式请在平台选择话题');
         if (mode === 'builtin') {
           const response = mcpValue(await client.call('studio_publish', { ...draft, projectId: p.id, publicationId: pub.id, sessionToken: (req.get('Authorization') || '').replace(/^Bearer /, '') }));
           assert(response && !response.error, response?.error ? '内置助手未完成，请检查官方页面和待办状态' : 'MCP 响应无法识别', 502);
           return { cancelled: !!response.cancelled, attempted: !!response.attempted, note: response.receipt ? '平台已返回回执，请核对审核状态后登记发布结果。' : response.attempted ? '已尝试提交，请在官方作品列表核对。不会自动重复发布。' : '本次尚未提交，可检查草稿后继续。' };
         }
+        const xhsTopics = pub.platform === 'xiaohongshu' ? prepareXhsTopics(draft.body, data.tags) : null;
         const staged = await creatorPayload.stageDraft(draft, config.mcpTempRoot || tmpdir());
         const attemptId = randomUUID();
         try {
@@ -357,7 +398,7 @@ export function mountMCPPlatforms(app, store, config, { project, activeJobs }) {
             let creatorOptions;
             if (pub.platform === 'tiktok') {
               const preflight = publishOptions.get(data.preflightId);
-              assert(preflight && preflight.expires > Date.now() && preflight.accountId === saved.accountId && preflight.endpoint === saved.endpoint && preflight.remoteAccount === (saved.remoteAccount || ''), 'TikTok 发布权限预检已过期或账号已变化，请重新读取并确认', 409);
+              assert(preflight && preflight.actorId === actorId() && preflight.expires > Date.now() && preflight.accountId === saved.accountId && preflight.endpoint === saved.endpoint && preflight.remoteAccount === (saved.remoteAccount || ''), 'TikTok 发布权限预检已过期、操作人或账号已变化，请重新读取并确认', 409);
               const currentOptions = await matrixPublishOptions({platform:pub.platform,client,tools,remoteAccount:saved.remoteAccount});
               assert(['accountIdentity','creatorNickname','creatorUsername','commentDisabled','duetDisabled','stitchDisabled','maxVideoDurationSeconds'].every(key=>currentOptions[key]===preflight.options[key]) && JSON.stringify(currentOptions.privacyOptions)===JSON.stringify(preflight.options.privacyOptions), 'TikTok 实际授权账号或发布权限已变化，请重新预检并确认',409);
               creatorOptions = currentOptions;
@@ -378,12 +419,12 @@ export function mountMCPPlatforms(app, store, config, { project, activeJobs }) {
             await client.call(request.name,{...request.args,plan_id:plan,confirm:true});
             return {attempted:true,note:'抖音 MCP 已返回。请在官方作品列表核对是否提交并登记链接；未取得作品编号时保留重试锁，不自动重复发布。'};
           }
-          store.mutate(state => { const current = project(state, p.id); updatePlatformDelivery(current, pub.id, { action: 'start', platform: pub.platform, attemptId, title: draft.title, body: draft.body }); touch(current); });
+          store.mutate(state => { const current = project(state, p.id); updatePlatformDelivery(current, pub.id, { action: 'start', platform: pub.platform, attemptId, title: draft.title, body: xhsTopics.bodyWithTopics, tags: xhsTopics.tags }); touch(current); });
           const image = pub.mime.startsWith('image/');
-          const response = mcpValue(await client.call(image ? 'publish_content' : 'publish_with_video', { title: draft.title, content: draft.body, ...(image ? { images: [staged.file] } : { video: staged.file }), tags: [] }));
+          const response = mcpValue(await client.call(image ? 'publish_content' : 'publish_with_video', { title: draft.title, content: xhsTopics.content, ...(image ? { images: [staged.file] } : { video: staged.file }), tags: xhsTopics.tags }));
           const candidate = response?.note_id || response?.noteId || response?.feed_id || response?.data?.note_id;
           if (typeof candidate === 'string' && /^[a-f0-9]{24}$/i.test(candidate)) store.mutate(state => { const current = project(state, p.id); updatePlatformDelivery(current, pub.id, { action: 'receipt', attemptId, url: `https://www.xiaohongshu.com/explore/${candidate}` }); touch(current); });
-          return { attempted: true, note: 'MCP 调用已返回，请核对平台作品列表并登记真实链接；未取得作品编号时保留重试锁。' };
+          return { attempted: true, note: `MCP 调用已返回，已传递 ${xhsTopics.tags.length} 个话题候选。该服务未返回逐项话题关联结果，请在平台核对实际话题与作品链接；未取得作品编号时保留重试锁。` };
         } finally { await staged.dispose(); }
       }, data.accountId);
       res.json({ result, state: store.get() });
@@ -391,11 +432,13 @@ export function mountMCPPlatforms(app, store, config, { project, activeJobs }) {
   });
   app.post('/api/projects/:id/publications/:publicationId/mcp/comments', async (req, res) => {
     local(req); const data = commentOptions.parse(req.body);
+    let capturedAccountId;
     const p = project(store.get(), req.params.id), pub = p.publications.find(p => p.id === req.params.publicationId);
     assert(pub?.status === 'published' && !pub.sample, '请先登记自己作品的真实发布链接');
     const expected = commentSource(pub.url), work = commentSource(data.sourceUrl || pub.url);
     assert(sameCommentWork(expected, work) && work.platform === pub.platform, '采集链接与所选作品不一致');
     const result = await connected(pub.platform, async (client, mode, caps, saved, tools) => {
+      capturedAccountId = saved.accountId;
       const publicationAccount = store.get().accounts.find(item => item.id === pub.accountId);
       assert(!publicationAccount?.mcpAccountId || publicationAccount.mcpAccountId === saved.accountId, '当前 MCP 账号与所选作品账号不一致，请先切换连接', 409);
       assert(caps.comments, pub.platform==='douyin'&&mode==='external' ? '当前抖音外部 MCP 支持发布，但未提供评论工具。请在账号设置切换为“应用自带页面助手”，登录后再读取自己的作品评论。' : '此 MCP 没有兼容的评论读取工具');
@@ -416,13 +459,13 @@ export function mountMCPPlatforms(app, store, config, { project, activeJobs }) {
     const safe = { rows: result.rows.slice(0, data.limit), sourceUrl: work.canonical, mode: 'page', includeReplies: data.includeReplies, limited: true, notice: typeof result.notice === 'string' ? result.notice.slice(0, 500) : '本次读取为部分评论，导入前请核对。' };
     for (const [key, item] of previews) if (item.expires < Date.now()) previews.delete(key);
     while (previews.size >= 10) previews.delete(previews.keys().next().value);
-    const previewId = randomUUID(); previews.set(previewId, { ...safe, projectId: p.id, publicationId: pub.id, sourceAccountId:data.accountId || 'default', expires: Date.now() + 30 * 60000 });
+    const previewId = randomUUID(); previews.set(previewId, { ...safe, projectId: p.id, publicationId: pub.id, actorId:actorId(), sourceAccountId:capturedAccountId, expires: Date.now() + 30 * 60000 });
     res.json({ ...safe, previewId });
   });
   app.post('/api/projects/:id/publications/:publicationId/mcp/comments/import', (req, res) => {
     local(req); const data = z.object({ previewId: z.string().uuid(), confirmed: z.literal(true), indices: z.array(z.number().int().min(0).max(999)).min(1).max(1000) }).strict().parse(req.body);
     const preview = previews.get(data.previewId);
-    assert(preview && preview.expires > Date.now() && preview.projectId === req.params.id && preview.publicationId === req.params.publicationId, '预览已过期或作品不匹配，请重新采集', 409);
+    assert(preview && preview.actorId === actorId() && preview.expires > Date.now() && preview.projectId === req.params.id && preview.publicationId === req.params.publicationId, '预览已过期、操作人或作品不匹配，请重新采集', 409);
     const rows = [...new Set(data.indices)].map(i => preview.rows[i]); assert(rows.every(Boolean), '勾选评论编号无效');
     const result = store.mutate(state => { const p = project(state, req.params.id); return importComments(p, { source: 'mcp', publicationId: req.params.publicationId, sourceUrl: preview.sourceUrl, mode: 'page', confirmed: true, rows }); });
     previews.delete(data.previewId); res.json({ result, state: store.get() });

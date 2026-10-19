@@ -7,14 +7,17 @@ test('offline shell uses its own deployment scope and preserves other applicatio
   const handlers = {}, removed = [], requested = [];
   const fallback = new Response('correct scoped shell');
   const scope = 'https://someone.github.io/shengzhang-studio/';
-  const currentCache = `shengzhang-shell:/shengzhang-studio/:v4`;
+  const workerSource = readFileSync(new URL('../public/sw.js', import.meta.url), 'utf8');
+  const cacheVersion = workerSource.match(/const CACHE = `\$\{PREFIX\}(v\d+)`;/)?.[1];
+  assert.ok(cacheVersion, 'The service worker must declare a versioned deployment cache');
+  const currentCache = `shengzhang-shell:/shengzhang-studio/:${cacheVersion}`;
   const context = { URL, Response, self: { registration: { scope }, skipWaiting() {}, clients: { claim() {} }, addEventListener(name, fn) { handlers[name] = fn; } },
     fetch: async () => { throw Error('offline'); }, caches: {
       keys: async () => [currentCache, 'shengzhang-shell:/shengzhang-studio/:v2', 'other-application', 'shengzhang-shell:/another-repo/:v2'],
       delete: async name => { removed.push(name); },
       open: async name => { assert.equal(name, currentCache); return { match: async key => { requested.push(key); return key === scope ? fallback : undefined; } }; },
     } };
-  vm.runInNewContext(readFileSync(new URL('../public/sw.js', import.meta.url), 'utf8'), context);
+  vm.runInNewContext(workerSource, context);
   let activation; handlers.activate({ waitUntil(p) { activation = p; } }); await activation;
   assert.deepEqual(removed, ['shengzhang-shell:/shengzhang-studio/:v2']);
   for (const url of ['https://someone.github.io/other-repo/', scope + 'api/state', scope + 'downloads/file', scope + 'backend.json?t=1', scope + 'oauth-callback.html?code=test', 'https://elsewhere.example/']) {

@@ -33,10 +33,18 @@ export type ResearchAnalysis = {
   tags: string[]; evidence: ResearchEvidence[]; limitations: string; risk: ResearchRisk; riskReason: string;
   discovery?: XhsDiscovery; growthAdvice?: ResearchGrowthAdvice[];
 };
-export type ResearchReport = { sourceId: string; name: string; status: 'ok' | 'failed' | 'skipped'; count: number; message: string };
+export type ResearchExcluded = Record<'invalid' | 'unsafeUrl' | 'missingDate' | 'uncertainDate' | 'future' | 'expired' | 'noteType' | 'emptyContent' | 'dispute' | 'blocked' | 'duplicate' | 'limit', number>;
+export type ResearchCollectionStats = Record<'rawCount' | 'normalizedCount' | 'invalidCount' | 'duplicateCount' | 'missingDateCount' | 'emptyContentCount' | 'searchRequests' | 'detailRequests', number>;
+export type ResearchReport = { sourceId: string; name: string; status: 'ok' | 'failed' | 'skipped'; count: number; message: string; stats?: ResearchCollectionStats };
+export type ResearchSummary = {
+  runId: string; mode: 'collected' | 'reused'; candidateCount: number; eligibleCount: number; pendingCount: number; analysisCount: number;
+  sourceReports: number; failedSources: number; excluded: ResearchExcluded;
+  collection: { coverage: 'complete' | 'partial' | 'unavailable'; reportCount: number } & { [K in keyof ResearchCollectionStats]: number | null };
+};
 export type ResearchState = {
   revision: number; references: ResearchReference[]; analyses: ResearchAnalysis[]; selectedIds: string[];
   reports: ResearchReport[]; queries: string[]; acknowledgedIds?: string[]; selectedAt?: string;
+  summary?: ResearchSummary;
   pendingReferences?: { title: string; url: string; reason: string }[];
   keywords?: string[]; blockTerms?: string[]; genericTerms?: string[];
   settings?: { keywords?: string[]; blockTerms?: string[]; genericTerms?: string[] };
@@ -57,10 +65,14 @@ export type ResearchCorpus = {
 export const RESEARCH_WEEK: number;
 export const RESEARCH_MAX_REFERENCES: number;
 export const RESEARCH_MAX_TEXT: number;
+export const RESEARCH_EXCLUDED_KEYS: readonly (keyof ResearchExcluded)[];
+export const RESEARCH_COLLECTION_STATS: readonly (keyof ResearchCollectionStats)[];
 export function cleanReferences(raw: RawResearchReference[], options?: { keywords?: string[]; blockTerms?: string[]; genericTerms?: string[]; at?: number | string | Date; discovery?: XhsDiscovery }): {
   references: ResearchReference[];
-  excluded: Record<'invalid' | 'unsafeUrl' | 'missingDate' | 'uncertainDate' | 'future' | 'expired' | 'noteType' | 'emptyContent' | 'dispute' | 'blocked' | 'duplicate' | 'limit', number>;
+  excluded: ResearchExcluded;
 };
+export function researchSummary(input: { runId: string; mode?: 'collected' | 'reused'; raw?: unknown[]; cleaned?: { references?: ResearchReference[]; excluded?: ResearchExcluded }; reports?: ResearchReport[]; pendingReferences?: { title: string; url: string; reason: string }[]; analysisCount?: number }): ResearchSummary;
+export function researchEmptyReason(summary: ResearchSummary): string;
 export function rankXhsReferences(references: ResearchReference[], options?: { keywords?: string[]; sortBy?: XhsDiscovery['sortBy'] }): ResearchReference[];
 export function researchOf(project?: { research?: ResearchState }): ResearchState;
 export function researchCorpus(projectOrReferences: ResearchProject | ResearchReference[], projectId?: string): ResearchCorpus;

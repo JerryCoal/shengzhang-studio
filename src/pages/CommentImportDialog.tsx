@@ -7,9 +7,9 @@ import { commentSource, sameCommentWork } from '../../desktop/comment-source.mjs
 import '../comment-import.css';
 
 export function CommentImportDialog({ onClose }: { onClose: () => void }) {
-  const { project, mutate, run, busy, notify } = useStudio();
+  const { project, mutate, run, busy, notify, target } = useStudio();
   const published = project!.publications.filter(p=>p.status==='published');
-  const [publicationId,setPublicationId]=useState(published.find(p=>!p.sample)?.id||published[0]?.id||'');
+  const [publicationId,setPublicationId]=useState(published.find(p=>p.id===target.publicationId)?.id||published.find(p=>!p.sample)?.id||published[0]?.id||'');
   const [tab,setTab]=useState<'page'|'paste'>(hasDesktopCommentCapture()?'page':'paste');
   const [text,setText]=useState(''),[fileSource,setFileSource]=useState('paste');
   const [capture,setCapture]=useState<CommentCaptureResult|null>(null),[rows,setRows]=useState<CapturedComment[]>([]),[included,setIncluded]=useState<Set<number>>(new Set());

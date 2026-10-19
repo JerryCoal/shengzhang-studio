@@ -5,6 +5,7 @@ import { useStudio } from '../context';
 import { canGenerate } from '../model-provider';
 import type { CorpusPurpose, DocumentContextCard, DocumentContextItem, DocumentContextState, Project } from '../types';
 import '../corpus-context.css';
+import { WorkflowSkillSummary } from '../pages/CreativeSkills';
 
 export const CORPUS_PURPOSE_LABELS: Record<CorpusPurpose, string> = { product_facts: '产品事实', event_plan: '活动安排', brand_guidelines: '品牌规范', style_sample: '文风样本' };
 const KIND_LABELS: Record<DocumentContextItem['kind'], string> = { fact: '事实', audience: '受众', use_case: '用途', price_terms: '价格与条件', brand_rule: '品牌规范', style_note: '表达习惯' };
@@ -43,6 +44,7 @@ export function CorpusContext({ project }: { project: Project }) {
   return <section className="panel document-context" aria-label="项目资料卡">
     <div className="section-heading"><div><h2><FileCheck2 size={19}/>项目资料卡</h2><p className="muted">从选定文档整理事实与表达要求，核对原文后再选择采纳。</p></div></div>
     {!available ? <p className="small-note">资料提炼与采纳需要 Windows 版的本机加密工作区。此处仍可导入正文、设置用途和本地检索。</p> : <>
+      <WorkflowSkillSummary workflowId="document-context"/>
       <div className="document-context-select" role="group" aria-label="选择要提炼的文档">{docs.length ? docs.map(doc => <label key={doc.id}><input type="checkbox" checked={selected.includes(doc.id)} disabled={busy} onChange={() => { setSelected(toggle(selected, doc.id)); setConfirming(false); }}/><span>{doc.name}<small>{CORPUS_PURPOSE_LABELS[doc.purpose || 'product_facts']} · {doc.text.length.toLocaleString()} 字符</small></span></label>) : <p className="small-note">先导入并启用资料，再选择本次要提炼的文档。</p>}</div>
       <p className="small-note">已选 {chosen.length} / 8 份 · {count.toLocaleString()} / 24,000 字符。使用“宣传策略”配置的 {settings.routes.strategy}，计入项目生成预算。不会截断文档后假装已读全文。</p>
       {!canGenerate(settings, 'strategy') && <p className="small-note">请先在连接与设置中配置宣传策略使用的模型。</p>}

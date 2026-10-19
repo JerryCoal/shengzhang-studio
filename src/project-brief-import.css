@@ -1,0 +1,52 @@
+.brief-import { border: 1px solid #dce3ee; border-radius: 14px; background: #fbfcfe; margin: 0 0 24px; overflow: hidden; min-width: 0; }
+.brief-import-toggle { width: 100%; display: flex; gap: 12px; align-items: center; padding: 18px; text-align: left; color: #24334c; border: 0; background: transparent; cursor: pointer; }
+.brief-import-toggle > span:nth-child(2) { flex: 1; min-width: 0; }
+.brief-import-toggle strong { display: block; font-size: 14px; }
+.brief-import-toggle small { display: block; color: #6a7486; margin-top: 5px; line-height: 1.5; }
+.brief-import-toggle > svg { flex: none; transition: transform .18s; }
+.brief-import-toggle > svg.is-open { transform: rotate(180deg); }
+.brief-import-icon { display: grid; place-items: center; flex: none; width: 40px; height: 40px; border-radius: 10px; color: #426ab1; background: #edf2fa; }
+.brief-import-state { font-size: 12px; color: #426ab1; white-space: nowrap; }
+.brief-import-body { border-top: 1px solid #e6eaf1; padding: 18px; min-width: 0; }
+.brief-import-steps { display: flex; flex-wrap: wrap; gap: 10px 22px; font-size: 12px; color: #5b677d; margin-bottom: 18px; }
+.brief-import-steps b { display: inline-grid; place-items: center; width: 21px; height: 21px; border-radius: 50%; background: #e9eff9; color: #426ab1; margin-right: 4px; }
+.brief-import-source-row, .brief-import-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.brief-import-source-row > span, .brief-import-actions > span { font-size: 12px; color: #6a7486; overflow-wrap: anywhere; }
+.brief-import-file { display: none; }
+.brief-import-note { font-size: 12px; line-height: 1.7; color: #6a7486; margin: 10px 0; }
+.brief-import-source-label { display: block; font-size: 13px; font-weight: 600; color: #34415a; margin: 14px 0 7px; }
+.brief-import-source { display: block; width: 100%; min-height: 110px; resize: vertical; box-sizing: border-box; background: #fff; }
+.brief-import-size { text-align: right; font-size: 11px; color: #798294; margin: 6px 0 12px; line-height: 1.6; }
+.brief-import-size.is-error, .brief-import-error { color: #a43b3b; }
+.brief-import-warning { display: flex; align-items: flex-start; gap: 9px; padding: 11px 12px; background: #fff8e9; border: 1px solid #f1e0b8; border-radius: 9px; color: #775725; font-size: 12px; line-height: 1.7; margin: 10px 0; }
+.brief-import-warning > svg { margin-top: 3px; flex: none; }
+.brief-import-warning p { margin: 0; overflow-wrap: anywhere; }
+.brief-import-warning p + p { margin-top: 5px; }
+.brief-import-consent { background: #eef3fb; border-radius: 10px; padding: 14px; margin-top: 14px; font-size: 12px; color: #475b7b; line-height: 1.7; }
+.brief-import-consent p { margin: 0 0 10px; }
+.brief-import-consent > label { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 13px; }
+.brief-import-consent input[type=checkbox], .brief-import-candidate input[type=checkbox] { width: 16px; height: 16px; flex: none; margin: 3px 0 0; accent-color: #416db0; }
+.brief-import-progress { display: flex; align-items: flex-start; gap: 10px; padding: 14px; background: #eef3fb; border-radius: 10px; margin-top: 14px; color: #415a83; font-size: 12px; line-height: 1.7; }
+.brief-import-progress > svg { margin-top: 3px; flex: none; }
+.brief-import-progress p { margin: 4px 0 0; }
+.brief-import-job-meta { display: flex; flex-wrap: wrap; gap: 5px 16px; margin: 15px 0 0; font-size: 11px; color: #7b8493; line-height: 1.7; overflow-wrap: anywhere; }
+.brief-import-job-meta p { width: 100%; margin: 0; }
+.brief-import-results { margin-top: 18px; border-top: 1px solid #e0e6ef; padding-top: 15px; }
+.brief-import-results-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.brief-import-results-heading h4 { color: #2b3b56; font-size: 14px; margin: 0; }
+.brief-import-results-heading > span { font-size: 12px; color: #6a7486; }
+.brief-import-candidates { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 12px 0; }
+.brief-import-candidate { border: 1px solid #e0e5ed; border-radius: 10px; background: #fff; padding: 13px; min-width: 0; }
+.brief-import-candidate.is-selected { border-color: #aac0e3; box-shadow: inset 0 0 0 1px #dfe8f7; }
+.brief-import-candidate > label { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; color: #34415a; font-size: 13px; }
+.brief-import-value { font-size: 13px; color: #354358; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; margin: 11px 0; max-height: 240px; overflow-y: auto; }
+.brief-import-current, .brief-import-evidence { color: #778397; font-size: 11px; line-height: 1.7; }
+.brief-import-current { margin-top: 8px; color: #8b672d; }
+.brief-import-current summary, .brief-import-evidence summary { cursor: pointer; }
+.brief-import-current p { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow-y: auto; margin: 7px 0; }
+.brief-import-evidence blockquote { margin: 8px 0 0; padding-left: 9px; border-left: 2px solid #d9e2ef; white-space: pre-wrap; overflow-wrap: anywhere; }
+.brief-import-fact-note { font-size: 11px; color: #8b672d; margin: 8px 0; line-height: 1.7; }
+.brief-import-feedback, .brief-import-error { font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; margin: 12px 0 0; }
+.brief-import-feedback { color: #42618a; }
+.brief-import button:focus-visible, .brief-import summary:focus-visible { outline: 2px solid #7298d3; outline-offset: 3px; }
+@media (max-width: 640px) { .brief-import-toggle { padding: 14px 12px; gap: 9px; } .brief-import-body { padding: 13px; } .brief-import-candidates { grid-template-columns: minmax(0, 1fr); } .brief-import-icon { width: 34px; height: 34px; } .brief-import-actions .button { max-width: 100%; white-space: normal; } .brief-import-state { display: none; } }

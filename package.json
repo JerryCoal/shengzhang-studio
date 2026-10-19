@@ -1,6 +1,8 @@
 {
   "name": "creator-marketing-studio",
-  "version": "1.19.0",
+  "productName": "Shengzhang Studio 自媒体运营工作站",
+  "author": "JCoal",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -15,6 +17,8 @@
     "build:windows": "node scripts/compile-copy-skills.mjs && node scripts/build-windows.mjs",
     "start:windows-web": "node --use-env-proxy server/windows.mjs",
     "start": "node --env-file-if-exists=.env server/index.mjs",
+    "start:team": "node --env-file-if-exists=.env server/team.mjs",
+    "build:team": "node scripts/compile-copy-skills.mjs && tsc -b && vite build && node scripts/build-team.mjs",
     "test": "node scripts/compile-copy-skills.mjs --check && node --test tests/*.test.mjs",
     "check": "node scripts/compile-copy-skills.mjs && tsc -b && node --test tests/*.test.mjs",
     "native:android": "cap add android",

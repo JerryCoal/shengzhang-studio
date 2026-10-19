@@ -10,10 +10,10 @@ export function useProjectAutosave(initial: Brief, existing?: Project) {
   const [error, setError] = useState(false);
   const control = useRef({ key: existing?.id || 'new', latest: initial, saved: JSON.stringify(initial), version: 0, baseBrief: existing?.brief, ready: false, mounted: true, stopped: false, pending: null as Promise<Saved | undefined> | null, result: undefined as Saved | undefined, timer: undefined as ReturnType<typeof setTimeout> | undefined });
   const report = (message: string, failed = false) => { if (control.current.mounted) { setStatus(message); setError(failed); } };
-  const flush = (): Promise<Saved | undefined> => {
+  const flush = (force = false): Promise<Saved | undefined> => {
     const c = control.current; clearTimeout(c.timer);
-    if (c.pending) return c.pending.then(() => flush());
-    if (!c.ready || c.stopped || JSON.stringify(c.latest) === c.saved) return Promise.resolve(c.result);
+    if (c.pending) return c.pending.then(() => flush(force));
+    if (!c.ready || c.stopped || (!force && JSON.stringify(c.latest) === c.saved)) return Promise.resolve(c.result);
     const snapshot = structuredClone(c.latest); const serialized = JSON.stringify(snapshot);
     report('正在自动保存…');
     c.pending = api<Saved>(`/editor-drafts/${c.key}`, 'PUT', { brief: snapshot, expectedVersion: c.version, baseBrief: c.baseBrief }, { keepalive: true }).then(result => {
@@ -40,6 +40,16 @@ export function useProjectAutosave(initial: Brief, existing?: Project) {
   const set = <K extends keyof Brief>(key: K, value: Brief[K]) => {
     const c = control.current; c.latest = { ...c.latest, [key]: value }; setBrief(c.latest); report('有新修改，准备保存…'); clearTimeout(c.timer); c.timer = setTimeout(() => { void flush().catch(() => {}); }, 250);
   };
+  const applyPatch = (patch: Partial<Brief>, expected: Partial<Brief>): { applied: boolean; conflicts: (keyof Brief)[] } => {
+    const c = control.current;
+    if (!c.ready || c.stopped) throw new Error('项目草稿尚未就绪，请重新打开后再填入。');
+    const keys = Object.keys(patch) as (keyof Brief)[];
+    const conflicts = keys.filter(key => !Object.hasOwn(expected, key) || JSON.stringify(c.latest[key]) !== JSON.stringify(expected[key]));
+    if (conflicts.length) return { applied: false, conflicts };
+    c.latest = { ...c.latest, ...patch }; setBrief(c.latest); report('已填入所选资料，准备自动保存…');
+    clearTimeout(c.timer); c.timer = setTimeout(() => { void flush().catch(() => {}); }, 250);
+    return { applied: true, conflicts: [] };
+  };
   const discardSavedDraft = async () => {
     const c = control.current; await flush();
     if (c.version) await api(`/editor-drafts/${c.key}`, 'DELETE', { expectedVersion: c.version });
@@ -51,5 +61,5 @@ export function useProjectAutosave(initial: Brief, existing?: Project) {
     if (!p) throw new Error('项目不存在，请重新打开');
     c.version = state.projectDrafts?.[c.key]?.version || 0; c.baseBrief = p.brief; c.latest = p.brief; c.saved = ''; setBrief(p.brief); await flush();
   };
-  return { brief, set, ready, status, error, flush, discardSavedDraft, restoreCurrent };
+  return { brief, set, applyPatch, ready, status, error, flush, discardSavedDraft, restoreCurrent };
 }

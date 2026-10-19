@@ -1,0 +1,21 @@
+{
+	admin off
+	persist_config off
+	skip_install_trust
+	auto_https disable_redirects
+	storage file_system "{$STUDIO_TEAM_CADDY_STORAGE}"
+}
+
+{$STUDIO_TEAM_ORIGIN} {
+	bind {$STUDIO_TEAM_BIND:127.0.0.1}
+	tls internal
+	request_body {
+		max_size 33554432
+	}
+	reverse_proxy 127.0.0.1:{$STUDIO_TEAM_PORT:4320} {
+		header_up -Forwarded
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto https
+		header_up X-Forwarded-Host {host}
+	}
+}

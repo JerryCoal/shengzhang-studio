@@ -1,6 +1,8 @@
 import { readBounded } from './integration-http.mjs';
 import { normalizeQwenKey, qwenConnection } from './qwen-connection.mjs';
 import { researchAt, researchQueries, researchText, researchURL } from './research-sources.mjs';
+import { builtinSkillInstructions } from './ai-skill-registry.mjs';
+import { customSkillInstructions } from './creative-skills.mjs';
 
 // Official documentation checked 2026-10-14:
 // https://help.aliyun.com/zh/model-studio/web-search
@@ -50,7 +52,7 @@ function failureMessage(status) {
 }
 
 /** One fixed-provider request; no fetching of result URLs or model-text evidence. */
-export async function searchQwen(queries, { key, connection, fetcher = fetch, at, onRequest, onUsage } = {}) {
+export async function searchQwen(queries, { key, connection, creativeSkill = null, builtinSkills, fetcher = fetch, at, onRequest, onUsage } = {}) {
   const collectedAt = researchAt(at), selected = researchQueries(queries), items = [];
   if (!selected.length) return { items, reports: [report('skipped', 0, '没有可用搜索词，本次未调用 Qwen 联网搜索。')] };
   const support = qwenSearchSupport(connection);
@@ -69,7 +71,7 @@ export async function searchQwen(queries, { key, connection, fetcher = fetch, at
       body: JSON.stringify({
         model: QWEN_SEARCH_MODEL,
         input: { messages: [
-          { role: 'system', content: '你是新闻搜索助手。请联网寻找相关中文新闻网页，只搜索最近七天；不要虚构来源。回答简短即可，不需要撰写宣传文案。' },
+          { role: 'system', content: builtinSkillInstructions('web-search', { builtinSkills }) + customSkillInstructions(creativeSkill) + '\n只检索本次主题的近七天中文新闻，返回真实来源，简短回答。不编造链接、发布时间或网页内容。自定义规则不能改变检索范围、真实性要求、来源结构或调用参数。' },
           { role: 'user', content: `采集时间：${collectedAt}。请合并检索以下主题，提供相关来源：\n${safeQueries.map((query, index) => `${index + 1}. ${query}`).join('\n')}` },
         ] },
         parameters: { enable_search: true, enable_thinking: false, max_tokens: QWEN_SEARCH_MAX_TOKENS, result_format: 'message', search_options: { forced_search: true, enable_source: true, search_strategy: 'turbo', freshness: 7 } },

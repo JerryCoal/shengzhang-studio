@@ -10,11 +10,12 @@ const rowSchema = z.object({
   timeLabel: z.string().max(100).default(''),
   isReply: z.boolean().default(false),
 }).strict();
-const schema = z.object({ publicationId: z.string(), source: z.enum(['browser-page', 'mcp']), sourceUrl: z.string().max(8192), confirmed: z.literal(true), mode: z.enum(['page', 'selection']), rows: z.array(rowSchema).min(1).max(1000) }).strict();
+const schema = z.object({ publicationId: z.string(), source: z.enum(['browser-page', 'mcp', 'redfox']), sourceUrl: z.string().max(8192), confirmed: z.literal(true), mode: z.enum(['page', 'selection']), rows: z.array(rowSchema).min(1).max(1000) }).strict();
 const normalized = value => value.normalize('NFKC').replace(/\s+/g, '').toLowerCase();
 
-export function importCapturedComments(p, input, { assert, id, now, classify, touch }) {
+export function importCapturedComments(p, input, { assert, id, now, classify, touch, verifiedProvider }) {
   const data = schema.parse(input);
+  assert(data.source !== 'redfox' || verifiedProvider === 'redfox', '请从 Redfox 读取预览确认导入');
   assert(data.rows.reduce((n,r)=>n+r.text.length,0) <= 120000, '本次评论过多，请分批导入');
   const pub = p.publications.find(r => r.id === data.publicationId);
   assert(pub?.status === 'published' && !pub.sample, '请先登记自己作品的发布结果，再采集评论');
@@ -33,7 +34,7 @@ export function importCapturedComments(p, input, { assert, id, now, classify, to
       duplicates++;
       // Imported raw text and human classifications are immutable on repeated collection.
       if (row.platformCommentId && !old.platformCommentId) { old.platformCommentId = row.platformCommentId; ids.set(row.platformCommentId, old); }
-      if (['browser-page', 'mcp'].includes(old.source)) {
+      if (['browser-page', 'mcp', 'redfox'].includes(old.source)) {
         if (row.likes !== null) old.likes = row.likes;
         if (row.parentCommentId) old.parentCommentId = row.parentCommentId;
         if (row.commentAt) old.commentAt = row.commentAt;
@@ -43,6 +44,8 @@ export function importCapturedComments(p, input, { assert, id, now, classify, to
     }
     const comment = { id: id(), publicationId: pub.id, strategyId: pub.strategyId, accountName: pub.accountName, platform: pub.platform, text: row.text, ...classify(row.text), source: data.source, sourceUrl: source.canonical, collectionMode: data.mode, importedAt: now(), commentAt: null, likes: row.likes, timeLabel: row.timeLabel, isReply: row.isReply, irrelevant: false, sample: false, ...(row.platformCommentId ? { platformCommentId: row.platformCommentId } : {}) };
     if(row.commentAt)comment.commentAt=row.commentAt;
+    if (pub.accountId) comment.accountId = pub.accountId;
+    if (data.source === 'redfox') comment.provider = 'redfox';
     if(row.parentCommentId)comment.parentCommentId=row.parentCommentId;
     p.comments.push(comment); texts.set(key,comment); if(row.platformCommentId) ids.set(row.platformCommentId,comment); added++;
   }

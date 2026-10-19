@@ -10,12 +10,13 @@ export const METRICS = [
 ];
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 const metricsSchema = z.object(Object.fromEntries(METRICS.map(({ key }) => [key, z.number().int().min(0).max(1e12).nullable()]))).strict();
-export function saveMetricSnapshot(project, input, clock = Date.now) {
-  const data = z.object({ id: z.string().max(100).optional(), expectedRevision: z.number().int().min(1).optional(), publicationId: z.string().max(100), capturedAt: z.string().datetime({ offset: true }), metrics: metricsSchema, note: z.string().trim().max(1000).default(''), source:z.enum(['manual','browser-page']).default('manual'), sourceUrl:z.string().max(8192).optional(), confirmed:z.literal(true).optional() }).strict().parse(input);
+export function saveMetricSnapshot(project, input, clock = Date.now, { verifiedProvider } = {}) {
+  const data = z.object({ id: z.string().max(100).optional(), expectedRevision: z.number().int().min(1).optional(), publicationId: z.string().max(100), capturedAt: z.string().datetime({ offset: true }), metrics: metricsSchema, note: z.string().trim().max(1000).default(''), source:z.enum(['manual','browser-page','redfox']).default('manual'), sourceUrl:z.string().max(8192).optional(), confirmed:z.literal(true).optional() }).strict().parse(input);
+  if (data.source === 'redfox' && verifiedProvider !== 'redfox') throw fail('请从 Redfox 读取预览确认保存');
   const publication = project.publications.find(p => p.id === data.publicationId);
   if (!publication || publication.status !== 'published') throw fail('请先登记作品发布结果，再记录运营数据');
   let sourceUrl;
-  if(data.source==='browser-page') {
+  if(['browser-page','redfox'].includes(data.source)) {
     if(!data.confirmed||publication.sample||data.id)throw fail('请核对真实作品后新增网页采集记录');
     try {const expected=commentSource(publication.url),actual=commentSource(data.sourceUrl);if(!sameCommentWork(expected,actual)||!actual.itemId||actual.platform!==publication.platform)throw Error();sourceUrl=actual.canonical;}catch{throw fail('采集数据与所选作品不一致');}
   }
@@ -30,6 +31,7 @@ export function saveMetricSnapshot(project, input, clock = Date.now) {
   if (!existing && rows.length >= 5000) throw fail('本项目已有 5000 条数据记录，请先导出整理');
   const row = { id: existing?.id || globalThis.crypto.randomUUID(), revision: (existing?.revision || 0) + 1, publicationId: data.publicationId, capturedAt: new Date(time).toISOString(), metrics: data.metrics, note: data.note, source: 'manual', schemaVersion: 1, createdAt: existing?.createdAt || new Date(clock()).toISOString(), updatedAt: new Date(clock()).toISOString() };
   row.source=data.source;if(sourceUrl)row.sourceUrl=sourceUrl;
+  if (data.source === 'redfox') { row.provider = 'redfox'; row.platform = publication.platform; if (publication.accountId) row.accountId = publication.accountId; }
   if (existing) Object.assign(existing, row); else { project.metricSnapshots ||= []; project.metricSnapshots.push(row); }
   return row;
 }

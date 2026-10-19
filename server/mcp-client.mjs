@@ -58,7 +58,7 @@ export function createMCPClient({ endpoint, token = '', fetcher = fetchLoopbackM
   }
   return {
     async connect() {
-      const result = await request('initialize', { protocolVersion: version, capabilities: {}, clientInfo: { name: 'shengzhang-studio', version: '1.19.0' } });
+      const result = await request('initialize', { protocolVersion: version, capabilities: {}, clientInfo: { name: 'shengzhang-studio', version: '2.0.0' } });
       if (!['2024-11-05', '2025-03-26', '2025-06-18', '2025-11-25'].includes(result.protocolVersion)) throw failure('MCP 协议版本尚未支持，请更新服务');
       version = result.protocolVersion; initialized = true;
       await request('notifications/initialized', {}, true);

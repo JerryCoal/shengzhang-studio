@@ -1,7 +1,13 @@
 // One source of truth for compilation and the browser-visible built-in catalog.
 export const AI_SKILLS = [
+  { id: 'redfox-xiaohongshu-creator', name: 'Redfox · 笔记创作', description: '社区技能适配版：参考真实样本创作与改写，保留账号身份和项目事实。' },
+  { id: 'redfox-xiaohongshu-title-score', name: 'Redfox · 标题生成与评分', description: '10个候选标题、六维参考评分和优化建议。' },
+  { id: 'redfox-xiaohongshu-cover', name: 'Redfox · 封面方案', description: '三套可采纳的设计方案，支持明确开启看图分析。' },
+  { id: 'redfox-xiaohongshu-note-analyzer', name: 'Redfox · 笔记诊断', description: '正文四维参考评分、依据和改进建议。' },
+  { id: 'project-brief-import', name: '项目概要提取', description: '根据当前介绍文档整理概要候选值，保留原文依据并等待用户确认。' },
   { id: 'document-context', name: '文档资料提炼', description: '从选中文档提取带原文出处的资料卡，确认后供创作使用。' },
   { id: 'research-query', name: '近期内容检索词', description: '将项目受众与关键词转为有限的检索方向，不伪造搜索结果。' },
+  { id: 'web-news-search', name: '联网新闻查找', description: '按查询范围查找近期真实中文新闻，保持来源、时间与内容可核对。' },
   { id: 'research-analysis', name: '热点参考证据分析', description: '依据原文区分观察、亮点假设及可迁移的创作参考。' },
   { id: 'marketing-strategy', name: '营销策略', description: '从确认事实提炼受众、目标与核心表达。' },
   { id: 'iteration-planning', name: '下期策划', description: '依据已采用反馈与评论，设计下一轮待验证改动。' },

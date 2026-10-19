@@ -1,11 +1,12 @@
 export type CreativeSkillPlatform = import('./platform-catalog.mjs').MatrixPlatform;
-export type CreativeSkillStage = 'copy';
+export type CreativeSkillStage = 'copy' | import('./skill-workflows.mjs').SkillWorkflowId;
 export type CreativeSkillPreview = {
   name: string;
   description: string;
   version: string;
   platforms: CreativeSkillPlatform[];
   stages: CreativeSkillStage[];
+  workflowId?: import('./skill-workflows.mjs').SkillWorkflowId;
   instructions: string;
   sourceText: string;
   sourceFile: string;
@@ -13,12 +14,16 @@ export type CreativeSkillPreview = {
 };
 export type CreativeSkillSnapshot = CreativeSkillPreview & { id: string; installedAt: string };
 export type InstalledCreativeSkill = CreativeSkillSnapshot & { enabled: boolean };
-export type CreativeSkillState = { installedSkills?: InstalledCreativeSkill[]; skillsRevision?: number };
+export type CreativeSkillState = import('./builtin-skills.mjs').BuiltinSkillState & { installedSkills?: InstalledCreativeSkill[]; skillsRevision?: number; skillSelections?: Partial<Record<import('./skill-workflows.mjs').SkillWorkflowId, string>> };
 export const CREATIVE_SKILL_MAX_BYTES: number;
 export const CREATIVE_SKILL_MAX_COUNT: number;
-export function normalizeCreativeSkills<T extends CreativeSkillState>(state: T): T & { installedSkills: InstalledCreativeSkill[]; skillsRevision: number };
-export function previewCreativeSkill(input: { fileName: string; text: string }): CreativeSkillPreview;
-export function installCreativeSkill(state: CreativeSkillState, input: { fileName: string; text: string; expectedRevision: number; confirmed: true }): InstalledCreativeSkill;
+export function normalizeCreativeSkills<T extends CreativeSkillState>(state: T): T & { installedSkills: InstalledCreativeSkill[]; skillsRevision: number; builtinSkillOverrides: import('./builtin-skills.mjs').BuiltinSkillOverrides; skillSelections: Partial<Record<import('./skill-workflows.mjs').SkillWorkflowId, string>> };
+export function previewCreativeSkill(input: { fileName: string; text: string; workflowId?: import('./skill-workflows.mjs').SkillWorkflowId }): CreativeSkillPreview;
+export function installCreativeSkill(state: CreativeSkillState, input: { fileName: string; text: string; workflowId?: import('./skill-workflows.mjs').SkillWorkflowId; expectedRevision: number; confirmed: true }): InstalledCreativeSkill;
 export function setCreativeSkillEnabled(state: CreativeSkillState, id: string, input: { enabled: boolean; expectedRevision: number }): InstalledCreativeSkill;
 export function removeCreativeSkill(state: CreativeSkillState, id: string, input: { expectedRevision: number }): { ok: true };
 export function resolveCreativeSkill(state: CreativeSkillState, input: { skillId?: string; stage: string; platform: CreativeSkillPlatform }): CreativeSkillSnapshot | null;
+export function creativeSkillWorkflowIds(skill: Pick<CreativeSkillPreview, 'stages' | 'platforms' | 'workflowId'>): import('./skill-workflows.mjs').SkillWorkflowId[];
+export function setWorkflowSkill(state: CreativeSkillState, input: { workflowId: import('./skill-workflows.mjs').SkillWorkflowId; skillId: string; expectedRevision: number }): { workflowId: import('./skill-workflows.mjs').SkillWorkflowId; selectedSkillId: string; revision: number };
+export function resolveWorkflowSkill(state: CreativeSkillState, workflowId: import('./skill-workflows.mjs').SkillWorkflowId): (CreativeSkillSnapshot & { workflowId: import('./skill-workflows.mjs').SkillWorkflowId }) | null;
+export function customSkillInstructions(skill?: { name?: string; instructions: string } | null): string;

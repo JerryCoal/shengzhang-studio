@@ -17,7 +17,7 @@ async function startDesktopMCP({token,execute}) {
     if(body?.jsonrpc!=='2.0')return send(400,{error:'JSON-RPC required'});
     if(body.method==='notifications/initialized'&&id===undefined)return send(202);
     if(typeof id!=='string'&&typeof id!=='number')return send(400,{error:'Request ID required'});
-    if(body.method==='initialize')return respond({protocolVersion:'2025-06-18',capabilities:{tools:{}},serverInfo:{name:'shengzhang-desktop-platform-mcp',version:'1.19.0'}});
+    if(body.method==='initialize')return respond({protocolVersion:'2025-06-18',capabilities:{tools:{}},serverInfo:{name:'shengzhang-desktop-platform-mcp',version:'1.21.0'}});
     if(body.method==='tools/list')return respond({tools});
     if(body.method!=='tools/call'||!tools.some(t=>t.name===body.params?.name))return send(200,{jsonrpc:'2.0',id,error:{code:-32601,message:'Unsupported tool'}});
     if(active||restarting)return respond({isError:true,content:[{type:'text',text:'平台窗口正在执行另一项任务'}]});

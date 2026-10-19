@@ -11,13 +11,22 @@ import { importCorpus } from '../server/workflow.mjs';
 
 // Expectations intentionally describe product workflows independently of the registry.
 const workflowSkills = {
+  'xhs-creator': ['redfox-xiaohongshu-creator'],
+  'xhs-title-score': ['redfox-xiaohongshu-title-score'],
+  'xhs-cover': ['redfox-xiaohongshu-cover'],
+  'xhs-note-analyzer': ['redfox-xiaohongshu-note-analyzer'],
+  'brief-import': ['project-brief-import'],
   'document-context': ['document-context'],
   'research-query': ['research-query'],
+  'web-search': ['web-news-search'],
   'research-analysis': ['research-analysis'],
   strategy: ['marketing-strategy'],
   planning: ['iteration-planning'],
   'copy-xiaohongshu': ['marketing-copywriting', 'xiaohongshu-copywriting', 'natural-copy-editing'],
   'copy-douyin': ['marketing-copywriting', 'douyin-copywriting', 'natural-copy-editing'],
+  'copy-tiktok': ['marketing-copywriting', 'natural-copy-editing'],
+  'copy-youtube': ['marketing-copywriting', 'natural-copy-editing'],
+  'copy-instagram': ['marketing-copywriting', 'natural-copy-editing'],
   'word-review': ['sensitive-copy-review'],
   'price-semantic': ['price-context-replacement'],
   classification: ['comment-classification'],
@@ -46,12 +55,12 @@ function assertRecipe(recipe, workflow) {
   })));
 }
 
-test('all 15 visible workflows resolve to the 16 current source Skills and compiled versions', () => {
+test('all 24 visible workflows resolve to the 22 current source Skills and compiled versions', () => {
   const workflows = aiSkillWorkflows();
-  assert.equal(workflows.length, 15);
+  assert.equal(workflows.length, 24);
   assert.deepEqual(workflows.map(item => item.id).sort(), Object.keys(workflowSkills).sort());
   const expectedIds = [...new Set(Object.values(workflowSkills).flat())].sort();
-  assert.equal(expectedIds.length, 16);
+  assert.equal(expectedIds.length, 22);
   assert.deepEqual(AI_SKILLS.map(skill => skill.id).sort(), expectedIds);
   assert.deepEqual(Object.keys(COPY_SKILLS).sort(), expectedIds);
   assert.deepEqual(Object.keys(COPY_SKILL_VERSIONS).sort(), expectedIds);

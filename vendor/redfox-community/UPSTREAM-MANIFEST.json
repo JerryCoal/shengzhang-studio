@@ -1,0 +1,261 @@
+{
+  "repository": "https://github.com/redfox-data/redfox-community",
+  "commit": "3036edec4fa4d0baa3d368cdd2709db4079c9753",
+  "commitUrl": "https://github.com/redfox-data/redfox-community/commit/3036edec4fa4d0baa3d368cdd2709db4079c9753",
+  "committedAt": "2026-10-16T07:46:02Z",
+  "downloadedAt": "2026-10-18T07:34:56.214Z",
+  "scope": [
+    "xiaohongshu-creator",
+    "xiaohongshu-title-score",
+    "xiaohongshu-cover",
+    "xiaohongshu-note-analyzer"
+  ],
+  "sourceHandling": "Unmodified public text files only; no upstream script executed; no credential accessed.",
+  "rootLicense": {
+    "status": "not-found",
+    "paths": [],
+    "evidence": "Complete untruncated Git tree at the pinned commit contains no root LICENSE, COPYING or NOTICE file."
+  },
+  "files": [
+    {
+      "path": "skills/xiaohongshu-cover/README.en.md",
+      "bytes": 5940,
+      "sha256": "68cd0faff8205e12253325548ab45c3c55778dc031951e338a301126478e3142",
+      "gitBlobSha": "b3a7ff8ccb4beaa06ed2fefa61084f5ede389c71",
+      "sourceUrl": "https://raw.githubusercontent.com/redfox-data/redfox-community/3036edec4fa4d0baa3d368cdd2709db4079c9753/skills/xiaohongshu-cover/README.en.md",
+      "retrievalUrl": "https://api.github.com/repos/redfox-data/redfox-community/git/blobs/b3a7ff8ccb4beaa06ed2fefa61084f5ede389c71"
+    },
+    {
+      "path": "skills/xiaohongshu-cover/README.md",
+      "bytes": 5238,
+      "sha256": "0b1a48bf61b559b5d6095e767bd283f1f6d8f690a07cc48468f7fca44c0efb61",
+      "gitBlobSha": "69e9683913c5a44875f0748427ceb78e222c5ed4",
+      "sourceUrl": "https://raw.githubusercontent.com/redfox-data/redfox-community/3036edec4fa4d0baa3d368cdd2709db4079c9753/skills/xiaohongshu-cover/README.md",
+      "retrievalUrl": "https://api.github.com/repos/redfox-data/redfox-community/git/blobs/69e9683913c5a44875f0748427ceb78e222c5ed4"
+    },
+    {
+      "path": "skills/xiaohongshu-cover/references/core_workflow.md",
+      "bytes": 12038,
+      "sha256": "d4cdcd94640c46680ac032de7d9d96f7ffe8a33939d4bcf2c40e190db08b93e4",
+      "gitBlobSha": "ac8215ea338939ae6b3c84486b670c5b65bc0c61",
+      "sourceUrl": "https://raw.githubusercontent.com/redfox-data/redfox-community/3036edec4fa4d0baa3d368cdd2709db4079c9753/skills/xiaohongshu-cover/references/core_workflow.md",
+      "retrievalUrl": "https://api.github.com/repos/redfox-data/redfox-community/git/blobs/ac8215ea338939ae6b3c84486b670c5b65bc0c61"
+    },
+    {
+      "path": "skills/xiaohongshu-cover/references/xhs_trend_data_format.md",
+      "bytes": 8500,
+      "sha256": "7a1ab74a92f3e36323c8c2960541725e29dca6927314ff541ac676b55984bd1d",
+      "gitBlobSha": "99a0159cef1c74e399c6355d29b94efb1cf084e5",
+      "sourceUrl": "https://raw.githubusercontent.com/redfox-data/redfox-community/3036edec4fa4d0baa3d368cdd2709db4079c9753/skills/xiaohongshu-cover/references/xhs_trend_data_format.md",
+      "retrievalUrl": "https://api.github.com/repos/redfox-data/redfox-community/git/blobs/99a0159cef1c74e399c6355d29b94efb1cf084e5"
+    },
+    {
+      "path": "skills/xiaohongshu-cover/scripts/fetch_explosive_covers.py",
+      "bytes": 22710,
+      "sha256": "665a86b239118dff12bd048e2b7f47cbb309d9a073f0969fc56991865c39924c",
+      "gitBlobSha": "87d16e169edf6cc12d2bd84695802229ddbafd13",
+      "sourceUrl": "https://raw.githubusercontent.com/redfox-data/redfox-community/3036edec4fa4d0baa3d368cdd2709db4079c9753/skills/xiaohongshu-cover/scripts/fetch_explosive_covers.py",
+      "retrievalUrl": "https://api.github.com/repos/redfox-data/redfox-community/git/blobs/87d16e169edf6cc12d2bd84695802229ddbafd13"
+    },
+    {
+      "path": "skills/xiaohongshu-cover/SKILL.md",
+      "bytes": 11464,
+      "sha256": "97cca7d2ad100a999e408a20cc1fc3916af3a6c7ef4c1688bb67dbedd437979e",
+      "gitBlobSha": "3a7b00ade22974737b62e896d8971e4e06c2fa0b",
+      "sourceUrl": "https://raw.githubusercontent.com/redfox-data/redfox-community/3036edec4fa4d0baa3d368cdd2709db4079c9753/skills/xiaohongshu-cover/SKILL.md",
+      "retrievalUrl": "https://api.github.com/repos/redfox-data/redfox-community/git/blobs/3a7b00ade22974737b62e896d8971e4e06c2fa0b"
+    },
+    {
+      "path": "skills/xiaohongshu-creator/assets/platform-rules.md",
+      "bytes": 2886,
+      "sha256": "db88ca7f08d151568bb25050bce697b9aa8564c2c6edbcfcbc7d18356015a02e",
+      "gitBlobSha": "d21935130f1d8bfb894e91f4c0431efdf5f6de89",
+      "sourceUrl": "https://raw.githubusercontent.com/redfox-data/redfox-community/3036edec4fa4d0baa3d368cdd2709db4079c9753/skills/xiaohongshu-creator/assets/platform-rules.md",
+      "retrievalUrl": "https://api.github.com/repos/redfox-data/redfox-community/git/blobs/d21935130f1d8bfb894e91f4c0431efdf5f6de89"
+    },
+    {
+      "path": "skills/xiaohongshu-creator/README.en.md",
+      "bytes": 4003,
+      "sha256": "968f598930516439d30c27e5c0f58b94671f1edd11a522c6b551ce817994775e",
+      "gitBlobSha": "299b9f6fea0c4b94f20f1152eb73598f891bd954",
+      "sourceUrl": "https://raw.githubusercontent.com/redfox-data/redfox-community/3036edec4fa4d0baa3d368cdd2709db4079c9753/skills/xiaohongshu-creator/README.en.md",
+      "retrievalUrl": "https://api.github.com/repos/redfox-data/redfox-community/git/blobs/299b9f6fea0c4b94f20f1152eb73598f891bd954"
+    },
+    {
+      "path": "skills/xiaohongshu-creator/README.md",
+      "bytes": 3745,
+      "sha256": "71791382a91538cb26ded187ca6a5faf2225912518f78df969f56a251825ae31",
+      "gitBlobSha": "749545c62e8b958225a16db5637b71c16791b20f",
+      "sourceUrl": "https://raw.githubusercontent.com/redfox-data/redfox-community/3036edec4fa4d0baa3d368cdd2709db4079c9753/skills/xiaohongshu-creator/README.md",
+      "retrievalUrl": "https://api.github.com/repos/redfox-data/redfox-community/git/blobs/749545c62e8b958225a16db5637b71c16791b20f"
+    },
+    {
+      "path": "skills/xiaohongshu-creator/references/core_workflow.md",
+      "bytes": 12038,
+      "sha256": "d4cdcd94640c46680ac032de7d9d96f7ffe8a33939d4bcf2c40e190db08b93e4",
+      "gitBlobSha": "ac8215ea338939ae6b3c84486b670c5b65bc0c61",
+      "sourceUrl": "https://raw.githubusercontent.com/redfox-data/redfox-community/3036edec4fa4d0baa3d368cdd2709db4079c9753/skills/xiaohongshu-creator/references/core_workflow.md",
+      "retrievalUrl": "https://api.github.com/repos/redfox-data/redfox-community/git/blobs/ac8215ea338939ae6b3c84486b670c5b65bc0c61"
+    },
+    {
+      "path": "skills/xiaohongshu-creator/references/prohibited_word_core_workflow.md",
+      "bytes": 16739,
+      "sha256": "cd11c743e56e34912c3bc76e4af8c48aaae5da0f1af3e1db906872f9f223b16c",
+      "gitBlobSha": "bdec4a9406cbe56868814e0423f62d0406f5f8c9",
+      "sourceUrl": "https://raw.githubusercontent.com/redfox-data/redfox-community/3036edec4fa4d0baa3d368cdd2709db4079c9753/skills/xiaohongshu-creator/references/prohibited_word_core_workflow.md",
+      "retrievalUrl": "https://api.github.com/repos/redfox-data/redfox-community/git/blobs/bdec4a9406cbe56868814e0423f62d0406f5f8c9"
+    },
+    {
+      "path": "skills/xiaohongshu-creator/references/title_score_guide.md",
+      "bytes": 8890,
+      "sha256": "386756a827e3a142380a8b31e103659d9f8d3726dd3227b0f6b7c1710f84555b",
+      "gitBlobSha": "f473d10c5cf53d7a437f101bf4002dffed51aed0",
+      "sourceUrl": "https://raw.githubusercontent.com/redfox-data/redfox-community/3036edec4fa4d0baa3d368cdd2709db4079c9753/skills/xiaohongshu-creator/references/title_score_guide.md",
+      "retrievalUrl": "https://api.github.com/repos/redfox-data/redfox-community/git/blobs/f473d10c5cf53d7a437f101bf4002dffed51aed0"
+    },
+    {
+      "path": "skills/xiaohongshu-creator/references/xhs_hot_article_format.md",
+      "bytes": 5791,
+      "sha256": "cd946e0efa3930f505a3ee7ed2a0eb99ec09820f3cebc7bd5ec8c2a6731bd1ee",
+      "gitBlobSha": "11c64a396d1abb1b6c0146ab20c2af3e073787b0",
+      "sourceUrl": "https://raw.githubusercontent.com/redfox-data/redfox-community/3036edec4fa4d0baa3d368cdd2709db4079c9753/skills/xiaohongshu-creator/references/xhs_hot_article_format.md",
+      "retrievalUrl": "https://api.github.com/repos/redfox-data/redfox-community/git/blobs/11c64a396d1abb1b6c0146ab20c2af3e073787b0"
+    },
+    {
+      "path": "skills/xiaohongshu-creator/references/xhs_trend_data_format.md",
+      "bytes": 8500,
+      "sha256": "7a1ab74a92f3e36323c8c2960541725e29dca6927314ff541ac676b55984bd1d",
+      "gitBlobSha": "99a0159cef1c74e399c6355d29b94efb1cf084e5",
+      "sourceUrl": "https://raw.githubusercontent.com/redfox-data/redfox-community/3036edec4fa4d0baa3d368cdd2709db4079c9753/skills/xiaohongshu-creator/references/xhs_trend_data_format.md",
+      "retrievalUrl": "https://api.github.com/repos/redfox-data/redfox-community/git/blobs/99a0159cef1c74e399c6355d29b94efb1cf084e5"
+    },
+    {
+      "path": "skills/xiaohongshu-creator/scripts/check_sensitive_words.py",
+      "bytes": 13710,
+      "sha256": "9ac35dd99eabe068fe6a9a3022bd4ce43e3d7b24eb1b9923d6a5dbdfa73e79a9",
+      "gitBlobSha": "87cd219d778f2f515d2c196b19b247bfa0dc293e",
+      "sourceUrl": "https://raw.githubusercontent.com/redfox-data/redfox-community/3036edec4fa4d0baa3d368cdd2709db4079c9753/skills/xiaohongshu-creator/scripts/check_sensitive_words.py",
+      "retrievalUrl": "https://api.github.com/repos/redfox-data/redfox-community/git/blobs/87cd219d778f2f515d2c196b19b247bfa0dc293e"
+    },
+    {
+      "path": "skills/xiaohongshu-creator/scripts/fetch_explosive_covers.py",
+      "bytes": 22707,
+      "sha256": "560208e783dc6f570131db944b9c44bedf23afdfae8fbb7f9a2ba3e803ea97b9",
+      "gitBlobSha": "c6167168eeb1f52d80682530e443a606e303c32e",
+      "sourceUrl": "https://raw.githubusercontent.com/redfox-data/redfox-community/3036edec4fa4d0baa3d368cdd2709db4079c9753/skills/xiaohongshu-creator/scripts/fetch_explosive_covers.py",
+      "retrievalUrl": "https://api.github.com/repos/redfox-data/redfox-community/git/blobs/c6167168eeb1f52d80682530e443a606e303c32e"
+    },
+    {
+      "path": "skills/xiaohongshu-creator/scripts/fetch_xhs_hot_articles.py",
+      "bytes": 22879,
+      "sha256": "26c33ddb7afba971b5a3804738967a1a61270545b27fab08d1a0ad918dd30297",
+      "gitBlobSha": "1431ac4e69223379ec100d371cba32c84055d910",
+      "sourceUrl": "https://raw.githubusercontent.com/redfox-data/redfox-community/3036edec4fa4d0baa3d368cdd2709db4079c9753/skills/xiaohongshu-creator/scripts/fetch_xhs_hot_articles.py",
+      "retrievalUrl": "https://api.github.com/repos/redfox-data/redfox-community/git/blobs/1431ac4e69223379ec100d371cba32c84055d910"
+    },
+    {
+      "path": "skills/xiaohongshu-creator/scripts/fetch_xhs_trends.py",
+      "bytes": 16065,
+      "sha256": "3ee7b40ecbba43af3de2e1c2be74494975924b53ff5c86cf4d258cc9a1672124",
+      "gitBlobSha": "d71cb26362b01ac9eec4d9906660c0af5784ad0d",
+      "sourceUrl": "https://raw.githubusercontent.com/redfox-data/redfox-community/3036edec4fa4d0baa3d368cdd2709db4079c9753/skills/xiaohongshu-creator/scripts/fetch_xhs_trends.py",
+      "retrievalUrl": "https://api.github.com/repos/redfox-data/redfox-community/git/blobs/d71cb26362b01ac9eec4d9906660c0af5784ad0d"
+    },
+    {
+      "path": "skills/xiaohongshu-creator/scripts/rewrite_record.py",
+      "bytes": 7086,
+      "sha256": "d4b2c5366a15334a78d07d6ce3c651b586b0d7f112be1292dbb2070f10504c7b",
+      "gitBlobSha": "952f0ebbc6a2cf28271910545f65d3f98a7d350f",
+      "sourceUrl": "https://raw.githubusercontent.com/redfox-data/redfox-community/3036edec4fa4d0baa3d368cdd2709db4079c9753/skills/xiaohongshu-creator/scripts/rewrite_record.py",
+      "retrievalUrl": "https://api.github.com/repos/redfox-data/redfox-community/git/blobs/952f0ebbc6a2cf28271910545f65d3f98a7d350f"
+    },
+    {
+      "path": "skills/xiaohongshu-creator/SKILL.md",
+      "bytes": 21738,
+      "sha256": "3ff2f1f0e91f2fcbc2ae6cda08aa1ff2a3581cf195d7a8939c3f11d1fb518a48",
+      "gitBlobSha": "0ce4237eaee28ad6f0d69ac0fd224d16f8d5f16b",
+      "sourceUrl": "https://raw.githubusercontent.com/redfox-data/redfox-community/3036edec4fa4d0baa3d368cdd2709db4079c9753/skills/xiaohongshu-creator/SKILL.md",
+      "retrievalUrl": "https://api.github.com/repos/redfox-data/redfox-community/git/blobs/0ce4237eaee28ad6f0d69ac0fd224d16f8d5f16b"
+    },
+    {
+      "path": "skills/xiaohongshu-note-analyzer/README.en.md",
+      "bytes": 5381,
+      "sha256": "c5cb2370abbb77e29c88f642ccc1db471ce121c2cba4d2c808be12f4c1ef59c4",
+      "gitBlobSha": "9b84efe07be84ad94d0ff54ce1421543094c13c3",
+      "sourceUrl": "https://raw.githubusercontent.com/redfox-data/redfox-community/3036edec4fa4d0baa3d368cdd2709db4079c9753/skills/xiaohongshu-note-analyzer/README.en.md",
+      "retrievalUrl": "https://api.github.com/repos/redfox-data/redfox-community/git/blobs/9b84efe07be84ad94d0ff54ce1421543094c13c3"
+    },
+    {
+      "path": "skills/xiaohongshu-note-analyzer/README.md",
+      "bytes": 4503,
+      "sha256": "a3f2ee6fdbeb332f9cdc5fb13f8ab2b6b08e990eee198b77f38aff19a67abed8",
+      "gitBlobSha": "b2d1f8208fab017b1e11144b989e278fd20e1154",
+      "sourceUrl": "https://raw.githubusercontent.com/redfox-data/redfox-community/3036edec4fa4d0baa3d368cdd2709db4079c9753/skills/xiaohongshu-note-analyzer/README.md",
+      "retrievalUrl": "https://api.github.com/repos/redfox-data/redfox-community/git/blobs/b2d1f8208fab017b1e11144b989e278fd20e1154"
+    },
+    {
+      "path": "skills/xiaohongshu-note-analyzer/references/xhs_trend_data_format.md",
+      "bytes": 6060,
+      "sha256": "4aa8b2a59fe07b2d69e0f23531205097020b50451587755d8107ea0d2ccb8a69",
+      "gitBlobSha": "79b3597be383262608cf9d80a81b0818bf768365",
+      "sourceUrl": "https://raw.githubusercontent.com/redfox-data/redfox-community/3036edec4fa4d0baa3d368cdd2709db4079c9753/skills/xiaohongshu-note-analyzer/references/xhs_trend_data_format.md",
+      "retrievalUrl": "https://api.github.com/repos/redfox-data/redfox-community/git/blobs/79b3597be383262608cf9d80a81b0818bf768365"
+    },
+    {
+      "path": "skills/xiaohongshu-note-analyzer/scripts/fetch_xhs_trends.py",
+      "bytes": 14393,
+      "sha256": "6ec231e9dbdf2c1471c89c56e5c4a1c5a8ee2aef7a0b80a8929ab51aa4a738f3",
+      "gitBlobSha": "688eeddc8541df0b294a5a6668628b2db877a9ec",
+      "sourceUrl": "https://raw.githubusercontent.com/redfox-data/redfox-community/3036edec4fa4d0baa3d368cdd2709db4079c9753/skills/xiaohongshu-note-analyzer/scripts/fetch_xhs_trends.py",
+      "retrievalUrl": "https://api.github.com/repos/redfox-data/redfox-community/git/blobs/688eeddc8541df0b294a5a6668628b2db877a9ec"
+    },
+    {
+      "path": "skills/xiaohongshu-note-analyzer/SKILL.md",
+      "bytes": 11610,
+      "sha256": "29ca05d13e8fcb20721decc88c88a02324b7d6f09598dc32459515cb8b17c919",
+      "gitBlobSha": "a4b4be3e89bee4cd593246a7b21d72ad4259ca37",
+      "sourceUrl": "https://raw.githubusercontent.com/redfox-data/redfox-community/3036edec4fa4d0baa3d368cdd2709db4079c9753/skills/xiaohongshu-note-analyzer/SKILL.md",
+      "retrievalUrl": "https://api.github.com/repos/redfox-data/redfox-community/git/blobs/a4b4be3e89bee4cd593246a7b21d72ad4259ca37"
+    },
+    {
+      "path": "skills/xiaohongshu-title-score/README.en.md",
+      "bytes": 6306,
+      "sha256": "4e59013a125892830a60aff5689cd6f41c2d590d62d031eec5019227ddec8957",
+      "gitBlobSha": "cca314967e1c4edf6bada933f72c35fa7682a09e",
+      "sourceUrl": "https://raw.githubusercontent.com/redfox-data/redfox-community/3036edec4fa4d0baa3d368cdd2709db4079c9753/skills/xiaohongshu-title-score/README.en.md",
+      "retrievalUrl": "https://api.github.com/repos/redfox-data/redfox-community/git/blobs/cca314967e1c4edf6bada933f72c35fa7682a09e"
+    },
+    {
+      "path": "skills/xiaohongshu-title-score/README.md",
+      "bytes": 5697,
+      "sha256": "b93e1944cccc12a9a18c692feb4315c82182813f1b74f4ed0280ee62eb6e1119",
+      "gitBlobSha": "7d936d647482fe938ba4f51933ebb1724638627b",
+      "sourceUrl": "https://raw.githubusercontent.com/redfox-data/redfox-community/3036edec4fa4d0baa3d368cdd2709db4079c9753/skills/xiaohongshu-title-score/README.md",
+      "retrievalUrl": "https://api.github.com/repos/redfox-data/redfox-community/git/blobs/7d936d647482fe938ba4f51933ebb1724638627b"
+    },
+    {
+      "path": "skills/xiaohongshu-title-score/references/guide.md",
+      "bytes": 8890,
+      "sha256": "386756a827e3a142380a8b31e103659d9f8d3726dd3227b0f6b7c1710f84555b",
+      "gitBlobSha": "f473d10c5cf53d7a437f101bf4002dffed51aed0",
+      "sourceUrl": "https://raw.githubusercontent.com/redfox-data/redfox-community/3036edec4fa4d0baa3d368cdd2709db4079c9753/skills/xiaohongshu-title-score/references/guide.md",
+      "retrievalUrl": "https://api.github.com/repos/redfox-data/redfox-community/git/blobs/f473d10c5cf53d7a437f101bf4002dffed51aed0"
+    },
+    {
+      "path": "skills/xiaohongshu-title-score/scripts/fetch_xhs_trends.py",
+      "bytes": 16096,
+      "sha256": "3dffdef2cfcf91211b19f70e03e9f5db227bb83e7da9bb247efd2616a11a49cc",
+      "gitBlobSha": "f459ba17671b893781a3f57ce48a2b77d7c9bf01",
+      "sourceUrl": "https://raw.githubusercontent.com/redfox-data/redfox-community/3036edec4fa4d0baa3d368cdd2709db4079c9753/skills/xiaohongshu-title-score/scripts/fetch_xhs_trends.py",
+      "retrievalUrl": "https://api.github.com/repos/redfox-data/redfox-community/git/blobs/f459ba17671b893781a3f57ce48a2b77d7c9bf01"
+    },
+    {
+      "path": "skills/xiaohongshu-title-score/SKILL.md",
+      "bytes": 9722,
+      "sha256": "76aacf74fb086a1eefb8b3e207970bc957e260eb6163941224eafb9672a041eb",
+      "gitBlobSha": "b95c4fc1b4f7c1ca6b10a99c4de49281ba3896d5",
+      "sourceUrl": "https://raw.githubusercontent.com/redfox-data/redfox-community/3036edec4fa4d0baa3d368cdd2709db4079c9753/skills/xiaohongshu-title-score/SKILL.md",
+      "retrievalUrl": "https://api.github.com/repos/redfox-data/redfox-community/git/blobs/b95c4fc1b4f7c1ca6b10a99c4de49281ba3896d5"
+    }
+  ]
+}

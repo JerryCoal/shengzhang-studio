@@ -21,6 +21,7 @@ const success = data => Response.json({ data: { error_code: 0, ...data } });
 function memoryVault() { let value = ''; return { status: () => ({ configured: !!value, supported: true, suffix: value.slice(-4), problem: '' }), getKey: async () => value, save: async key => { value = key; }, remove: () => { value = ''; } }; }
 async function fixture(t, options = {}) {
   const store = createStore(':memory:'), seedanceVault = memoryVault(), seedreamVault = memoryVault(), douyinVault = memoryVault(), preferences = createIntegrationPreferences();
+  preferences.saveImageProvider('openai'); // This fixture covers explicitly retained historical OpenAI workflows.
   await seedanceVault.save(seedKey); preferences.save({ region: 'byteplus', model: 'test-seedance-endpoint', reservationUsd: 2, outputPriceUsd: 2.5 });
   const app = createApp(store, { apiKey: openAIKey, seedanceVault, seedreamVault, douyinVault, integrationPreferences: preferences, downloadVideo: async () => mp4, imageWatermarkInspector: async () => unchecked(), ...options });
   const server = app.listen(0, '127.0.0.1'); await once(server, 'listening');

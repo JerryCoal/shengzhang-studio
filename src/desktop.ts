@@ -8,6 +8,9 @@ export type CommentCaptureResult = { rows?: CapturedComment[]; metrics?: Capture
 declare global {
   interface Window {
     studioDesktop?: {
+      setTaskState?: (value: {active: number; paused: number; connected?: boolean}) => void;
+      onPrepareQuit?: (callback: () => void | Promise<void>) => () => void;
+      confirmTaskSave?: (value: {saved: boolean}) => Promise<void>;
       documentParserStatus: (args:{sessionToken:string})=>Promise<import('./document-parser-types').DocumentParserStatus>;
       configureDocumentParser: (args:{sessionToken:string})=>Promise<import('./document-parser-types').DocumentParserStatus>;
       parseDocument: (args:{sessionToken:string;requestId:string;name:string;base64:string})=>Promise<import('./document-parser-types').DocumentParseResult>;

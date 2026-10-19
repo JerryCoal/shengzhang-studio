@@ -5,6 +5,8 @@ import { RESEARCH_PLATFORMS, TOPIC_SORTS } from './topic-performance.mjs';
 export const RESEARCH_WEEK = 7 * 86400000;
 export const RESEARCH_MAX_REFERENCES = 80;
 export const RESEARCH_MAX_TEXT = 1200;
+export const RESEARCH_EXCLUDED_KEYS = ['invalid', 'unsafeUrl', 'missingDate', 'uncertainDate', 'future', 'expired', 'noteType', 'emptyContent', 'dispute', 'blocked', 'duplicate', 'limit'];
+export const RESEARCH_COLLECTION_STATS = ['rawCount', 'normalizedCount', 'invalidCount', 'duplicateCount', 'missingDateCount', 'emptyContentCount', 'searchRequests', 'detailRequests'];
 const metricNames = ['likes', 'comments', 'favorites', 'shares'];
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
 const norm = value => String(value || '').normalize('NFKC').toLocaleLowerCase().replace(/\s+/gu, ' ').trim();
@@ -140,7 +142,7 @@ function riskFor(text, dateBasis = '') {
 
 export function cleanReferences(raw, { keywords = [], blockTerms = [], genericTerms = [], at = Date.now(), discovery } = {}) {
   const now = clock(at), discoveryOptions = discoveryOf(discovery), terms = list(blockTerms), references = [], urls = new Set(), titles = new Set();
-  const excluded = Object.fromEntries(['invalid', 'unsafeUrl', 'missingDate', 'uncertainDate', 'future', 'expired', 'noteType', 'emptyContent', 'dispute', 'blocked', 'duplicate', 'limit'].map(key => [key, 0]));
+  const excluded = Object.fromEntries(RESEARCH_EXCLUDED_KEYS.map(key => [key, 0]));
   if (!Array.isArray(raw)) fail('采集结果必须是列表');
   // Synonyms need not literally contain keywords; relevance is evaluated by retrieval/analysis.
   void keywords; void genericTerms;
@@ -166,11 +168,42 @@ export function cleanReferences(raw, { keywords = [], blockTerms = [], genericTe
     const collected = sourceDate(item.collectedAt), collectedAt = new Date(!collected.error && collected.time <= now && collected.time >= date.time ? collected.time : now).toISOString();
     references.push({ id: stableId(url), kind: item.kind, ...(noteType ? { noteType } : {}), title: cut(title, 180), url, text: cut(text, RESEARCH_MAX_TEXT), publishedAt: new Date(date.time).toISOString(), collectedAt, dateBasis,
       ...(typeof item.sourceAccountId === 'string' && /^[\w-]{1,100}$/u.test(item.sourceAccountId) ? { sourceAccountId: item.sourceAccountId, sourceAccountName: cut(plain(item.sourceAccountName), 80) } : {}),
+      ...(item.provider === 'redfox' ? { provider:'redfox', externalId:cut(plain(item.externalId),100), dateNote:cut(plain(item.dateNote),250) } : {}),
       sourceName: cut(plain(item.sourceName) || new URL(url).hostname, 160), metrics: { ...Object.fromEntries(metricNames.map(name => [name, metric(item.metrics?.[name])])), ...(item.metrics && Object.hasOwn(item.metrics, 'views') ? { views: metric(item.metrics.views) } : {}) }, ...riskFor(all, dateBasis) });
   }
   references.sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt) || a.id.localeCompare(b.id));
   excluded.limit = Math.max(0, raw.length - 2000) + Math.max(0, references.length - RESEARCH_MAX_REFERENCES);
   return { references: references.slice(0, RESEARCH_MAX_REFERENCES), excluded };
+}
+
+// Describe only this attempt. Stored references can include earlier selected
+// evidence and must never be used as a substitute for collection counters.
+// Missing collector counters stay unknown rather than becoming invented zeroes.
+export function researchSummary({ runId, mode = 'collected', raw = [], cleaned = {}, reports = [], pendingReferences = [], analysisCount = 0 } = {}) {
+  const measured = reports.filter(report => report?.stats && RESEARCH_COLLECTION_STATS.every(key => Number.isSafeInteger(report.stats[key]) && report.stats[key] >= 0));
+  const collection = { coverage: measured.length ? measured.length === reports.length ? 'complete' : 'partial' : 'unavailable', reportCount: measured.length,
+    ...Object.fromEntries(RESEARCH_COLLECTION_STATS.map(key => [key, measured.length ? measured.reduce((sum, report) => sum + report.stats[key], 0) : null])) };
+  return { runId, mode, candidateCount: raw.length, eligibleCount: cleaned.references?.length || 0, pendingCount: pendingReferences.length,
+    analysisCount, sourceReports: reports.length, failedSources: reports.filter(report => report.status === 'failed').length,
+    excluded: Object.fromEntries(RESEARCH_EXCLUDED_KEYS.map(key => [key, cleaned.excluded?.[key] || 0])), collection };
+}
+
+export function researchEmptyReason(summary) {
+  const { excluded: excludedCounts, collection, candidateCount, pendingCount, failedSources } = summary;
+  const details = [];
+  const labels = { invalid: '格式无效', unsafeUrl: '来源链接不适用', missingDate: '缺少日期', uncertainDate: '日期无法核实', future: '日期晚于采集时间', expired: '超出时间范围', noteType: '内容类型不符', emptyContent: '缺少正文', dispute: '争议词过滤', blocked: '屏蔽词过滤', duplicate: '重复', limit: '超过本轮上限' };
+  for (const key of RESEARCH_EXCLUDED_KEYS) if (excludedCounts[key]) details.push(`${labels[key]} ${excludedCounts[key]} 条`);
+  const measured = collection.coverage === 'unavailable' ? '' : `${collection.coverage === 'partial' ? '有精确统计的来源' : '来源'}返回 ${collection.rawCount} 条原始记录，标准化 ${collection.normalizedCount} 条；`;
+  const count = `${measured}本轮送清洗 ${candidateCount} 条，通过 0 条${pendingCount ? `，另有 ${pendingCount} 条待核对线索` : ''}。`;
+  let reason;
+  if (!candidateCount && !pendingCount && failedSources) reason = `来源读取失败（${failedSources} 份失败报告），没有取得可分析的内容。`;
+  else if (!candidateCount && !pendingCount && !collection.rawCount) reason = '来源没有返回可用候选，不代表所选时间内没有相关内容。';
+  else if (!candidateCount && collection.invalidCount > 0 && !collection.normalizedCount || candidateCount && excludedCounts.invalid + excludedCounts.unsafeUrl === candidateCount) reason = '候选格式或来源链接均未通过校验，无法建立可核对的参考。';
+  else if (pendingCount || excludedCounts.missingDate || excludedCounts.uncertainDate || excludedCounts.emptyContent) reason = '候选的发布时间或正文不完整，暂不能作为所选时间范围内的分析依据。';
+  else if (candidateCount && excludedCounts.expired === candidateCount) reason = '本轮候选均超出所选时间范围。';
+  else if (excludedCounts.blocked || excludedCounts.dispute || excludedCounts.noteType) reason = '候选被当前屏蔽词、争议词或内容类型条件排除。';
+  else reason = '候选未通过当前来源、日期、去重或数量限制，暂无可分析的参考。';
+  return `${reason}${count}${details.length ? `清洗排除：${details.join('；')}。` : ''}旧参考和已选结果已保留，没有发起本轮 AI 分析。请查看来源报告，核对条件后再决定是否重新采集。`;
 }
 
 // A local ordering of the returned sample, never a platform-wide popularity score.
@@ -253,27 +286,60 @@ function unsupportedClaim(text) {
   return false;
 }
 
+const analysisFail = (message, researchOutputKind = 'schema') => { throw Object.assign(new Error(message), { status: 502, researchOutputKind }); };
+function spacedText(text) {
+  let normalized = ''; const starts = [], ends = [];
+  for (const match of text.matchAll(/\s+|\S/gu)) {
+    const token = /^\s/u.test(match[0]) ? ' ' : match[0];
+    normalized += token;
+    for (let unit = 0; unit < token.length; unit++) { starts.push(match.index); ends.push(match.index + match[0].length); }
+  }
+  return { normalized, starts, ends };
+}
+function originalQuote(reference, quote, allowFormatting) {
+  const sources = [reference.title, reference.text].filter(text => typeof text === 'string');
+  if (sources.some(text => text.includes(quote))) return quote;
+  if (!allowFormatting) return null;
+  const pairs = { '"': '"', "'": "'", '“': '”', '‘': '’', '「': '」', '『': '』' };
+  const candidates = [quote];
+  if (quote.length > 2 && pairs[quote[0]] === quote.at(-1)) candidates.push(quote.slice(1, -1).trim());
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const needle = spacedText(candidate).normalized;
+    for (const text of sources) {
+      const { normalized, starts, ends } = spacedText(text), index = normalized.indexOf(needle);
+      if (index < 0) continue;
+      const exact = text.slice(starts[index], ends[index + needle.length - 1]);
+      // Persist the actual contiguous source span, never a reconstructed quote.
+      if (exact.length <= 400) return exact;
+    }
+  }
+  return null;
+}
+
 function validateAnalyses(value, payload, stored = false) {
   const discovery = discoveryOf(payload?.discovery);
   const parsed = (discovery ? discoveryOutput : analysisOutput).safeParse(value);
-  if (!parsed.success) fail('热点分析结果格式不完整，请重试；已有内容已保留。', 502);
-  if (!stored && parsed.data.analyses.some(item => item.id.length > 100)) fail('热点分析标识过长，请重试；已有内容已保留。', 502);
+  if (!parsed.success) analysisFail('热点分析结果格式不完整：缺少必填字段或超过字段长度、数量限制');
+  if (!stored && parsed.data.analyses.some(item => item.id.length > 100)) analysisFail('热点分析标识过长，不能超过 100 字符');
   const references = Array.isArray(payload?.references) ? payload.references : [], byId = new Map(references.map(reference => [reference.id, reference]));
   if (byId.size !== references.length) fail('热点分析输入含重复来源标识', 502);
   const blockTerms = list(payload?.blockTerms), genericTerms = list(payload?.genericTerms), ids = new Set(), analyses = [];
   for (const item of parsed.data.analyses) {
-    if (ids.has(item.id)) fail('热点分析结果含重复标识', 502); ids.add(item.id);
+    if (ids.has(item.id)) analysisFail('热点分析结果含重复标识'); ids.add(item.id);
     const used = [];
     for (const evidence of item.evidence) {
       const reference = byId.get(evidence.referenceId);
-      if (!reference) fail('热点分析引用了本次输入之外的来源', 502);
-      if (discovery && reference.kind !== (discovery.platform || 'xiaohongshu')) fail(discovery.platform ? '同话题内容分析引用了其他平台的来源' : '小红书内容发现引用了非小红书来源', 502);
-      if (![reference.title, reference.text].some(text => typeof text === 'string' && text.includes(evidence.quote))) fail('热点分析的引用不是来源中的连续原文', 502);
+      if (!reference) analysisFail('热点分析引用了本次输入之外的来源', 'evidence');
+      if (discovery && reference.kind !== (discovery.platform || 'xiaohongshu')) analysisFail(discovery.platform ? '同话题内容分析引用了其他平台的来源' : '小红书内容发现引用了非小红书来源', 'evidence');
+      const quote = originalQuote(reference, evidence.quote, !stored);
+      if (!quote) analysisFail('热点分析的引用不是来源中的连续原文', 'evidence');
+      evidence.quote = quote;
       used.push(reference);
     }
     if (discovery) {
       const evidenceIds = new Set(item.evidence.map(evidence => evidence.referenceId));
-      if (item.growthAdvice.some(advice => advice.referenceIds.some(id => !evidenceIds.has(id)))) fail('流量建议引用了本条分析证据之外的来源', 502);
+      if (item.growthAdvice.some(advice => advice.referenceIds.some(id => !evidenceIds.has(id)))) analysisFail('流量建议引用了本条分析证据之外的来源', 'evidence');
     }
     const content = [item.title, item.observation, item.hypothesis, item.application, item.limitations, ...(item.growthAdvice || []).flatMap(advice => [advice.action, advice.reason, advice.validation])].join('\n');
     if (blocked(content, blockTerms) || disputed(content) || used.some(reference => blocked(`${reference.title}\n${reference.text}`, blockTerms) || disputed(`${reference.title}\n${reference.text}`)) || unsupportedClaim(content)) continue;

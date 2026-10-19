@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import * as d from './domain.mjs';
 import { isLocalClient } from './ai-routes.mjs';
+import { canUseTeamWorkspace } from './workspace-access.mjs';
 import { searchCorpus } from './workflow.mjs';
 import { planIndex, buildIndex, retrieve, indexReady, estimateQueryCny } from './rag.mjs';
 
@@ -17,7 +18,7 @@ const stamp = p => {
 // This adapter is intentionally unavailable to the stateless web relay and to
 // unencrypted legacy workspaces. The profile store seals the entire index.
 export function mountRagRoutes(app, store, config, { project, activeJobs }) {
-  const available = req => config.profileMode === true && !config.authorizeCredentials && isLocalClient(req);
+  const available = req => config.profileMode === true && (canUseTeamWorkspace(req, config) || !config.teamMode && !config.authorizeCredentials && isLocalClient(req));
   const requireLocal = req => d.assert(available(req), 'Qwen 语义检索目前需要 Windows 版的本地加密工作区；当前继续使用关键词检索。', 403);
   const credential = () => config.qwenVault?.status() || {};
   async function key(req) {

@@ -1,5 +1,8 @@
 const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('studioDesktop', {
+  setTaskState: value => ipcRenderer.send('studio:task-state', value),
+  onPrepareQuit: callback => { const listener = () => { void callback(); }; ipcRenderer.on('studio:prepare-quit', listener); return () => ipcRenderer.removeListener('studio:prepare-quit', listener); },
+  confirmTaskSave: value => ipcRenderer.invoke('studio:task-save-confirmed', value),
   documentParserStatus: args => ipcRenderer.invoke('studio:document-parser-status', args),
   configureDocumentParser: args => ipcRenderer.invoke('studio:document-parser-configure', args),
   parseDocument: args => ipcRenderer.invoke('studio:document-parse', args),

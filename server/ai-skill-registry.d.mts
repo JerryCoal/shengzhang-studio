@@ -1,7 +1,10 @@
-export type SkillPayload = { task?: { channel?: string }; copyReview?: { mode?: string } | null };
+export type SkillPayload = { task?: { channel?: string }; copyReview?: { mode?: string } | null; builtinSkills?: import('./builtin-skills.mjs').BuiltinSkillSnapshot[] };
 export type SkillVersion = { id: string; name: string; version: string };
-export type SkillWorkflow = { id: string; label: string; description: string; skills: (SkillVersion & { description: string; instructions: string })[] };
+export type SkillEntry = SkillVersion & { description: string; instructions: string; workflowId?: import('./skill-workflows.mjs').SkillWorkflowId; customized?: boolean; baseVersion?: string; revision?: number; updatedAt?: string; defaultInstructions?: string };
+export type SkillWorkflow = { id: import('./skill-workflows.mjs').SkillWorkflowId; label: string; description: string; skills: SkillEntry[]; selectedSkillId?: string; eligibleSkillIds?: string[] };
+export { skillWorkflowId } from './skill-workflows.mjs';
 export function skillIdsFor(stage: string, payload?: SkillPayload): string[];
+export function skillEntriesFor(stage: string, payload?: SkillPayload): SkillEntry[];
 export function skillVersionsFor(stage: string, payload?: SkillPayload): SkillVersion[];
 export function builtinSkillInstructions(stage: string, payload?: SkillPayload): string;
 export function aiSkillWorkflows(): SkillWorkflow[];

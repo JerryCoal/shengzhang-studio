@@ -1,3 +1,48 @@
+# Shengzhang Studio 自媒体运营工作站 · v2.0.0
+
+JCoal 开发。从灵感、平台创作、确认发布，到结果分析与经验复用，在同一工作站完成账号矩阵运营。
+
+v2.0.0 基于已有架构增量升级：独立灵感/小红书/抖音/Instagram/YouTube/结果分析 Agent 页面；显式经验优先、多个适用 Skills、逐 Agent 模型选择；GLM 官方接入；统一并发任务中心与加密恢复；跨平台改编交接、发布确认及飞书记录询问。新用户图片默认官方 Seedream，视频沿用 Seedance，历史配置保持不变。
+
+[v2.0.0 发布页](https://github.com/JerryCoal/shengzhang-studio/releases/tag/v2.0.0) · [使用与升级](docs/UPGRADE-2.0.0.md) · [验证范围](docs/VALIDATION-2.0.0.md) · [开发交接](docs/DEVELOPMENT-HANDOFF-2.0.0.md) · [GLM 设置](docs/GLM-SETUP.md)
+
+- [Windows 个人版](https://github.com/JerryCoal/shengzhang-studio/releases/download/v2.0.0/Shengzhang-Studio-2.0.0-windows-x64.zip)
+- [Windows 团队部署包](https://github.com/JerryCoal/shengzhang-studio/releases/download/v2.0.0/Shengzhang-Studio-Team-2.0.0-windows-x64.zip)
+
+真实生成、平台采集和投稿需要对应服务的可用凭证/权限与用户确认。检查点暂停不等于撤销已提交的服务商请求。Windows/团队版提供完整 Agent 工作流；独立中转网页保留草稿，但暂不传送私人 Agent 数据包。发布包不含任何工作区数据、账号会话或密钥。
+
+## 历史迭代记录
+
+以下说明保留各版本当时状态，当前功能和下载以 v2.0.0 及其验证记录为准。
+
+### v1.26.0 · Redfox 本地测试版
+
+新增 Redfox 三路开关：平台资料读取、图片与视频生成、联网搜索。默认图片使用 Redfox Seedream 5.0 Pro，视频使用 Redfox Seedance 2.0，文字策略和文案仍沿用现有模型。已接入五平台作品研究与公开指标、四平台评论、聚合热榜；具体范围和待实账号验证的限制见 [改动报告](docs/REDFOX-TEST-REPORT-1.26.0.md)、[使用说明](docs/UPGRADE-1.26.0.md)、[验证记录](docs/VALIDATION-1.26.0.md)。本次仅本地测试交付，未发布到公网。
+
+## v1.25.0 本地团队版
+
+新增浏览器多人访问同一台主机的团队模式：Caddy HTTPS 入口、Node 后端、共享加密工作区、员工账号与权限、按成员隔离的创作选择和操作记录。个人版与原有数据目录保留。见 [团队部署](docs/TEAM-DEPLOYMENT-1.25.0.md)、[使用说明](docs/UPGRADE-1.25.0.md)、[发布记录](docs/RELEASE-1.25.0.md)、[开发交接](docs/DEVELOPMENT-HANDOFF-1.25.0.md) 和 [验证记录](docs/VALIDATION-1.25.0.md)。本次仅本地交付，不自动开放公网。
+
+## v1.24.0 累计更新
+
+新增账号身份记忆（MD/TXT）与多套创作方案，选定账号后每次 AI 创作携带身份与对应 Skills；图文和视频支持选择电脑文件或拖拽，已有成品可预览后采用。“前往发布”可进入核对，未就绪时显示具体原因。详见 [使用说明](docs/UPGRADE-1.24.0.md)、[更新记录](docs/RELEASE-1.24.0.md)、[开发交接](docs/DEVELOPMENT-HANDOFF-1.24.0.md) 和 [验证记录](docs/VALIDATION-1.24.0.md)。本次仅本地交付。
+
+## v1.23.0 累计更新
+
+新增“养号 · 日常图文”目的：填写发布主题、主要场景和自定义文案 Prompt，可上传场景参考图片；创建后直接进入图文制作，支持 AI 文案、Seedream 配图、免费本地排版、导出与选择账号发布。详见 [使用说明](docs/UPGRADE-1.23.0.md)、[更新记录](docs/RELEASE-1.23.0.md)、[开发交接](docs/DEVELOPMENT-HANDOFF-1.23.0.md) 和 [验证记录](docs/VALIDATION-1.23.0.md)。本次仅本地交付。
+
+## v1.22.0 累计更新
+
+采用飞书式的清爽协作布局：蓝白界面、分组导航、平台账号快捷入口和紧凑工作台。设置中的 9 类功能改为分组目录，窄屏使用下拉选择；API 配置与 Skills 列表根据内容宽度排版。保留现有账号、生成、发布与采集流程，无数据迁移。
+
+见 [使用说明](docs/UPGRADE-1.22.0.md)、[更新内容](docs/RELEASE-1.22.0.md)、[开发交接](docs/DEVELOPMENT-HANDOFF-1.22.0.md) 和 [验证记录](docs/VALIDATION-1.22.0.md)。这是本地升级，未上传 GitHub；下方公开下载仍为 v1.19.0。
+
+## v1.21.0 累计更新
+
+Skills 统一在“连接与设置 → AI Skills”管理。20 个 AI 工作步骤各有默认规则和自装规则下拉列表；导入时先指定适用步骤，生成时自动读取该步骤设置。任务保留启动时的规则快照，按工作站用户隔离保存。累计包含 v1.20.0 的介绍文档自动填写项目概要，以及 v1.19.1 的小红书话题传参修复。
+
+见 [v1.21.0 使用说明](docs/UPGRADE-1.21.0.md)、[开发交接](docs/DEVELOPMENT-HANDOFF-1.21.0.md)、[验证记录](docs/VALIDATION-1.21.0.md) 和 [全流程 Skills](docs/AI-SKILLS-WORKFLOW.md)。
+
 # 生长 STUDIO v1.19.0 测试版
 
 新增 TikTok、YouTube、Instagram MCP 接口与抖音独立采集连接，项目渠道、导出、发布记录与评论归属支持五个平台。按服务真实工具展示能力；海外账号需要官方授权。热点研究改为「同话题内容 → 核对播放/互动口径 → 清洗、去重与相关性筛选 → 有证据的创作假设与实验」。界面换成灰白底、深灰文字和少量蓝色操作，保留字号与重点加重。
@@ -26,7 +71,7 @@ v1.7.1 已验证小红书 MCP 真实连接、扫码登录和 11 条自有作品�
 
 生长 STUDIO 将品牌资料、项目语料、热点筛选、宣传策略、文案与封面、视频、发布记录和评论复盘连接在同一个工作区。面向独立创作者、小团队和早期品牌，让整理过的资料与反馈继续用于下一次创作。
 
-**版本选择：** v1.19.0 是最新 Pre-release 测试版，真实海外平台账号的完整发布与采集尚待联调；v1.17.0 测试版和 v1.2.0 正式版继续保留。Windows 包内置后端与运行环境，完整解压即可运行，无需另装 Node.js；可选外部 MCP 服务仍需单独安装与授权。[本版验证范围](docs/VALIDATION-1.19.0.md)
+**历史版本：** v1.19.0、v1.17.0 测试版和 v1.2.0 正式版继续保留。当前下载请使用页首 v2.0.0。Windows 包内置后端与运行环境，完整解压即可运行；可选外部 MCP 服务仍需单独安装与授权。
 
 ## 下载与打开
 
@@ -220,7 +265,7 @@ pnpm run build:windows
 node scripts/package-windows.mjs
 ```
 
-当前源码输出 `outputs/Shengzhang-Studio-1.19.0-windows-x64.zip`，构建所用 Node 一起打包。仓库不包含第三方运行组件压缩包、用户数据、测试产物或个人密钥。原生工程构建前需执行 `pnpm native:sync`，再使用 Android Studio 或 macOS/Xcode。
+当前团队版输出 `outputs/Shengzhang-Studio-Team-1.25.0-windows-x64.zip`，Node 与 Caddy 一起打包；既有个人版 `outputs/Shengzhang-Studio-1.24.0-windows-x64.zip` 继续保留。仓库不包含第三方运行组件压缩包、用户数据、测试产物或个人密钥。原生工程构建前需执行 `pnpm native:sync`，再使用 Android Studio 或 macOS/Xcode。
 
 ```text
 src/          页面、输入辅助、浏览器工作区、图文与视频制作
@@ -234,4 +279,4 @@ android/      安卓工程（待签名与真机验证）
 ios/          iOS 工程（待签名与真机验证）
 ```
 
-更多文档：[提示词与输入辅助](docs/PROMPT-WORKFLOW.md) · [生成与平台连接](docs/GENERATION-AND-PLATFORMS.md) · [部署说明](docs/DEPLOYMENT.md)。历史文档描述对应版本，当前功能与下载以本 README 和 [v1.19.0 发布说明](docs/RELEASE-1.19.0.md) 为准。运行前置、模块索引和下一步见 [开发交接文档](docs/DEVELOPMENT-HANDOFF-1.19.0.md)。
+更多文档：[提示词与输入辅助](docs/PROMPT-WORKFLOW.md) · [生成与平台连接](docs/GENERATION-AND-PLATFORMS.md) · [团队部署说明](docs/TEAM-DEPLOYMENT-1.25.0.md)。历史文档描述对应版本，当前本地团队功能以 [v1.25.0 发布说明](docs/RELEASE-1.25.0.md) 为准，公开下载仍为 v1.19.0。运行前置、模块索引和下一步见 [开发交接文档](docs/DEVELOPMENT-HANDOFF-1.25.0.md)。

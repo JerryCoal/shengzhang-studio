@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { acquireTaskResource } from './active-jobs.mjs';
 import * as d from './domain.mjs';
 import { canUseCredentials } from './ai-routes.mjs';
 import { requestJSON, downloadVideo, integrationError } from './integration-http.mjs';
@@ -6,14 +7,28 @@ import { generateSeedreamKeyframe, validateSeedreamReferences, seedreamCost } fr
 import { seedreamSettingsSchema, SEEDREAM_SIZE } from './seedream-config.mjs';
 import { mountCoverGeneration } from './cover-generation.mjs';
 import { mediaPrompt } from './prompts.mjs';
+import { contentProjectForAsset } from './content-workflow.mjs';
 import { rulesOf } from './workflow.mjs';
 import { reviewGeneratedImage } from './image-generation-review.mjs';
+import { resolveAccountCreation, assertAssetCreationAccount } from './account-creation.mjs';
+import { workflowSkillTrace } from './creative-skill-catalog.mjs';
+import { resolveBuiltinSkills } from './builtin-skills.mjs';
+import { currentActor, runWithActor } from './request-actor.mjs';
+import { createRedfoxMedia } from './redfox-media.mjs';
 
 export const SEEDANCE_HOSTS = { volcengine: 'https://ark.cn-beijing.volces.com/api/v3', byteplus: 'https://ark.ap-southeast.bytepluses.com/api/v3' };
 export const seedanceSettingsSchema = z.object({ region: z.enum(['volcengine', 'byteplus']), model: z.string().trim().min(3).max(120).regex(/^[a-zA-Z0-9_-]+$/), reservationUsd: z.number().min(0.1).max(100), outputPriceUsd: z.number().min(0).max(1000) }).strict();
 export const defaultSeedance = { region: 'volcengine', model: '', reservationUsd: 2, outputPriceUsd: 0 };
 const working = ['generating-frame', 'submitting-video', 'generating-video'];
 const assetIn = (p, assetId) => { const a = p.assets.find(a => a.id === assetId); d.assert(a, '内容不存在', 404); return a; };
+function assertSameCreationAccount(previous, current) {
+  // Old frames (and relay payloads that remove private recipes) have no account
+  // snapshot. They remain usable with the old, unconfigured default context.
+  // A newly configured identity/preset must still regenerate those frames.
+  if (!previous?.accounts?.length && !(current?.accounts || []).some(item => item.identityMarkdown?.trim() || item.presetId || item.topic?.trim() || item.instruction?.trim())) return;
+  const signature = context => (context?.accounts || []).map(item => [item.accountId, item.profileRevision, item.presetId]);
+  d.assert(JSON.stringify(signature(previous)) === JSON.stringify(signature(current)), '创作账号、身份或方案已改变，请按当前账号重新生成首尾帧后再制作视频', 409);
+}
 
 export function imageCost(usage) {
   const { text_tokens: text, image_tokens: images } = usage?.input_tokens_details || {};
@@ -22,7 +37,8 @@ export function imageCost(usage) {
 }
 function reserve(p, model, amount, stage, recipe) {
   d.assert(p.usage.reduce((sum, u) => sum + u.amountUsd, 0) + amount <= p.brief.budgetUsd, `项目预算不足。本次需要预留 $${amount.toFixed(2)}，请先调整预算。`);
-  const usage = { id: d.id(), stage, model, ...(recipe ? { promptVersion: recipe.promptVersion, skillVersions: recipe.skillVersions } : {}), amountUsd: amount, estimated: true, status: 'running', at: d.now(), note: '请求费用预留；不代表服务商账单或单次收费上限' };
+  const usage = { id: d.id(), stage, model, ...(recipe ? { promptVersion: recipe.promptVersion, skillVersions: recipe.skillVersions, userSkillVersions: recipe.userSkillVersions, ...(recipe.accountContext ? { creationSummary: recipe.accountContext.accounts.map(({ accountId, accountName, platform, profileRevision, presetId, presetName }) => ({ accountId, accountName, platform, profileRevision, presetId, presetName })) } : {}) } : {}), amountUsd: amount, estimated: true, status: 'running', at: d.now(), note: '请求费用预留；不代表服务商账单或单次收费上限' };
+  if (currentActor()) usage.actor = { ...currentActor() };
   p.usage.push(usage); return usage.id;
 }
 function settle(p, usageId, cost, status, note) {
@@ -48,26 +64,28 @@ export function mountMediaGeneration(app, store, config, { project, activeJobs }
   const local = req => d.assert(canUseCredentials(req, config), '请从已解锁的工作区使用自己的 API 密钥', 403);
   const fetcher = config.fetcher || fetch, pending = new Set(); let closing = false;
   const seedKey = async () => { const key = await config.seedanceVault?.getKey(); d.assert(key, '请在设置页保存 Seedance API Key'); return key; };
-  const update = (projectId, assetId, cb) => store.mutate(state => { const p = project(state, projectId), a = assetIn(p, assetId); const result = cb(p, a, a.aiProduction); d.touch(p); return result; });
+  const update = (projectId, assetId, cb) => store.mutate(state => { const p = project(state, projectId), a = assetIn(p, assetId); const result = cb(p, a, a.aiProduction, state); d.touch(p); return result; });
   const respond = res => res.status(202).json({ result: { accepted: true }, state: store.get() });
-  const background = work => { const promise = work().catch(() => {}).finally(() => pending.delete(promise)); pending.add(promise); };
-  const covers = mountCoverGeneration(app, store, config, { project, activeJobs, local, background, respond, reserve, settle }, preferences);
+  const background = work => { const actor = currentActor(); const promise = runWithActor(actor, work).catch(() => {}).finally(() => pending.delete(promise)); pending.add(promise); };
+  const redfox = createRedfoxMedia(store, config, { project, activeJobs, background, respond, assertSameCreationAccount }, preferences);
+  const covers = mountCoverGeneration(app, store, config, { project, activeJobs, local, background, respond, reserve, settle, redfox }, preferences);
 
   app.post('/api/projects/:id/assets/:assetId/keyframes', async (req, res) => {
     local(req);
+    if (config.redfox?.enabled('media')) return redfox.keyframe(req, res);
     const input = z.object({ provider: z.enum(['openai', 'seedream']).optional(), role: z.enum(['first_frame', 'last_frame']), prompt: z.string().trim().min(1).max(4000), quality: z.enum(['low', 'medium', 'high']).default('medium'), watermark: z.boolean().optional(), expectedRevision: z.number().int() }).strict().parse(req.body);
     const provider = input.provider || preferences.get().imageProvider || 'openai';
     d.assert(provider === 'seedream' || input.watermark === undefined, '可见水印开关仅适用于 Seedream 图片生成');
     const imageSettings = provider === 'seedream' ? seedreamSettingsSchema.parse({ ...preferences.get().seedream, ...(input.watermark === undefined ? {} : { watermark: input.watermark }) }) : null;
     const model = imageSettings?.model || 'gpt-image-2', reservation = imageSettings ? Math.max(imageSettings.reservationUsd, imageSettings.imagePriceUsd) : 1;
     const costOf = usage => imageSettings ? seedreamCost(usage, imageSettings) : imageCost(usage);
-    d.assert(!activeJobs.has(req.params.id), '此项目正在进行模型请求', 409);
-    activeJobs.add(req.params.id);
+    const releaseTask = acquireTaskResource(activeJobs, req.params.id, `asset:${req.params.assetId}`);
     let key, job;
     try {
+      const recipeState = store.get(), p = project(recipeState, req.params.id), a = assetIn(p, req.params.assetId);
+      const builtinSkills = resolveBuiltinSkills(recipeState, input.role);
       key = provider === 'seedream' ? await config.seedreamVault?.getKey() : config.vault?.status().configured ? await config.vault.getKey() : config.apiKey;
       d.assert(key, provider === 'seedream' ? '请在设置页保存火山方舟 Seedream API Key' : '请先配置 OpenAI API Key');
-      const p = project(store.get(), req.params.id), a = assetIn(p, req.params.assetId);
       d.assert(a.kind === 'video' && a.revision === input.expectedRevision, '请刷新视频任务后再生成关键帧', 409);
       d.assert(!working.includes(a.aiProduction?.phase), '此内容有生成任务正在执行', 409);
       d.assert(a.aiProduction?.phase !== 'uncertain', '上次提交结果不明，请先核对控制台并解除该任务的锁定', 409);
@@ -77,14 +95,23 @@ export function mountMediaGeneration(app, store, config, { project, activeJobs }
       const strategy = p.strategies.find(s => s.id === a.strategyId); d.assert(strategy?.status === 'confirmed', '请先确认策略');
       const references = [p.imageData, ...(input.role === 'last_frame' ? [current.frames.find(f => f.role === 'first_frame').mediaData] : [])].filter(Boolean);
       if (imageSettings) validateSeedreamReferences(references);
-      const recipe = mediaPrompt(p, a, { purpose: input.role, prompt: input.prompt, hasProductReference: !!p.imageData }, rulesOf(store.get()));
+      const { creativeSkill, accountContext } = resolveAccountCreation(recipeState, contentProjectForAsset(p, a), a.channel, input.role);
+      assertAssetCreationAccount(a, accountContext);
+      if (input.role === 'last_frame') assertSameCreationAccount(current.frames.find(f => f.role === 'first_frame')?.recipe?.accountContext, accountContext);
+      const recipe = mediaPrompt(p, a, { purpose: input.role, prompt: input.prompt, hasProductReference: !!p.imageData, creativeSkill, builtinSkills, accountContext }, rulesOf(recipeState));
+      recipe.skillTrace = workflowSkillTrace(input.role, { creativeSkill, builtinSkills, accountContext }, d.now());
       const prompt = recipe.prompt;
       job = update(p.id, a.id, (fresh, asset) => {
-        const usageId = reserve(fresh, model, reservation, 'keyframe', recipe);
-        asset.aiProduction = { ...current, phase: 'generating-frame', error: '', frameUsageId: usageId, frameProvider: provider, frameModel: model };
+        d.assert(asset.revision === input.expectedRevision, '内容已更新，请按当前版本重新生成关键帧', 409);
+        // GPT Image text inputs are token-priced. UTF-8 bytes provide a
+        // deliberately conservative token upper estimate for the complete
+        // prompt, including the selected Skill; image/output reserve stays $1.
+        const amount = imageSettings ? reservation : reservation + Buffer.byteLength(prompt, 'utf8') * 5 / 1e6;
+        const usageId = reserve(fresh, model, amount, 'keyframe', recipe);
+        asset.aiProduction = { ...current, phase: 'generating-frame', error: '', frameUsageId: usageId, frameProvider: provider, frameModel: model, frameInitiatedBy: currentActor() ? { ...currentActor() } : null };
         return { projectId: p.id, assetId: a.id, productionId: current.id, usageId, references, prompt, recipe };
       });
-    } finally { activeJobs.delete(req.params.id); }
+    } finally { releaseTask(); }
     background(async () => {
       try {
         const result = imageSettings ? await generateSeedreamKeyframe({ apiKey: key, prompt: job.prompt, references: job.references, settings: imageSettings }, fetcher) : await generateKeyframe({ apiKey: key, prompt: job.prompt, references: job.references, quality: input.quality }, fetcher);
@@ -93,7 +120,7 @@ export function mountMediaGeneration(app, store, config, { project, activeJobs }
           settle(p, job.usageId, costOf(result.usage), 'completed', imageSettings ? `Seedream · ${imageSettings.imagePriceUsd ? '按返回图片数和保存时单价估算' : '未填写单价，保留预算预留'}，最终以账单为准` : 'GPT Image 2 · 按返回 token 估算，最终以账单为准');
           if (g?.id !== job.productionId) return;
           g.frames = g.frames.filter(f => input.role === 'last_frame' && f.role === 'first_frame');
-          g.frames.push({ id: d.id(), role: input.role, prompt: input.prompt, recipe: job.recipe, mediaData: result.mediaData, model, provider, size: imageSettings ? SEEDREAM_SIZE : '864x1536', ...review, createdAt: d.now() });
+          g.frames.push({ id: d.id(), role: input.role, prompt: input.prompt, recipe: job.recipe, mediaData: result.mediaData, model, provider, size: imageSettings ? SEEDREAM_SIZE : '864x1536', ...review, ...(currentActor() ? { initiatedBy: { ...currentActor() } } : {}), createdAt: d.now() });
           g.phase = a.revision === g.assetRevision ? 'frames' : 'stale';
           g.error = g.phase === 'stale' ? '内容已修改，关键帧保留供查看，请按新版本重新生成。' : '';
         });
@@ -106,19 +133,30 @@ export function mountMediaGeneration(app, store, config, { project, activeJobs }
 
   app.post('/api/projects/:id/assets/:assetId/seedance', async (req, res) => {
     local(req);
+    if (config.redfox?.enabled('media')) return redfox.video(req, res);
     const input = z.object({ productionId: z.string(), expectedRevision: z.number().int(), prompt: z.string().trim().min(1).max(4000), duration: z.union([z.literal(5), z.literal(8), z.literal(12)]), generateAudio: z.boolean(), confirmed: z.literal(true) }).strict().parse(req.body);
     const settings = seedanceSettingsSchema.parse(preferences.get().seedance);
-    const key = await seedKey();
+    const releaseTask = acquireTaskResource(activeJobs, req.params.id, `asset:${req.params.assetId}`);
+    let key, recipe, job;
+    try {
     const recipeState = store.get(), recipeProject = project(recipeState, req.params.id);
-    const recipe = mediaPrompt(recipeProject, assetIn(recipeProject, req.params.assetId), { purpose: 'video', prompt: input.prompt, duration: input.duration, generateAudio: input.generateAudio, hasProductReference: false }, rulesOf(recipeState));
-    const job = update(req.params.id, req.params.assetId, (p, a, g) => {
+    const builtinSkills = resolveBuiltinSkills(recipeState, 'video');
+    key = await seedKey();
+    const recipeAsset = assetIn(recipeProject, req.params.assetId);
+    const { creativeSkill, accountContext } = resolveAccountCreation(recipeState, contentProjectForAsset(recipeProject, recipeAsset), recipeAsset.channel, 'video');
+    assertAssetCreationAccount(recipeAsset, accountContext);
+    for (const frame of recipeAsset.aiProduction?.frames || []) assertSameCreationAccount(frame.recipe?.accountContext, accountContext);
+    recipe = mediaPrompt(recipeProject, recipeAsset, { purpose: 'video', prompt: input.prompt, duration: input.duration, generateAudio: input.generateAudio, hasProductReference: false, creativeSkill, builtinSkills, accountContext }, rulesOf(recipeState));
+    recipe.skillTrace = workflowSkillTrace('video', { creativeSkill, builtinSkills, accountContext }, d.now());
+    job = update(req.params.id, req.params.assetId, (p, a, g) => {
       d.assert(a.revision === input.expectedRevision && g?.assetRevision === a.revision && g.id === input.productionId, '内容版本已改变，请重新检查关键帧', 409);
       d.assert(['frames', 'failed'].includes(g.phase) && !g.taskId, '任务已经提交或需要先核对结果，请勿重复生成', 409);
       d.assert(g.frames.length === 2 && g.frames.some(f => f.role === 'first_frame') && g.frames.some(f => f.role === 'last_frame'), '请先完成首尾两张关键帧');
       const usageId = reserve(p, settings.model, settings.reservationUsd, 'video', recipe);
-      Object.assign(g, { phase: 'submitting-video', prompt: input.prompt, recipe, duration: input.duration, generateAudio: input.generateAudio, videoUsageId: usageId, provider: settings.region, model: settings.model, outputPriceUsd: settings.outputPriceUsd, error: '', submittedAt: d.now(), failures: 0 });
+      Object.assign(g, { phase: 'submitting-video', prompt: input.prompt, recipe, duration: input.duration, generateAudio: input.generateAudio, videoUsageId: usageId, provider: settings.region, model: settings.model, outputPriceUsd: settings.outputPriceUsd, error: '', submittedAt: d.now(), failures: 0, initiatedBy: currentActor() ? { ...currentActor() } : null });
       return { projectId: p.id, assetId: a.id, productionId: g.id, frames: g.frames, usageId };
     });
+    } finally { releaseTask(); }
     background(async () => {
       try {
         const value = await requestJSON(`${SEEDANCE_HOSTS[settings.region]}/contents/generations/tasks`, { method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: settings.model, content: [{ type: 'text', text: recipe.prompt }, ...job.frames.map(f => ({ type: 'image_url', image_url: { url: f.mediaData }, role: f.role }))], duration: input.duration, ratio: 'adaptive', resolution: '720p', generate_audio: input.generateAudio, watermark: true }) }, fetcher, 'Seedance');
@@ -134,7 +172,15 @@ export function mountMediaGeneration(app, store, config, { project, activeJobs }
   const pollLocks = new Set();
   async function poll(projectId, assetId) {
     const lock = `${projectId}/${assetId}`; if (pollLocks.has(lock)) return; pollLocks.add(lock);
-    const original = assetIn(project(store.get(), projectId), assetId).aiProduction;
+    try {
+      const original = assetIn(project(store.get(), projectId), assetId).aiProduction;
+      // Polling can run on the service timer, after restart, or from another
+      // member's refresh. Completion belongs to the member who submitted it.
+      return await runWithActor(original?.initiatedBy || null, () => pollSnapshot(projectId, assetId, original));
+    } finally { pollLocks.delete(lock); }
+  }
+  async function pollSnapshot(projectId, assetId, original) {
+    const sameTask = g => !!original && g?.id === original.id && g.taskId === original.taskId && g.videoUsageId === original.videoUsageId;
     try {
       d.assert(original?.taskId, '没有可查询的视频任务');
       if (original.phase === 'complete') return;
@@ -146,32 +192,47 @@ export function mountMediaGeneration(app, store, config, { project, activeJobs }
         // Record model usage even if downloading fails; read-only polling can safely retry the download.
         update(projectId, assetId, (p) => settle(p, original.videoUsageId, cost, 'completed', 'Seedance 已完成；按配置单价与返回 token 估算，未配置单价则保留费用预留'));
         const mediaData = await (config.downloadVideo || downloadVideo)(value.content?.video_url, fetcher);
-        update(projectId, assetId, (p, a, g) => {
-          if (g?.id !== original.id) return;
-          if (a.revision !== g.assetRevision) { g.phase = 'stale'; g.error = '视频已生成，但内容版本已修改。成品已保存在此任务，检查后可另行保存。'; g.resultMediaData = mediaData; return; }
+        update(projectId, assetId, (p, a, g, state) => {
+          if (!sameTask(g)) return;
+          if (a.revision !== g.assetRevision) {
+            const wasStale = g.phase === 'stale'; g.phase = 'stale'; g.error = '视频已生成，但内容版本已修改。成品已保存在此任务，检查后可另行保存。'; g.resultMediaData = mediaData;
+            if (!wasStale) d.activity(state, 'AI 视频已生成，待核对版本', '生成时的内容版本已经修改，已保存视频候选。', p.id);
+            return;
+          }
           d.updateAsset(p, a.id, { title: a.title, body: a.body, mediaData, mime: 'video/mp4', expectedRevision: a.revision });
+          if (g.recipe?.accountContext) a.creationTrace = structuredClone(g.recipe.accountContext);
+          else delete a.creationTrace;
+          if (g.recipe?.knowledgeContext) a.knowledgeContext = structuredClone(g.recipe.knowledgeContext);
           g.phase = 'complete'; g.error = ''; g.completedAt = d.now();
+          d.activity(state, 'AI 视频已生成', 'Seedance 已返回成品，归属原生成账号。', p.id);
         });
       } else if (['failed', 'cancelled', 'expired'].includes(value.status)) {
-        update(projectId, assetId, (p, _a, g) => { settle(p, original.videoUsageId, cost, 'failed', '视频任务未完成，费用以服务商账单为准'); Object.assign(g, { phase: 'failed', error: 'Seedance 任务未完成，请检查服务商控制台；需要核对后再创建新任务。' }); });
+        update(projectId, assetId, (p, _a, g, state) => {
+          settle(p, original.videoUsageId, cost, 'failed', '视频任务未完成，费用以服务商账单为准');
+          if (!sameTask(g)) return;
+          const wasFailed = g.phase === 'failed'; Object.assign(g, { phase: 'failed', error: 'Seedance 任务未完成，请检查服务商控制台；需要核对后再创建新任务。' });
+          if (!wasFailed) d.activity(state, 'AI 视频任务未完成', '服务商返回失败或结束状态，请核对账单后决定是否重新生成。', p.id);
+        });
       } else {
         d.assert(['running', 'queued'].includes(value.status), '无法识别 Seedance 任务状态', 502);
-        update(projectId, assetId, (_p, _a, g) => Object.assign(g, { phase: 'generating-video', nextPollAt: Date.now() + 20000, error: '', failures: 0 }));
+        update(projectId, assetId, (_p, _a, g) => { if (sameTask(g)) Object.assign(g, { phase: 'generating-video', nextPollAt: Date.now() + 20000, error: '', failures: 0 }); });
       }
     } catch (error) {
-      update(projectId, assetId, (_p, _a, g) => { g.failures = (g.failures || 0) + 1; g.nextPollAt = Date.now() + Math.min(300000, 20000 * 2 ** Math.min(g.failures, 4)); g.error = error.status ? error.message : '暂时无法查询视频，请稍后重试。'; if (g.failures >= 8) g.phase = 'uncertain'; });
-    } finally { pollLocks.delete(lock); }
+      if (!original?.taskId) throw error;
+      update(projectId, assetId, (_p, _a, g) => { if (!sameTask(g)) return; g.failures = (g.failures || 0) + 1; g.nextPollAt = Date.now() + Math.min(300000, 20000 * 2 ** Math.min(g.failures, 4)); g.error = error.status ? error.message : '暂时无法查询视频，请稍后重试。'; if (g.failures >= 8) g.phase = 'uncertain'; });
+    }
   }
-  app.post('/api/projects/:id/assets/:assetId/video-status', async (req, res) => { local(req); await poll(req.params.id, req.params.assetId); res.json({ result: { checked: true }, state: store.get() }); });
+  app.post('/api/projects/:id/assets/:assetId/video-status', async (req, res) => { local(req); const g = assetIn(project(store.get(), req.params.id), req.params.assetId).aiProduction; if (g?.provider === 'redfox' && g.taskId) await redfox.poll(req.params.id, req.params.assetId, 'video'); else if (g?.frameProvider === 'redfox' && g.frameTaskId && ['generating-frame', 'uncertain'].includes(g.phase)) await redfox.poll(req.params.id, req.params.assetId, 'frame'); else await poll(req.params.id, req.params.assetId); res.json({ result: { checked: true }, state: store.get() }); });
+  app.post('/api/projects/:id/assets/:assetId/cover-status', async (req, res) => { local(req); const a = assetIn(project(store.get(), req.params.id), req.params.assetId); d.assert(a.aiCover?.provider === 'redfox', '没有可查询的 Redfox 封面任务'); await redfox.poll(req.params.id, req.params.assetId, 'cover'); res.json({ result: { checked: true }, state: store.get() }); });
   app.post('/api/projects/:id/assets/:assetId/generation-reset', (req, res) => {
     local(req); z.object({ confirmed: z.literal(true) }).strict().parse(req.body);
-    update(req.params.id, req.params.assetId, (_p, _a, g) => { d.assert(g && !working.includes(g.phase), '任务仍在执行，不能解除锁定', 409); g.taskHistory = [...(g.taskHistory || []), { taskId: g.taskId || '', phase: g.phase, at: d.now() }].slice(-10); delete g.taskId; g.phase = 'frames'; g.error = ''; });
+    update(req.params.id, req.params.assetId, (_p, _a, g) => { d.assert(g && !working.includes(g.phase), '任务仍在执行，不能解除锁定', 409); g.taskHistory = [...(g.taskHistory || []), { taskId: g.taskId || g.frameTaskId || '', phase: g.phase, at: d.now() }].slice(-10); delete g.taskId; delete g.frameTaskId; delete g.frameJob; g.phase = 'frames'; g.error = ''; });
     res.json({ result: { reset: true }, state: store.get() });
   });
   return {
-    recover() { store.mutate(state => { covers.recover(state); for (const p of state.projects) for (const a of p.assets) if (['generating-frame', 'submitting-video'].includes(a.aiProduction?.phase)) { a.aiProduction.phase = 'uncertain'; a.aiProduction.error = '服务重启前的提交结果不明。请核对控制台，未自动重复调用。'; } }); },
-    async tick() { if (closing) return; for (const p of store.get().projects) for (const a of p.assets) if (a.aiProduction?.phase === 'generating-video' && a.aiProduction.nextPollAt <= Date.now()) await poll(p.id, a.id); },
+    recover() { store.mutate(state => { covers.recover(state); for (const p of state.projects) for (const a of p.assets) if (['generating-frame', 'submitting-video'].includes(a.aiProduction?.phase)) { const g = a.aiProduction; if (g.phase === 'generating-frame' && g.frameProvider === 'redfox' && g.frameTaskId) { g.nextPollAt = Date.now(); continue; } g.phase = 'uncertain'; g.error = '服务重启前的提交结果不明。请核对控制台，未自动重复调用。'; } }); },
+    async tick() { if (closing) return; await redfox.tick(); for (const p of store.get().projects) for (const a of p.assets) if (a.aiProduction?.provider !== 'redfox' && a.aiProduction?.phase === 'generating-video' && a.aiProduction.nextPollAt <= Date.now()) await poll(p.id, a.id); },
     async close() { closing = true; await Promise.allSettled([...pending]); },
-    busy: () => pending.size > 0 || pollLocks.size > 0 || store.get().projects.some(p => p.assets.some(a => a.aiCover?.phase === 'generating' || working.includes(a.aiProduction?.phase))),
+    busy: () => pending.size > 0 || pollLocks.size > 0 || redfox.busy() || store.get().projects.some(p => p.assets.some(a => a.aiCover?.phase === 'generating' || working.includes(a.aiProduction?.phase))),
   };
 }

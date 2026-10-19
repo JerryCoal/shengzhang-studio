@@ -39,6 +39,8 @@ for (const file of ['Install-Docling.cmd', 'install-docling.ps1']) cpSync(join('
 cpSync('desktop/document-parser-setup.py', join(parserSetup, 'desktop', 'document-parser-setup.py'));
 cpSync('docs/DOCLING-LOCAL-PARSER.md', join(output, 'Docling本机解析指南.md'));
 cpSync('docs/THIRD-PARTY-SKILLS.md', join(output, 'THIRD-PARTY-SKILLS.md'));
+cpSync('resources/brief-import/项目介绍示例.txt', join(output, '项目介绍导入示例.txt'));
+for (const file of ['DEVELOPMENT-HANDOFF-1.19.1.md', 'UPGRADE-1.19.1.md', 'VALIDATION-1.19.1.md']) cpSync(join('docs', file), join(output, file));
 const matrixTools = join(output, '多平台MCP');
 mkdirSync(join(matrixTools, 'scripts'), {recursive:true});
 for(const file of ['start-matrix-mcp.mjs','prepare-youtube-mcp.mjs','matrix-browser-status.mjs']) await build({entryPoints:[join('scripts',file)],outfile:join(matrixTools,'scripts',file),platform:'node',target:'node24',format:'esm',bundle:true,legalComments:'eof'});
@@ -52,12 +54,15 @@ for (const file of ['platform-login.cjs', 'mcp-launcher.cjs', 'platform-data.cjs
 cpSync('docs/DOUYIN-SETUP.md', join(output, '可选抖音评论接口指南.md'));
 cpSync(`docs/UPGRADE-${version}.md`, join(output, '新版功能与使用说明.md'));
 cpSync(`docs/RELEASE-${version}.md`, join(output, `RELEASE-${version}.md`));
+if (existsSync(`docs/REDFOX-TEST-REPORT-${version}.md`)) for (const name of ['Redfox测试版功能报告.md', `REDFOX-TEST-REPORT-${version}.md`]) cpSync(`docs/REDFOX-TEST-REPORT-${version}.md`, join(output, name));
 cpSync(`docs/DEVELOPMENT-HANDOFF-${version}.md`, join(output, '开发交接说明.md'));
-for (const file of [`UPGRADE-${version}.md`, `DEVELOPMENT-HANDOFF-${version}.md`, 'DEVELOPMENT-HANDOFF-1.17.0.md', 'DOCLING-LOCAL-PARSER.md']) cpSync(join('docs', file), join(output, file));
+for (const name of ['RELEASE', 'VALIDATION', 'SERVER-EXTENSION']) if (existsSync(`docs/${name}-${version}.md`)) cpSync(`docs/${name}-${version}.md`, join(output, `${name}-${version}.md`));
+for (const file of [`UPGRADE-${version}.md`, `DEVELOPMENT-HANDOFF-${version}.md`, 'DEVELOPMENT-HANDOFF-1.17.0.md', 'DEVELOPMENT-HANDOFF-1.18.0.md', 'DEVELOPMENT-HANDOFF-1.19.0.md', 'DEVELOPMENT-HANDOFF-1.20.0.md', 'UPGRADE-1.20.0.md', 'DEVELOPMENT-HANDOFF-1.21.0.md', 'UPGRADE-1.21.0.md', 'VALIDATION-1.21.0.md', 'DOCLING-LOCAL-PARSER.md']) cpSync(join('docs', file), join(output, file));
 cpSync('docs/RECENT-CONTENT-RESEARCH.md', join(output, '近期内容研究使用说明.md'));
 cpSync('docs/CREATIVE-SKILLS-SOURCES.md', join(output, '内置写作Skills来源说明.md'));
 cpSync('docs/AI-SKILLS-WORKFLOW.md', join(output, '全流程AI规则说明.md'));
 cpSync('docs/QWEN-RAG.md', join(output, 'Qwen语义语料检索说明.md'));
+cpSync('docs/GLM-SETUP.md', join(output, 'GLM-SETUP.md'));
 cpSync('resources/rag/语义检索体验资料.txt', join(output, '语义检索体验资料.txt'));
 for (const file of ['AI-SKILLS-WORKFLOW.md', 'AI-SKILLS-TEXT-SOURCES.md', 'AI-SKILLS-MEDIA-SOURCES.md', 'AI-SKILLS-ANALYSIS-SOURCES.md', 'CREATIVE-SKILLS-SOURCES.md', `VALIDATION-${version}.md`]) cpSync(join('docs', file), join(output, file));
 cpSync('docs/COMMENTS-ANALYTICS-RESEARCH.md', join(output, '评论工作流与运营数据调研.md'));
@@ -66,11 +71,12 @@ cpSync('docs/FEISHU-RESEARCH.md', join(output, '飞书同步调研说明.md'));
 cpSync('docs/PLATFORM-ASSIST-VALIDATION-1.7.1.md', join(output, '平台助手验证记录.md'));
 cpSync('docs/COMMENT-CAPTURE-CASES.md', join(output, 'COMMENT-CAPTURE-CASES.md'));
 cpSync('skills', join(output, '开发交接', 'skills'), { recursive: true });
+cpSync('vendor/redfox-community', join(output, 'vendor', 'redfox-community'), { recursive: true });
 cpSync('resources/sensitive', join(output, '敏感词库与模板'), { recursive: true });
 cpSync('scripts/sensitive_checker.py', join(output, '开发交接', 'sensitive_checker.py'));
 cpSync('docs/ai_copy_sensitive_checker_handoff.md', join(output, '开发交接', 'ai_copy_sensitive_checker_handoff.md'));
 cpSync('docs/PROMPT-WORKFLOW.md', join(output, '提示词与输入辅助说明.md'));
-writeFileSync(join(appDirectory, 'package.json'), JSON.stringify({ name: 'shengzhang-studio', productName: '生长 AI 运营工作台', version, main: 'main.cjs', private: true }, null, 2));
+writeFileSync(join(appDirectory, 'package.json'), JSON.stringify({ name: 'shengzhang-studio', productName: 'Shengzhang Studio 自媒体运营工作站', version, main: 'main.cjs', private: true }, null, 2));
 const runtime = join(output, 'resources', 'runtime'); mkdirSync(runtime, { recursive: true });
 const runtimeNode = join(runtime, 'node.exe');
 const digest = path => createHash('sha256').update(readFileSync(path)).digest('hex');
@@ -86,5 +92,5 @@ for (const input of Object.keys(compiled.metafile.inputs).filter(path => path.in
   licenses.set(directory, `${pkg.name} ${pkg.version}\n${license ? readFileSync(join(directory, license), 'utf8') : `License: ${pkg.license || 'See package source'}`}\n`);
 }
 writeFileSync(join(appDirectory, 'THIRD-PARTY-LICENSES.txt'), [...licenses.values()].join('\n--------------------\n'));
-writeFileSync(join(output, '开始使用.txt'), '生长 AI 运营工作台 · Windows 完整版 1.19.0\r\n\r\n1. 请完整解压这个文件夹，然后双击 ShengzhangStudio.exe。\r\n2. 第一次打开，注册本地用户。不同用户的项目和密钥分别加密保存。\r\n3. 登录后可在工作台点击“开始免费练习”；左侧“使用指南”或 F1 可随时查看教学。\r\n4. 在“连接与设置”填写所需的 OpenAI / DeepSeek / Qwen 文本密钥、OpenAI / Seedream 图片密钥及 Seedance 视频密钥，并检查连接。\r\n5. 连接与设置 → 团队协作可连接飞书多维表格；发布中心可自动同步排期。请先按飞书接入指南配置权限。发布中心可打开官方发布助手，自动上传与填写文案；核对后确认提交，平台返回作品编号时保存回执。登记结果后可采集评论与作品指标。\r\n6. 关闭窗口会缩到系统托盘，让任务继续运行；从托盘选择“退出并停止后台任务”可完全退出。\r\n7. 菜单“工作台 → 在浏览器中打开”可使用完整 Web 页面。\r\n\r\n数据位于 %LOCALAPPDATA%\\ShengzhangStudio，更新应用不会覆盖数据。牢记本地登录密码，密码无法找回。导出备份不含 API 密钥。\r\n\r\n静态网站中的用户与本机应用分别保存；不会自动同步。模型调用按服务商账户计费，请先配置项目预算。\r\n');
+writeFileSync(join(output, '开始使用.txt'), `Shengzhang Studio 自媒体运营工作站 · Windows v${version}\r\nJCoal 开发\r\n\r\n1. 完整解压后双击 ShengzhangStudio.exe。首次打开注册本地用户；每位用户的项目与密钥分别加密保存。\r\n2. 在“连接与设置 → 文字模型”接入 Qwen、GLM 或 DeepSeek 官方 API，旧 OpenAI 配置可继续使用；为各环节选择模型。GLM 说明见 GLM-SETUP.md。\r\n3. 在“图片与视频”配置火山方舟 Seedream 与 Seedance 官方密钥及模型。新工作区默认 Seedream；历史服务选择继续保留。Redfox 为可选扩展，保存密钥后需主动勾选所需路由。\r\n4. 从灵感 Agent 输入运营需求，按需读取热点或加入图文资料；勾选以前的运营经验和团队经验，形成传给目标平台的数据包。\r\n5. 进入小红书、抖音、Instagram 或 YouTube Agent，选择目标账号，调整文案、素材和 Skills，再生成图片或视频并完成自动、人工检查。\r\n6. 内容满意后交给发布 Agent。核对平台、账号与时间，选择已连接的 MCP 投送或导出；实际提交仍需确认。飞书记录按现有授权选择同步。\r\n7. 发布后进入结果分析 Agent，选择作品、链接或回执读取指标，确认分析后筛选要保留的经验，供下次创作选择使用。\r\n8. 任务中心显示各 Agent 的运行状态、阶段和异常。可在支持的检查点暂停；已提交的服务商请求可能仍在执行和计费。退出时按提示保存工作进度，重新打开后核对结果再继续。\r\n9. F1 或“使用指南”可打开教学；菜单“工作台 → 在浏览器中打开”可打开本机 Web 页面。\r\n\r\n数据保存在 %LOCALAPPDATA%\\ShengzhangStudio，更新应用不会覆盖数据。请记住本地密码；备份不含 API 密钥。网页版与本机工作区独立保存，不会自动同步。模型费用以服务商账单为准，请先配置项目预算。\r\n`);
 console.log(JSON.stringify({ directory: output, executable: join(output, 'ShengzhangStudio.exe'), bundledNode: process.version }));

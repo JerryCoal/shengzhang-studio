@@ -58,7 +58,9 @@ test('Skill API preview is read-only; catalog separates immutable builtin and us
   assert.equal(originalCatalog.builtin.id, 'builtin'); assert.match(originalCatalog.builtin.instructions, /事实/); assert.equal(originalCatalog.skills.length, 0);
   const installed = await f.install();
   const catalog = (await f.req('/creative-skills')).data;
-  assert.equal(catalog.revision, 1); assert.deepEqual(catalog.builtin, originalCatalog.builtin); assert.deepEqual(catalog.skills, [installed]);
+  assert.equal(catalog.revision, 1); assert.deepEqual(catalog.builtin, originalCatalog.builtin); assert.equal(catalog.skills.length, 1);
+  for (const [key, value] of Object.entries(installed)) assert.deepEqual(catalog.skills[0][key], value, `installed ${key} is retained in the catalog`);
+  assert.deepEqual(catalog.skills[0].eligibleWorkflowIds, ['copy-xiaohongshu', 'copy-douyin']);
   const duplicate = await f.req('/creative-skills', 'POST', { fileName: 'SKILL.md', text: markdown(), expectedRevision: 1, confirmed: true });
   assert.equal(duplicate.status, 409); assert.equal(f.store.get().skillsRevision, 1); assert.equal(f.calls.length, 0);
 });

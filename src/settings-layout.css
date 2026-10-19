@@ -1,0 +1,188 @@
+/* Settings use a quiet directory rather than an overflowing toolbar of tabs. */
+.settings-workspace .settings-layout {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+}
+.settings-workspace .settings-navigation {
+  position: sticky;
+  top: 92px;
+  min-width: 0;
+  padding: 4px 16px 0 0;
+  border-right: 1px solid var(--ui-border);
+}
+.settings-workspace .settings-navigation .settings-navigation-tabs {
+  display: block;
+  border: 0;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+}
+.settings-workspace .settings-navigation-group + .settings-navigation-group { margin-top: 22px; }
+.settings-workspace .settings-navigation-caption {
+  display: block;
+  padding: 0 10px 8px;
+  color: var(--ui-text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.settings-workspace .settings-navigation .settings-tabs.settings-navigation-tabs button {
+  width: 100%;
+  display: flex;
+  flex: none;
+  justify-content: flex-start;
+  text-align: left;
+  gap: 10px;
+  padding: 10px;
+  margin: 2px 0;
+  border: 0;
+  border-radius: 7px;
+  min-height: 42px;
+  white-space: normal;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ui-text-secondary);
+  background: transparent;
+  box-shadow: none;
+}
+.settings-workspace .settings-navigation-tabs button svg { flex: 0 0 auto; }
+.settings-workspace .settings-navigation-tabs button span { min-width: 0; overflow-wrap: anywhere; }
+.settings-workspace .settings-navigation .settings-tabs.settings-navigation-tabs button:hover {
+  color: var(--ui-text);
+  background: var(--ui-surface-subtle);
+}
+.settings-workspace .settings-navigation .settings-tabs.settings-navigation-tabs button[aria-selected="true"] {
+  color: var(--ui-accent);
+  background: var(--ui-accent-soft);
+  font-weight: 600;
+}
+.settings-workspace .settings-navigation-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 25px 8px 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--ui-border);
+  color: var(--ui-text-secondary);
+  font-size: 12px;
+  line-height: 1.8;
+}
+.settings-workspace .settings-navigation-note svg { flex-shrink: 0; margin-top: 4px; }
+.settings-workspace .settings-mobile-picker { display: none; }
+.settings-workspace .settings-detail { min-width: 0; container: settings-content / inline-size; }
+.settings-workspace .settings-detail-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 4px 0 20px;
+}
+.settings-workspace .settings-detail-heading > div { min-width: 0; }
+.settings-workspace .settings-detail-heading h2 { font-size: 20px; line-height: 1.5; margin: 0; }
+.settings-workspace .settings-detail-heading .settings-section-hint { margin: 6px 0 0; line-height: 1.75; font-size: 13px; }
+.settings-workspace .settings-detail-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 36px;
+  height: 36px;
+  color: var(--ui-accent);
+  background: var(--ui-accent-soft);
+  border-radius: 8px;
+}
+.settings-workspace .settings-detail > [role="tabpanel"] { min-width: 0; }
+.settings-workspace .settings-detail > [role="tabpanel"] > .panel {
+  border-radius: 10px;
+  padding: 24px;
+  box-shadow: none;
+}
+.settings-workspace .settings-detail :is(.settings-card, .ai-settings) .section-heading h2 { font-size: 17px; }
+.settings-workspace .settings-detail :is(.settings-card, .ai-settings) .field > span { font-size: 13px; }
+.settings-workspace .settings-detail :is(.settings-card, .ai-settings) :is(input:not([type="checkbox"]):not([type="radio"]), select) { min-height: 42px; }
+.settings-workspace .settings-detail :is(.field > small, .small-note) { line-height: 1.8; }
+.settings-workspace .settings-detail .setting-row { gap: 12px; }
+.settings-workspace .settings-detail .setting-row > :last-child { min-width: 0; overflow-wrap: anywhere; }
+
+/* Use the available content width, since the app and settings both have navigation. */
+.settings-workspace .settings-detail .ai-settings-columns { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+.settings-workspace .settings-detail .credential-panel {
+  border: 0;
+  border-bottom: 1px solid var(--ui-border);
+  border-radius: 0;
+  padding: 0 0 24px;
+}
+.settings-workspace .settings-detail .model-routing { border: 0; padding: 0; border-radius: 0; }
+.settings-workspace .settings-detail .model-route { grid-template-columns: minmax(0, 1fr); padding: 16px 0; }
+.settings-workspace .settings-detail .vault-status { padding: 14px; border-radius: 8px; }
+.settings-workspace .settings-detail .api-help { line-height: 1.8; }
+.settings-workspace .settings-detail .api-help ol { padding-left: 20px; }
+.settings-workspace .settings-detail .api-help li + li { margin-top: 8px; }
+.settings-workspace .settings-detail :is(.model-price-note, .local-workflows p, .model-route small) { font-size: 12px; }
+.settings-workspace .settings-detail .local-workflows { border-radius: 8px; }
+.settings-workspace .settings-detail .settings-grid { grid-template-columns: minmax(0, 1fr); }
+.settings-workspace .settings-detail .research-settings-grid { grid-template-columns: minmax(0, 1fr); }
+.settings-workspace .settings-detail .creative-workflow-filters { gap: 6px; }
+.settings-workspace .settings-detail .creative-workflow-filters button { border-radius: 6px; min-height: 38px; }
+.settings-workspace .settings-detail .creative-workflow-group h3 {
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--ui-border);
+  margin-bottom: 0;
+}
+.settings-workspace .settings-detail .creative-workflow-list { gap: 0; }
+.settings-workspace .settings-detail .creative-workflow-row {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  border: 0;
+  border-bottom: 1px solid var(--ui-border);
+  border-radius: 0;
+  padding: 20px 0;
+}
+.settings-workspace .settings-detail .creative-workflow-choice { border: 0; padding: 0; }
+.settings-workspace .settings-detail .creative-workflow-about h4 { font-size: 14px; }
+.settings-workspace .settings-detail .creative-workflow-choice select { min-height: 42px; }
+.settings-workspace .settings-detail .creative-skill-details pre { background: var(--ui-surface-subtle); border-radius: 7px; }
+.settings-workspace .settings-detail .creative-skill-import { padding: 20px; background: var(--ui-surface-subtle); border: 1px solid var(--ui-border); border-radius: 9px; }
+
+@container settings-content (min-width: 650px) {
+  .settings-workspace .settings-detail .creative-workflow-row { grid-template-columns: minmax(0, 1fr) minmax(230px, .9fr); gap: 24px; }
+  .settings-workspace .settings-detail .model-route { grid-template-columns: minmax(0, 1fr) minmax(230px, .8fr); gap: 20px; }
+}
+@container settings-content (min-width: 920px) {
+  .settings-workspace .settings-detail .ai-settings-columns { grid-template-columns: minmax(0, .95fr) minmax(0, 1.05fr); gap: 28px; }
+  .settings-workspace .settings-detail .credential-panel { border-bottom: 0; border-right: 1px solid var(--ui-border); padding: 0 28px 0 0; }
+  .settings-workspace .settings-detail .model-route { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .settings-workspace .settings-detail :is(.settings-grid, .research-settings-grid) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 1100px) {
+  .settings-workspace .settings-layout { display: block; }
+  .settings-workspace .settings-navigation { display: none; }
+  .settings-workspace .settings-mobile-picker {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 20px;
+    color: var(--ui-text-secondary);
+    font-size: 13px;
+  }
+  .settings-workspace .settings-mobile-picker span { flex-shrink: 0; }
+  .settings-workspace .settings-mobile-picker select {
+    flex: 1;
+    max-width: 360px;
+    min-width: 0;
+    min-height: 44px;
+    padding: 8px 12px;
+    border: 1px solid var(--ui-border);
+    border-radius: 7px;
+    background: var(--ui-surface);
+    color: var(--ui-text);
+    font: inherit;
+  }
+}
+@media (max-width: 600px) {
+  .settings-workspace .settings-detail > [role="tabpanel"] > .panel { padding: 18px 16px; }
+  .settings-workspace .settings-detail-heading { gap: 10px; padding-bottom: 16px; }
+  .settings-workspace .settings-detail-heading h2 { font-size: 18px; }
+  .settings-workspace .settings-detail-heading .settings-section-hint { font-size: 13px; }
+  .settings-workspace .settings-detail .creative-skill-import { padding: 15px 12px; }
+  .settings-workspace .settings-detail .credential-actions { align-items: flex-start; }
+}

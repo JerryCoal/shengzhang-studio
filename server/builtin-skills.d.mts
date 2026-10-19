@@ -1,0 +1,10 @@
+import type { SkillWorkflowId } from './skill-workflows.mjs';
+export type BuiltinSkillOverride = { instructions: string; baseVersion: string; revision: number; updatedAt: string };
+export type BuiltinSkillOverrides = Partial<Record<SkillWorkflowId, Record<string, BuiltinSkillOverride>>>;
+export type BuiltinSkillState = { skillsRevision?: number; builtinSkillOverrides?: BuiltinSkillOverrides };
+export type BuiltinSkillSnapshot = { workflowId: SkillWorkflowId; id: string; name: string; version: string; instructions: string; baseVersion: string; customized: boolean; revision?: number; updatedAt?: string };
+export const BUILTIN_SKILL_MAX_BYTES: number;
+export function normalizeBuiltinSkills<T extends BuiltinSkillState>(state: T): T & { skillsRevision: number; builtinSkillOverrides: BuiltinSkillOverrides };
+export function resolveBuiltinSkills(state: BuiltinSkillState, workflowId: SkillWorkflowId): BuiltinSkillSnapshot[];
+export function setBuiltinSkill(state: BuiltinSkillState, input: { workflowId: SkillWorkflowId; skillId: string; instructions: string; expectedRevision: number }): BuiltinSkillSnapshot;
+export function resetBuiltinSkill(state: BuiltinSkillState, input: { workflowId: SkillWorkflowId; skillId: string; expectedRevision: number }): BuiltinSkillSnapshot;

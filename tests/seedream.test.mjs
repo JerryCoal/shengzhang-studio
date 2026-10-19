@@ -53,7 +53,7 @@ test('Seedream-only settings survive restart and upgrade legacy Seedance setting
   const dir = mkdtempSync(join(tmpdir(), 'studio-seedream-'));
   t.after(() => { if (!dir.startsWith(resolve(tmpdir()) + sep)) throw Error('Unexpected directory'); rmSync(dir, { recursive: true }); });
   const path = join(dir, 'preferences.json');
-  let store = createIntegrationPreferences(path); store.saveSeedream(defaultSeedream); store.saveImageProvider('seedream');
+  let store = createIntegrationPreferences(path); assert.equal(store.get().imageProvider, 'seedream'); assert.equal(store.get().seedance.region, 'volcengine'); assert.deepEqual(store.get().redfox, { enabled: false, mediaEnabled: false, searchEnabled: false }); store.saveSeedream(defaultSeedream); store.saveImageProvider('seedream');
   store = createIntegrationPreferences(path);
   assert.equal(store.get().seedance.model, ''); assert.equal(store.get().imageProvider, 'seedream');
   assert.deepEqual(store.get().seedream, defaultSeedream);
@@ -61,6 +61,7 @@ test('Seedream-only settings survive restart and upgrade legacy Seedance setting
   writeFileSync(path, JSON.stringify({ seedance })); store = createIntegrationPreferences(path);
   assert.equal(store.get().imageProvider, 'openai'); assert.deepEqual(store.get().seedance, seedance);
   store.saveSeedream(defaultSeedream); assert.deepEqual(createIntegrationPreferences(path).get().seedance, seedance);
+  store.saveImageProvider('openai'); assert.equal(createIntegrationPreferences(path).get().imageProvider, 'openai', 'an explicitly selected legacy provider survives upgrade');
 });
 
 test('Seedream watermark defaults on for legacy settings and an explicit off survives restart', t => {

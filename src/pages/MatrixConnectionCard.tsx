@@ -3,6 +3,8 @@ import { ExternalLink, RefreshCw } from 'lucide-react';
 import { api } from '../api';
 import { Channel, Field, Pill } from '../components';
 import type { MCPConnection } from './MCPConnections';
+import { MCPAccountIdentity } from './AccountCreation';
+import { useStudio } from '../context';
 
 const guides = {
   youtube: { port: 18120, repository: 'https://github.com/prmichaelsen/youtube-mcp', name: 'YouTube 官方 API MCP', preparation: '在 Google Cloud 启用 YouTube Data API，创建桌面 OAuth 客户端。用随包连接指南完成本机授权；每个频道使用独立授权目录和端口。', limitation: '支持视频上传、评论和关键词搜索。上传前选择可见范围；官方接口有每日配额，部分未经审核的项目只能私密上传。', steps: '上游当前 CLI 不能正确注册工具，请使用安装包“多平台MCP/README.md”里的 YouTube 包装入口。不要直接照上游旧启动命令运行。' },
@@ -11,6 +13,8 @@ const guides = {
 };
 type Overseas = keyof typeof guides;
 export function MatrixConnectionCard({value,reload}:{value:MCPConnection & {platform:Overseas};reload:()=>Promise<void>}) {
+  const { settings } = useStudio();
+  const canManage = !settings.team || settings.team.role === 'admin';
   const guide=guides[value.platform], accountId=value.accountId||'default';
   const [endpoint,setEndpoint]=useState(value.endpoint||`http://127.0.0.1:${guide.port}/mcp`),[remoteAccount,setRemoteAccount]=useState(value.remoteAccount||'');
   const [token,setToken]=useState(''),[clearKey,setClearKey]=useState(false),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[failed,setFailed]=useState(false);
@@ -21,13 +25,14 @@ export function MatrixConnectionCard({value,reload}:{value:MCPConnection & {plat
   return <article className="mcp-card" aria-label={`${guide.name}连接设置`}>
     <div className="mcp-card-heading"><Channel platform={value.platform}/><Pill color={value.connected&&!changed?'green':'gray'}>{changed?'待保存':value.connected?'服务已连接':'尚未连接'}</Pill></div>
     <Field label="当前平台账号" hint="不同账号分别保存连接与授权配置；工作站名称不会自动创建平台账号。"><select disabled={busy||changed&&!!value.endpoint} value={accountId} onChange={e=>void manage('activate',e.target.value)}>{value.accounts?.map(account=><option key={account.id} value={account.id}>{account.name}</option>)}</select></Field>
-    <div className="mcp-connection-actions"><button className="text-button" disabled={busy} onClick={()=>{setEditor('new');setName('');}}>新增平台账号</button><button className="text-button" disabled={busy} onClick={()=>{setEditor('rename');setName(value.accountName||'默认账号');}}>修改名称</button></div>
+    <div className="mcp-connection-actions"><button className="text-button" disabled={busy || !canManage} onClick={()=>{setEditor('new');setName('');}}>新增平台账号</button><button className="text-button" disabled={busy || !canManage} onClick={()=>{setEditor('rename');setName(value.accountName||'默认账号');}}>修改名称</button></div>
     {editor&&<div className="mcp-account-editor"><Field label={editor==='new'?'新账号名称':'账号名称'}><input maxLength={40} value={name} onChange={e=>setName(e.target.value)} placeholder="例如：海外品牌号"/></Field><div className="mcp-connection-actions"><button className="button small primary" disabled={busy||!name.trim()} onClick={()=>void manage(editor)}>保存账号</button><button className="button small" onClick={()=>setEditor(null)}>取消</button></div></div>}
+    <MCPAccountIdentity platform={value.platform} mcpAccountId={accountId} disabled={busy||changed}/>
     <div className="mcp-start-note"><b>首次连接 · 官方授权</b><ol><li><strong>准备平台授权</strong><p>{guide.preparation}</p></li><li><strong>启动本机服务</strong><p>{guide.steps}</p><a href={guide.repository} target="_blank" rel="noreferrer">开源项目与安装说明 <ExternalLink size={13}/></a></li><li><strong>保存连接，再核对账号</strong><p>服务启动成功后填写下方地址；模型 API Key 不能用于此处。浏览器打不开 /mcp 网页并不代表连接失败，请使用“检查连接”。</p></li></ol></div>
     <p className="info-box">{guide.limitation}</p>
-    <Field label="本机 MCP 地址" hint="只连接本机 HTTP 服务。每个独立账号使用不同端口与配置目录。"><input type="url" disabled={busy} value={endpoint} onChange={e=>setEndpoint(e.target.value)} spellCheck={false}/></Field>
-    {value.platform!=='youtube'&&<Field label="服务内 account 名称" hint="与 MCP 配置中的账号标识一致；留空时使用该服务的默认授权，发布前务必核对。"><input value={remoteAccount} maxLength={80} disabled={busy} onChange={e=>setRemoteAccount(e.target.value)} placeholder="例如：brand-main" autoComplete="off"/></Field>}
-    <details><summary>MCP 访问令牌（服务要求时填写）{value.tokenConfigured?' · 已保存':''}</summary><Field label="访问令牌" hint="加密保存在本机。不要填平台密码、Cookie 或模型 API Key；留空保留旧令牌，更换地址会清除。"><input type="password" autoComplete="off" disabled={busy} value={token} onChange={e=>setToken(e.target.value)} maxLength={2048}/></Field>{value.tokenConfigured&&<label className="checkbox-row"><input type="checkbox" disabled={busy} checked={clearKey} onChange={e=>setClearKey(e.target.checked)}/>清除已保存的令牌</label>}</details>
+    <Field label="本机 MCP 地址" hint="只连接本机 HTTP 服务。每个独立账号使用不同端口与配置目录。"><input type="url" disabled={busy || !canManage} value={endpoint} onChange={e=>setEndpoint(e.target.value)} spellCheck={false}/></Field>
+    {value.platform!=='youtube'&&<Field label="服务内 account 名称" hint="与 MCP 配置中的账号标识一致；留空时使用该服务的默认授权，发布前务必核对。"><input value={remoteAccount} maxLength={80} disabled={busy || !canManage} onChange={e=>setRemoteAccount(e.target.value)} placeholder="例如：brand-main" autoComplete="off"/></Field>}
+    <details><summary>MCP 访问令牌（服务要求时填写）{value.tokenConfigured?' · 已保存':''}</summary><Field label="访问令牌" hint="加密保存在本机。不要填平台密码、Cookie 或模型 API Key；留空保留旧令牌，更换地址会清除。"><input type="password" autoComplete="off" disabled={busy || !canManage} value={token} onChange={e=>setToken(e.target.value)} maxLength={2048}/></Field>{value.tokenConfigured&&<label className="checkbox-row"><input type="checkbox" disabled={busy || !canManage} checked={clearKey} onChange={e=>setClearKey(e.target.checked)}/>清除已保存的令牌</label>}</details>
     <div className="mcp-connection-actions"><button className="button primary small" disabled={busy||!value.editable||!changed} onClick={()=>void run(async()=>{await api(`/mcp/${value.platform}`,'PUT',{accountId,mode:'external',endpoint:endpoint.trim(),remoteAccount:remoteAccount.trim(),...(token?{apiKey:token}:{}),clearKey});setToken('');setClearKey(false);setMessage('连接配置已加密保存。现在可以检查服务，再核对实际授权账号。');})}>保存连接</button><button className="button small" disabled={busy||changed||!value.endpoint} onClick={()=>void run(async()=>{await api(`/mcp/${value.platform}/check`,'POST',{accountId});setMessage('服务已连接，已按实际工具更新能力。请继续核对平台账号。');})}><RefreshCw size={14}/>检查连接</button>{value.capabilities?.loginStatus&&<button className="button small" disabled={busy||changed} onClick={()=>void run(async()=>{const result=await api<{note:string;accountIdentity?:string}>(`/mcp/${value.platform}/login-status`,'POST',{accountId});setMessage(`${result.note}${result.accountIdentity?` 当前授权身份：${result.accountIdentity}`:''}`);})}>核对平台账号</button>}</div>
     {busy&&<p role="status">正在检查本机服务，请稍候…</p>}{message&&<div className={`mcp-result ${failed?'failed':''}`} role={failed?'alert':'status'}><p>{message}</p></div>}
     {value.connected&&value.capabilities&&<><div className="mcp-capabilities" aria-label="当前服务提供的能力">{[['图片发布',value.capabilities.image],['视频发布',value.capabilities.video],['评论读取',value.capabilities.comments],['同话题搜索',value.capabilities.search]].map(([label,enabled])=><span key={String(label)} className={enabled?'available':''}>{enabled?'✓':'—'} {label}</span>)}</div><p className="small-note">{value.capabilities.notice} 配置保存在本机；平台 OAuth 授权由独立服务的账号目录管理。工作站不会接管或复制其他账号的登录。</p></>}

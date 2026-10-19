@@ -1,0 +1,11 @@
+import type { State, Project, Asset, ContentRule, Platform } from '../src/types';
+export type AgentIdea = { title: string; core: string; direction: string; prompt: string };
+export type AgentInput = { platform?: Platform; accountId?: string; model?: string; knowledgeIds?: string[]; experienceIds?: string[]; referenceIds?: string[]; skillIds?: string[]; publishingNotes?: string; idea?: AgentIdea };
+export type AgentDraft = AgentInput & { requirement: string; kind: 'image' | 'video'; updatedAt?: string };
+export type AgentWorkspaceState = { revision: number; drafts: Record<string, AgentDraft> };
+export type AgentPacket = AgentInput & { fromAgent: string; projectId: string; createdAt: string; context?: unknown };
+export const AGENT_IDS: string[];
+export function agentWorkspace(state: State): AgentWorkspaceState;
+export function saveAgentWorkspace(state: State, input: { expectedRevision: number; key: string; draft: AgentDraft }): AgentWorkspaceState;
+export function createAgentHandoff(state: State, project: Project, input: AgentInput & { requestId: string; fromAgent: string; accountId: string; kind: 'image' | 'video'; requirement: string }, rules?: ContentRule[], models?: object): Asset;
+export function agentInstructions(context?: unknown): string;

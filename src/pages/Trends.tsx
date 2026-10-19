@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
+import { RedfoxHotspots } from './RedfoxHotspots';
 import { ResearchPanel } from './Research';
+import { CorpusPage } from './Corpus';
+import { KnowledgeActions, KnowledgeLibrary } from './KnowledgeLibrary';
 import { Check, ExternalLink, Flame, RefreshCw, Tag, X } from 'lucide-react';
 import { useStudio } from '../context';
 import { Empty, Field, NeedProject, PageTitle, Pill } from '../components';
@@ -8,7 +11,21 @@ import { trendsOf, COMMON_WORDS, type TrendsState, type TrendSettings } from '..
 import { NEWS_SOURCES, NEWS_CATEGORIES, KEYWORD_SUGGESTIONS } from '../../server/news-sources.mjs';
 const words = (text: string) => [...new Set(text.split(/[,，、;；\n]+/).map(s=>s.trim()).filter(Boolean))];
 const date = (text?: string) => text ? new Date(text).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '尚未采集';
-export function TrendsPage() { const { project }=useStudio(); return project ? <><PageTitle eyebrow="DISCOVER · UNDERSTAND · CREATE" title="发现好选题，让创作有依据。" subtitle="同话题内容 → 核对可见表现 → 分析吸引点 → 挑选创作参考。也可继续研究近期新闻与网页。"/><ResearchPanel key={project.id}/><details className="research-legacy"><summary>本地新闻线索 · 原有 RSS 筛选与标签</summary><p className="small-note">按关键词筛选公开新闻，不调用文字模型；新闻报道数量不等于社交平台互动热度。</p><ProjectTrends key={project.id}/></details></> : <NeedProject/>; }
+export function TrendsPage() {
+  const { project, target } = useStudio();
+  const [tab, setTab] = useState('discover'), [source, setSource] = useState('research');
+  useEffect(() => { setTab(['saved', 'corpus', 'discover'].includes(target?.tab || '') ? target!.tab! : 'discover'); }, [project?.id, target?.tab]);
+  if (!project) return <NeedProject/>;
+  return <div className="knowledge-workspace"><PageTitle eyebrow="DISCOVER · SAVE · CREATE" title="选题与资料" subtitle="发现一个切入点，核对并保存参考，再带着它开始创作。"/>
+    <div className="knowledge-tabs" role="tablist" aria-label="选题与资料分类">{[['discover', '发现选题'], ['saved', '已保存'], ['corpus', '项目文档']].map(([id, label]) => <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>)}</div>
+    <div hidden={tab !== 'discover'} className="knowledge-source-panel"><div className="knowledge-source-tabs" aria-label="选择发现来源">{[['research', '同话题与网页'], ['hotspots', '平台热榜'], ['news', '公开新闻']].map(([id, label]) => <button key={id} aria-pressed={source === id} onClick={() => setSource(id)}>{label}</button>)}</div>
+      <div hidden={source !== 'research'} className="knowledge-source-panel"><ResearchPanel key={project.id}/></div>
+      <div hidden={source !== 'hotspots'} className="knowledge-source-panel"><RedfoxHotspots key={`redfox:${project.id}`}/></div>
+      <div hidden={source !== 'news'} className="knowledge-source-panel"><ProjectTrends key={project.id}/></div>
+    </div>
+    {tab === 'saved' && <KnowledgeLibrary key={project.id}/>} {tab === 'corpus' && <div className="knowledge-corpus"><CorpusPage key={project.id}/></div>}
+  </div>;
+}
 function ProjectTrends() {
   const {project,run,mutate,busy,notify,go}=useStudio();const p=project!, current=trendsOf(p);
   const [keywords,setKeywords]=useState(current.settings.keywords.join('，'));
@@ -42,6 +59,7 @@ function ProjectTrends() {
         <p className="trend-match">关联：{c.matches.map(m=>m.via===m.keyword?m.keyword:`${m.keyword} → ${m.via}`).join('、')}</p><div className="trend-meta"><span>{c.articleCount} 篇相关报道</span><span>{c.sourceCount} 家来源</span><span>最近 {date(c.latestAt)}</span></div>
         <details><summary>为什么推荐？查看信息与出处</summary><p className="small-note">关键词 {c.parts.relevance}/65 · 时效 {c.parts.freshness}/20 · 来源 {c.parts.sources}/10 · 报道覆盖 {c.parts.coverage}/5。仅出现一篇时属于话题线索，尚不能认定为广泛热点。</p>{c.articleIds.map(id=>current.articles.find(a=>a.id===id)).filter(Boolean).map(a=><div className="trend-article" key={a!.id}><a href={a!.url} target="_blank" rel="noreferrer">{a!.title}<ExternalLink size={12}/></a><small>{a!.source} · {date(a!.publishedAt)} · {a!.extraction==='page'?'网页摘录':'订阅摘要'}</small><p>{a!.excerpt||'来源未提供摘要，请打开原文核对。'}</p></div>)}</details>
         <div className={`trend-risk ${c.risk==='review'?'review':''}`}><b>{c.risk==='review'?'涉及名称风险 · 需单独确认':'权利状态未核实'}</b><p>{c.riskReason}</p>{c.risk==='review'&&<label><input type="checkbox" disabled={busy||dirty} checked={ack.includes(c.id)} onChange={()=>setAck(toggle(ack,c.id))}/>我已核对该名称的使用条件，并确认本次采用</label>}</div>
+        <KnowledgeActions disabled={busy || dirty} source={{title:c.term,text:[`新闻选题线索：${c.term}`,`关键词关联：${c.matches.map(m=>m.keyword).join('、')}`, ...c.articleIds.map(id=>current.articles.find(a=>a.id===id)).filter(Boolean).map(a=>`${a!.title}\n${a!.excerpt || '请打开原文核对'}\n来源：${a!.url}`),`适用限制：${c.riskReason}`].join('\n\n'),sourceId:c.id,sourceType:'news',sourceUrl:current.articles.find(a=>c.articleIds.includes(a.id))?.url}}/>
       </article>)}</div>}
       {current.candidates.length>0&&<div className="panel trend-selection"><span>{dirty?'设置尚未保存，请先重新筛选候选。':riskPending?'请先逐项确认已选候选的名称风险。':'选择后生成话题标签与场景切入标签，不自动改写文案。'}</span><button className="button primary" disabled={busy||dirty||!chosen.length||riskPending} onClick={()=>void run(async()=>{await mutate(`/projects/${p.id}/trends/select`,'POST',{runId:current.runId,candidateIds:chosen,acknowledgedIds:ack,confirmed:true});notify('标签已保存，可到 AI 文案输入框点选使用');})}><Tag size={16}/>确认选择并生成标签</button></div>}
     </section>

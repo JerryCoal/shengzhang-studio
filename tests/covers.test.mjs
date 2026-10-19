@@ -28,6 +28,28 @@ async function fixture(t, fetcher, options = {}) {
 }
 async function until(check) { for (let i = 0; i < 200; i++) { if (check()) return; await new Promise(r => setTimeout(r, 5)); } assert.fail('Cover task did not finish'); }
 
+test('cover and text for different assets run together while the same asset stays protected', { timeout: 10000 }, async t => {
+  let finishText, finishImage, textStarted = false, imageStarted = false;
+  const textWait = new Promise(resolve => { finishText = resolve; }), imageWait = new Promise(resolve => { finishImage = resolve; });
+  const f = await fixture(t, async (url) => {
+    if (url.includes('/images/')) { imageStarted = true; await imageWait; return Response.json({ data: [{ b64_json: jpg }], usage: { generated_images: 1 } }); }
+    textStarted = true; await textWait;
+    return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify({ title: '日常使用说明', body: '依据已核实的事实介绍使用方式。', prompt: '自然光产品画面', scenes: ['开场', '演示', '总结'] }) }] }], usage: { input_tokens: 100, output_tokens: 50 } });
+  }, { apiKey: 'synthetic-only' });
+  const video = f.p().assets.find(asset => asset.kind === 'video');
+  const writing = f.request(`/projects/${f.p().id}/assets/${video.id}/copy`, { expectedRevision: video.revision });
+  try {
+    await until(() => textStarted);
+    assert.equal((await f.request(f.path + '/cover', input(f.a().revision))).status, 202);
+    await until(() => imageStarted);
+    assert.equal((await f.request(f.path + '/copy', { expectedRevision: f.a().revision })).status, 409, 'copy cannot invalidate an in-flight image of the same asset');
+    assert.equal((await f.request(`/projects/${f.p().id}/assets/${video.id}/keyframes`, { provider: 'seedream', role: 'first_frame', prompt: '自然光', expectedRevision: video.revision })).status, 409, 'image cannot race with the same asset copy');
+  } finally { finishText(); finishImage(); }
+  assert.equal((await writing).status, 200);
+  await until(() => f.a().aiCover?.phase === 'ready');
+  assert.equal(f.p().usage.filter(usage => usage.status === 'completed').length, 2);
+});
+
 test('Seedream cover is 3:4, grounded in confirmed facts, screened and adopted only on explicit approval; JPG export works', async t => {
   const calls = [];
   const f = await fixture(t, async (url, init) => { calls.push({ url, init }); return Response.json({ data: [{ b64_json: jpg }], usage: { generated_images: 1 } }); });

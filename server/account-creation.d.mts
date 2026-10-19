@@ -1,0 +1,18 @@
+import type { CreativeSkillState, CreativeSkillSnapshot } from './creative-skills.mjs';
+import type { MatrixPlatform } from './platform-catalog.mjs';
+import type { SkillWorkflowId } from './skill-workflows.mjs';
+export type CreationPreset = { id: string; name: string; topic: string; instruction: string; skillSelections: Partial<Record<SkillWorkflowId, string>> };
+export type AccountCreationProfile = { revision: number; identityMarkdown: string; identityFileName: string; presets: CreationPreset[]; defaultPresetId: string };
+export type CreationSelection = { accountId: string; presetId: string };
+export type AccountCreationContext = { accounts: { accountId: string; accountName: string; platform: MatrixPlatform; profileRevision: number; identityMarkdown: string; identityFileName: string; presetId: string; presetName: string; topic: string; instruction: string; workflowId?: SkillWorkflowId; workflowSkill?: Pick<CreativeSkillSnapshot, 'id' | 'name' | 'version' | 'instructions'> & { workflowId: SkillWorkflowId } | null }[] };
+type CreationAccount = { id: string; name: string; platform: MatrixPlatform; creationProfile?: AccountCreationProfile };
+type CreationProject = { revision: number; updatedAt: string; brief: { channels: MatrixPlatform[] }; creationSelections?: Partial<Record<MatrixPlatform, CreationSelection>> };
+type CreationState = CreativeSkillState & { accounts: CreationAccount[]; projects?: CreationProject[]; activeCreationAccounts?: Partial<Record<MatrixPlatform, string>> };
+export const ACCOUNT_IDENTITY_MAX_BYTES: number;
+export const ACCOUNT_CREATION_WORKFLOWS: SkillWorkflowId[];
+export function creationProfileOf(account?: { creationProfile?: AccountCreationProfile } | null): AccountCreationProfile;
+export function saveAccountCreationProfile(state: CreationState, accountId: string, input: Omit<AccountCreationProfile, 'revision'> & { expectedRevision: number }): AccountCreationProfile;
+export function saveProjectCreationSelection(state: CreationState, project: CreationProject, input: { platform: MatrixPlatform; accountId: string; presetId?: string; expectedRevision: number }): Partial<Record<MatrixPlatform, CreationSelection>>;
+export function resolveAccountCreation(state: CreationState, project: CreationProject, platform?: MatrixPlatform, workflowId?: SkillWorkflowId): { accountContext: AccountCreationContext | null; hasAccountSkillOverride: boolean; creativeSkill: (Pick<CreativeSkillSnapshot, 'id' | 'name' | 'version' | 'instructions'> & { workflowId: SkillWorkflowId }) | null };
+export function accountCreationInstructions(context?: AccountCreationContext | null): string;
+export function assertAssetCreationAccount(asset: { channel: MatrixPlatform; creationTrace?: AccountCreationContext | null }, context?: AccountCreationContext | null): void;
