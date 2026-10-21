@@ -98,7 +98,9 @@ test('all media providers receive only their selected workflow rules and keep fi
   assert.equal(f.calls[0].request.size, '1728x2304');
   assert.equal(f.calls[1].request.model, 'gpt-image-2'); assert.equal(f.calls[1].request.size, '864x1536');
   assert.equal(f.calls[2].request.size, '1440x2560'); assert.equal(f.calls[2].request.image.length, 2);
-  assert.equal(f.calls[3].request.duration, 8); assert.equal(f.calls[3].request.generate_audio, false); assert.equal(f.calls[3].request.watermark, true);
+  assert.equal(f.calls[3].request.duration, 8); assert.equal(f.calls[3].request.generate_audio, false); assert.equal(f.calls[3].request.watermark, false);
+  assert.deepEqual(f.calls.map(call => call.request.watermark), [false, undefined, false, false], 'selected Skills do not change the new no-watermark defaults or add unsupported OpenAI controls');
+  assert.equal(f.asset('video').aiProduction.watermarkRequested, false);
   assert.equal(f.calls[3].request.model, 'ep-synthetic-video');
   assert.equal(f.asset('image').aiCover.phase, 'ready', 'generating must not adopt or publish the cover');
 });

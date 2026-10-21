@@ -8,12 +8,16 @@ import { PLATFORM_NAMES, PUBLISH_LIMITS } from '../../server/platform-catalog.mj
 import { prepareXhsTopics, splitXhsTopics, XHS_MAX_TOPICS, XHS_MAX_TOPIC_LENGTH } from '../../server/xhs-topics.mjs';
 import type { Asset, Publication } from '../types';
 import { publicationAccountChoice } from '../../server/publish-readiness.mjs';
+import type { ReviewedPublication } from '../../server/publish-batch.mjs';
+
+export type PreparedPublication = ReviewedPublication & { mode: 'builtin' | 'external'; connectionName: string; request: Record<string, unknown> };
 
 type TikTokOptions = { preflightId: string; creatorNickname: string; creatorUsername: string; privacyOptions: string[]; commentDisabled: boolean; duetDisabled: boolean; stitchDisabled: boolean; maxVideoDurationSeconds: number | null; notice: string };
 const privacyNames: Record<string,string> = { PUBLIC_TO_EVERYONE: '所有人可见', MUTUAL_FOLLOW_FRIENDS: '互关好友可见', FOLLOWER_OF_CREATOR: '关注者可见', SELF_ONLY: '仅自己可见' };
 
-export function MCPPublishDialog({ content, onClose }: { content: Asset | Publication; onClose: () => void }) {
-  const { project, state, mutate, refresh, go } = useStudio();
+export function MCPPublishDialog({ content, onClose, projectId, onPrepared }: { content: Asset | Publication; onClose: () => void; projectId?: string; onPrepared?: (review: PreparedPublication) => void }) {
+  const { project: activeProject, state, mutate, refresh, go } = useStudio();
+  const project = projectId ? state.projects.find(item => item.id === projectId) : activeProject;
   const { connections, error } = useMCPConnections();
   const platform = 'channel' in content ? content.channel : content.platform, connection = connections.find(c => c.platform === platform), limits = PUBLISH_LIMITS[platform];
   const xhsExternal = platform === 'xiaohongshu' && connection?.mode === 'external';
@@ -31,6 +35,7 @@ export function MCPPublishDialog({ content, onClose }: { content: Asset | Public
   const identity = `${connection?.accountId || ''}|${connection?.endpoint || ''}|${connection?.remoteAccount || ''}`, identityRef = useRef(identity);
   const fetching = useRef(false);
   useEffect(() => { identityRef.current = identity; setTikTokOptions(null); setConfirmed(false); setPrivacy(platform === 'youtube' ? 'private' : ''); setAllowComments(false); setAllowDuet(false); setAllowStitch(false); }, [identity, platform, xhsExternal]);
+  useEffect(() => { setConfirmed(false); }, [content.title, content.body, content.mediaData, 'assetRevision' in content ? content.assetRevision : content.revision]);
   const record = project?.publications.find(r => r.id === recordId), locked = !!record?.delivery && record.delivery.phase !== 'reset';
   const associated = accounts.find(account=>account.id === accountId), accountMismatch = !!associated?.mcpAccountId && associated.mcpAccountId !== connection?.accountId;
   const image = content.mime.startsWith('image/'), video = content.mime.startsWith('video/'), needsURL = platform === 'instagram' || platform === 'tiktok';
@@ -63,6 +68,19 @@ export function MCPPublishDialog({ content, onClose }: { content: Asset | Public
   }
   async function submit() {
     if (!project || !confirmed || working || locked || !valid || !connection) return;
+    const request = {
+      confirmed: true, expectedRevision: 'assetRevision' in content ? content.assetRevision : content.revision, title, body: xhsExternal && preparedTopics ? preparedTopics.content : body, accountId: connection.accountId || 'default',
+      expectedConnection: { mode: connection.mode, endpoint: connection.mode === 'external' ? connection.endpoint : '', remoteAccount: connection.remoteAccount || '' },
+      ...(xhsExternal && preparedTopics ? { tags: preparedTopics.tags } : {}),
+      ...(needsURL ? { publicMediaUrl:publicMediaUrl.trim() } : {}), ...(platform === 'youtube' ? {privacy} : {}),
+      ...(platform === 'tiktok' ? { privacy, preflightId:tiktokOptions?.preflightId, brandOrganic:brandOrganic === 'yes', brandContent:brandContent === 'yes', aiGenerated:aiGenerated === 'yes', allowComments, allowDuet, allowStitch, musicConfirmed, brandedContentConfirmed, ...(video && durationSeconds !== null ? {durationSeconds} : {}) } : {}),
+    };
+    if (onPrepared) {
+      onPrepared({ projectId: project.id, assetId: 'assetId' in content ? content.assetId : content.id, ...(recordId ? { publicationId: recordId } : {}), accountId, platform,
+        expectedRevision: request.expectedRevision, originalTitle: content.title, originalBody: content.body, originalMime: content.mime,
+        mode: connection.mode, connectionName: connection.accountName || '默认连接', request });
+      return;
+    }
     setWorking(true); setMessage('');
     try {
       let targetId = recordId;
@@ -70,21 +88,16 @@ export function MCPPublishDialog({ content, onClose }: { content: Asset | Public
         const old = project.publications.find(r => r.assetId === content.id && r.assetRevision === content.revision && r.accountId === accountId && r.status !== 'cancelled');
         if (old?.status === 'published') throw Error('此版本已经登记发布，请查看已有记录');
         if (old?.delivery && old.delivery.phase !== 'reset') throw Error('这条内容已有提交记录，请先到发布中心核对结果');
-        targetId = old?.id || (await mutate<Publication>(`/projects/${project.id}/publications`, 'POST', { assetId: content.id, accountId, scheduledAt: new Date().toISOString() })).result.id;
+        targetId = old?.id || (await mutate<Publication>(`/projects/${project.id}/publications`, 'POST', { assetId: content.id, accountId, expectedAssetRevision: content.revision, scheduledAt: new Date().toISOString() })).result.id;
         setRecordId(targetId);
       }
-      const response = await api<{ result: { note: string } }>(`/projects/${project.id}/publications/${targetId}/mcp/publish`, 'POST', {
-        confirmed: true, expectedRevision: 'assetRevision' in content ? content.assetRevision : content.revision, title, body: xhsExternal && preparedTopics ? preparedTopics.content : body, accountId: connection.accountId || 'default',
-        ...(xhsExternal && preparedTopics ? { tags: preparedTopics.tags } : {}),
-        ...(needsURL ? { publicMediaUrl:publicMediaUrl.trim() } : {}), ...(platform === 'youtube' ? {privacy} : {}),
-        ...(platform === 'tiktok' ? { privacy, preflightId:tiktokOptions?.preflightId, brandOrganic:brandOrganic === 'yes', brandContent:brandContent === 'yes', aiGenerated:aiGenerated === 'yes', allowComments, allowDuet, allowStitch, musicConfirmed, brandedContentConfirmed, ...(video && durationSeconds !== null ? {durationSeconds} : {}) } : {}),
-      });
+      const response = await api<{ result: { note: string } }>(`/projects/${project.id}/publications/${targetId}/mcp/publish`, 'POST', request);
       setMessage(response.result.note); setConfirmed(false); if(platform === 'tiktok')setTikTokOptions(null);
     } catch (e) { setMessage(e instanceof Error ? e.message : '任务未完成，请核对平台结果'); }
     finally { try { await refresh(); } catch { setMessage('任务已结束，但刷新记录失败，请重新打开发布中心核对结果。'); } finally { setWorking(false); } }
   }
 
-  return <Modal title="确认平台投送" description="核对目标账号、内容与平台选项；每次只提交这一条。" wide onClose={() => { if (!working && !checking) onClose(); }}>
+  return <Modal title={onPrepared ? '核对批次中的这一条' : '确认平台投送'} description={onPrepared ? '先保存本条核对结果，返回批次后统一确认提交。此步骤不会发布或创建待办。' : '核对目标账号、内容与平台选项；每次只提交这一条。'} wide onClose={() => { if (!working && !checking) onClose(); }}>
     <div className="row gap-10 wrap"><Channel platform={platform}/><span>{connection?.mode === 'external' ? `${PLATFORM_NAMES[platform]} 独立 MCP` : '自带页面助手'}</span></div>
     <p className="info-box">本次连接：<strong>{connection?.accountName || '尚未读取'}</strong>{connection?.remoteAccount && <> · 服务内账号 <strong>{connection.remoteAccount}</strong></>}。{connection?.mode === 'external' ? '请核对该服务实际授权的账号。' : '请在官方窗口核对登录账号。'}</p>
     <Field label="关联的运营账号" hint="发布结果与运营数据会归到这个账号。"><select value={accountId} disabled={working || !!recordId} onChange={e => {setAccountId(e.target.value);edited();}}><option value="" disabled>{accounts.length ? '请选择运营账号' : '请先添加运营账号'}</option>{accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
@@ -128,6 +141,6 @@ export function MCPPublishDialog({ content, onClose }: { content: Asset | Public
     {locked ? <p className="info-box">这条内容已有提交记录。请返回发布中心核对回执并登记结果；确认未发布时可解锁重试。</p> : <label className="checkbox-row"><input type="checkbox" disabled={working || checking || !valid} checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>我已核对目标账号、标题、正文、{xhsExternal && '话题候选、'}素材和平台选项，允许提交这一条内容。</label>}
     {message && <p className="info-box" role="status">{message}</p>}
     {working && <p role="status" className="info-box">正在提交，请勿重复点击。平台处理、审核或网络中断时，请根据回执核对实际结果。</p>}
-    <div className="modal-actions"><button className="button" disabled={working || checking} onClick={onClose}>返回</button><button className="button primary" disabled={working || checking || !valid || !confirmed || locked || !connection || capabilityMissing || connection.mode === 'builtin' && !connection.builtinAvailable} onClick={()=>void submit()}>{working ? '提交中…' : '确认并提交'}</button></div>
+    <div className="modal-actions"><button className="button" disabled={working || checking} onClick={onClose}>返回</button><button className="button primary" disabled={working || checking || !valid || !confirmed || locked || !connection || capabilityMissing || connection.mode === 'builtin' && !connection.builtinAvailable} onClick={()=>void submit()}>{working ? '提交中…' : onPrepared ? '保存本条核对结果' : '确认并提交'}</button></div>
   </Modal>;
 }

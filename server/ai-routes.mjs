@@ -17,11 +17,14 @@ import { verifyQwen } from './qwen.mjs';
 import { normalizeQwenKey, qwenConnection, qwenConnectionSchema, QWEN_CONNECTION_OPTIONS } from './qwen-connection.mjs';
 import { verifyDeepSeek } from './deepseek.mjs';
 import { verifyGLM, glmCredentialSchema } from './glm.mjs';
+import { verifyLocalQwen } from './local-qwen.mjs';
+import { localQwenConnection, localQwenConnectionSchema, localQwenCredentialSchema } from './local-qwen-connection.mjs';
 import { mountBriefImportRoutes } from './project-brief-import-routes.mjs';
 import { mountXhsAssistantRoutes } from './xhs-assistant-routes.mjs';
 import { selectedResearchContext } from './research-data.mjs';
 import { contentProjectForAsset, contentRequirement, contentKnowledge } from './content-workflow.mjs';
 import { agentInputSchema, resolveAgentContext } from './agent-workspace.mjs';
+import { inspirationTurnReferenceSchema, claimInspirationTurn, currentInspirationContext, dispatchInspirationTurn, completeInspirationTurn, failInspirationTurn } from './inspiration-conversation.mjs';
 import { canUseTeamWorkspace, canEditSharedSettings } from './workspace-access.mjs';
 import { documentContextPayload, saveDocumentContextCandidate, documentContextStatus, adoptDocumentContext, clearAdoptedDocumentContext, adoptedDocumentContext, documentStyleReferences } from './document-context.mjs';
 
@@ -40,9 +43,22 @@ export function mountAIRoutes(app, store, config, { project, mutate, activeJobs,
   const models = config.modelStore || createModelStore();
   config.modelStore = models;
   const vault = config.vault;
-  let verification = null, deepseekVerification = null, qwenVerification = null, glmVerification = null, settingsBusy = false;
+  let verification = null, deepseekVerification = null, qwenVerification = null, glmVerification = null, localQwenVerification = null, settingsBusy = false;
+  const localQwenAllowed = req => config.allowLocalModels !== false && canUseCredentials(req, config) && (canUseTeamWorkspace(req, config) || isLocalClient(req));
   const vaultStatus = () => vault?.status() || { supported: false, configured: false, suffix: '', protection: '', problem: '' };
-  const getKey = async (req, provider = 'openai') => { requireLocal(req); const selected = provider === 'glm' ? config.glmVault : provider === 'qwen' ? config.qwenVault : provider === 'deepseek' ? config.deepseekVault : vault; const status = selected?.status() || {}; d.assert(!status.problem, status.problem, 503); const key = status.configured ? await selected.getKey() : provider === 'openai' ? config.apiKey : ''; d.assert(key, `请先在设置页保存 ${provider === 'glm' ? 'GLM 智谱' : provider === 'qwen' ? 'Qwen' : provider === 'deepseek' ? 'DeepSeek' : 'OpenAI'} API 密钥`); return key; };
+  const getKey = async (req, provider = 'openai') => {
+    requireLocal(req);
+    if (provider === 'local-qwen') {
+      d.assert(localQwenAllowed(req), '本地模型仅支持 Windows 本机或已登录团队工作区；中转服务不能连接内网', 403);
+      const connection = localQwenConnection(store.get().localQwenConnection), status = config.localQwenVault?.status();
+      d.assert(connection.enabled && connection.model, '请先保存并启用本地 Qwen 连接'); d.assert(!status?.problem, status?.problem, 503);
+      return status?.configured ? config.localQwenVault.getKey() : '';
+    }
+    const selected = provider === 'glm' ? config.glmVault : provider === 'qwen' ? config.qwenVault : provider === 'deepseek' ? config.deepseekVault : vault;
+    const status = selected?.status() || {}; d.assert(!status.problem, status.problem, 503);
+    const key = status.configured ? await selected.getKey() : provider === 'openai' ? config.apiKey : '';
+    d.assert(key, `请先在设置页保存 ${provider === 'glm' ? 'GLM 智谱' : provider === 'qwen' ? 'Qwen' : provider === 'deepseek' ? 'DeepSeek' : 'OpenAI'} API 密钥`); return key;
+  };
   const settings = req => {
     const v = vaultStatus(), local = canUseCredentials(req, config), editable = local && canEditSharedSettings(req, config), routes = models.get(), strategy = stageConfig('strategy', routes);
     const credential = { ...v, configured: v.configured || !!config.apiKey, suffix: local ? v.suffix : '', local, editable: editable && v.supported, source: v.configured ? 'vault' : config.apiKey ? 'environment' : 'none' };
@@ -52,9 +68,11 @@ export function mountAIRoutes(app, store, config, { project, mutate, activeJobs,
     const q = config.qwenVault?.status() || { supported: false, configured: false, suffix: '', problem: '', protection: '' };
     const g = config.glmVault?.status() || { supported: false, configured: false, suffix: '', problem: '', protection: '' };
     providers.glm = { configured: local && g.configured && !g.problem, credential: { ...g, suffix: local ? g.suffix : '', local, editable: editable && g.supported, source: g.configured ? 'vault' : 'none' }, verification: local ? glmVerification : null, apiDiagnostic: local ? config.glmTransport?.diagnostic() : null };
+    const l = config.localQwenVault?.status() || { supported: false, configured: false, suffix: '', problem: '', protection: '' }, allowed = localQwenAllowed(req), localConnection = localQwenConnection(allowed ? store.get().localQwenConnection : undefined);
+    providers['local-qwen'] = { configured: allowed && localConnection.enabled && !!localConnection.model && !l.problem, localConnection, credential: { ...l, suffix: allowed ? l.suffix : '', local: allowed, editable: allowed && editable && l.supported, source: l.configured ? 'vault' : 'none' }, verification: allowed ? localQwenVerification : null };
     providers.qwen = { configured: local && q.configured && !q.problem, credential: { ...q, suffix: local ? q.suffix : '', local, editable: editable && q.supported, source: q.configured ? 'vault' : 'none' }, connection: qwenConnection(local ? store.get().qwenConnection : undefined), connectionOptions: QWEN_CONNECTION_OPTIONS.map(({ id, label, requiresWorkspace }) => ({ id, label, requiresWorkspace: !!requiresWorkspace })), verification: local ? qwenVerification : null, apiDiagnostic: local ? config.qwenTransport?.diagnostic() : null };
     return { model: strategy.model, openaiConfigured: local && (v.configured || !!config.apiKey) && !v.problem, authEnabled: !!config.password || !!config.profileMode, inputPrice: strategy.inputPrice, outputPrice: strategy.outputPrice,
-      version: '2.0.0', profileMode: !!config.profileMode, routes, models: MODELS, stages: STAGES, priceDate: '2026-09-14', verification: local ? verification : null, apiDiagnostic: local ? config.openaiTransport?.diagnostic() : null,
+      version: '2.1.0', profileMode: !!config.profileMode, routes, models: MODELS, stages: STAGES, priceDate: '2026-09-14', verification: local ? verification : null, apiDiagnostic: local ? config.openaiTransport?.diagnostic() : null,
       credential, providers,
       ...(canUseTeamWorkspace(req, config) ? { team: { userId: req.teamUser.userId, username: req.teamUser.username, role: req.teamUser.role, workspaceName: config.workspaceName || '团队工作区' } } : {}),
       capabilities: { image: 'gpt-image-2-or-seedream-keyframes', video: 'seedance-and-local', publishing: 'confirmed-mcp-and-manual', comments: 'mcp-page-douyin-api-and-import', ai: ['strategy', 'planning', 'copy', 'classification', 'analysis'] } };
@@ -114,6 +132,20 @@ export function mountAIRoutes(app, store, config, { project, mutate, activeJobs,
   app.delete('/api/settings/providers/glm/credential', (req, res) => changeSettings(req, res, async () => { d.assert(config.glmVault, '没有 GLM 保险箱'); config.glmVault.remove(); glmVerification = null; config.glmTransport?.reset(); }));
   app.post('/api/settings/providers/glm/credential/check', (req, res) => changeSettings(req, res, async () => { glmVerification = null; glmVerification = await verifyGLM(await getKey(req, 'glm'), config.fetcher); }));
 
+  const localModelAdmin = req => { d.assert(localQwenAllowed(req), '本地模型设置仅支持本机或团队工作区，不接受中转请求', 403); d.assert(canEditSharedSettings(req, config), '请联系管理员配置团队主机的本地模型', 403); };
+  app.put('/api/settings/providers/local-qwen/connection', (req, res) => changeSettings(req, res, async () => {
+    localModelAdmin(req); const connection = localQwenConnectionSchema.parse(req.body);
+    store.mutate(state => { state.localQwenConnection = connection; }); localQwenVerification = null;
+  }));
+  app.put('/api/settings/providers/local-qwen/credential', (req, res) => changeSettings(req, res, async () => {
+    localModelAdmin(req); d.assert(config.localQwenVault?.status().supported, '此平台没有安全密钥保险箱');
+    const { apiKey } = localQwenCredentialSchema.parse(req.body); await config.localQwenVault.save(apiKey); localQwenVerification = null;
+  }));
+  app.delete('/api/settings/providers/local-qwen/credential', (req, res) => changeSettings(req, res, async () => { localModelAdmin(req); d.assert(config.localQwenVault, '没有本地 Qwen 保险箱'); await config.localQwenVault.remove(); localQwenVerification = null; }));
+  app.post('/api/settings/providers/local-qwen/credential/check', (req, res) => changeSettings(req, res, async () => {
+    localModelAdmin(req); localQwenVerification = null; localQwenVerification = await verifyLocalQwen(await getKey(req, 'local-qwen'), localQwenConnection(store.get().localQwenConnection), config.fetcher);
+  }));
+
   const requireDocumentWorkspace = req => {
     requireLocal(req);
     d.assert(config.profileMode === true && (canUseTeamWorkspace(req, config) || !config.authorizeCredentials && isLocalClient(req)), '资料卡提炼与采纳需要本机加密工作区或已登录的团队工作区；浏览器演示版可继续导入与检索正文。', 403);
@@ -135,7 +167,7 @@ export function mountAIRoutes(app, store, config, { project, mutate, activeJobs,
     return mutate(req, res, p => { const result = clearAdoptedDocumentContext(p, req.body); d.touch(p); return result; });
   });
 
-  async function execute(req, res, stage, prepare, commit) {
+  async function execute(req, res, stage, prepare, commit, inspirationClaim) {
     let selectedSkill, builtinSkills, accountContext, accountSkillOverride = false, selectionCaptured = false;
     const initialProject = project(store.get(), req.params.id);
     const initialAsset = stage === 'copy' ? initialProject.assets.find(a => a.id === req.params.assetId) : null;
@@ -152,6 +184,7 @@ export function mountAIRoutes(app, store, config, { project, mutate, activeJobs,
     const basePrepare = prepare;
     prepare = p => {
       let value = basePrepare(p);
+      if (inspirationClaim) value.inspirationConversation = currentInspirationContext(store.get(), inspirationClaim);
       if (!selectionCaptured) {
         const skillState = store.get(), workflowId = skillWorkflowId(stage, value);
         builtinSkills = resolveBuiltinSkills(skillState, workflowId);
@@ -159,7 +192,7 @@ export function mountAIRoutes(app, store, config, { project, mutate, activeJobs,
         const sourceProject = contentProjectForAsset(p, selectedAsset);
         const agentPlatform = agentInput?.accountId ? skillState.accounts.find(a => a.id === agentInput.accountId)?.platform : agentInput?.platform;
         const creationProject = agentInput?.accountId && agentPlatform ? { ...sourceProject, creationSelections: { ...sourceProject.creationSelections, [agentPlatform]: { accountId: agentInput.accountId, presetId: '' } } } : sourceProject;
-        const creation = ['strategy', 'planning', 'copy'].includes(stage) && !value.copyReview ? resolveAccountCreation(skillState, creationProject, value.task?.channel || agentPlatform, workflowId) : null;
+        const creation = ['strategy', 'planning', 'copy'].includes(stage) && !value.copyReview && !(inspirationClaim && !agentInput?.accountId) ? resolveAccountCreation(skillState, creationProject, value.task?.channel || agentPlatform, workflowId) : null;
         const selected = creation ? creation.creativeSkill : resolveWorkflowSkill(skillState, workflowId);
         accountContext = creation?.accountContext;
         accountSkillOverride = creation?.hasAccountSkillOverride === true;
@@ -227,6 +260,7 @@ export function mountAIRoutes(app, store, config, { project, mutate, activeJobs,
       store.mutate(state => {
         const p = project(state, req.params.id), spent = p.usage.reduce((sum, u) => sum + u.amountUsd, 0);
         d.assert(spent + reservation <= p.brief.budgetUsd, `余额不足。本次预留上限约 $${reservation.toFixed(3)}，请调整项目预算。`);
+        if (inspirationClaim) dispatchInspirationTurn(state, inspirationClaim);
         jobId = d.id();
         p.usage.push({ id: jobId, promptVersion: PROMPT_VERSION, skillVersions: skillVersionsFor(stage, payload), skillTrace: workflowSkillTrace(stage, payload, d.now()), stage, status: 'running', amountUsd: reservation, estimated: true, model: route.model, inputPrice: route.inputPrice, outputPrice: route.outputPrice, at: d.now(), note: `${route.label} · 请求进行中，预留费用` });
         d.touch(p);
@@ -238,7 +272,7 @@ export function mountAIRoutes(app, store, config, { project, mutate, activeJobs,
         Object.assign(usage, { status: 'completed', estimated: cost === null, amountUsd: cost ?? reservation, tokens: cost === null ? null : output.usage, note: `${route.label} · ${cost === null ? '未返回有效用量，保留预留金额' : '按返回 token 与本次模型单价估算，非最终账单'}` });
         // Background video polling and comment counters may touch the project without changing model inputs.
         try { stale = JSON.stringify(prepare(p)) !== payloadFingerprint || (retrievalStamp !== undefined && rag.stamp(p) !== retrievalStamp); } catch { stale = true; }
-        if (stale) { d.touch(p); return null; }
+        if (stale) { if (inspirationClaim) failInspirationTurn(state, inspirationClaim); d.touch(p); return null; }
         const result = commit(p, output.value, route.model, payload, state);
         if (result && typeof result === 'object' && !Array.isArray(result)) {
           result.skillTrace = workflowSkillTrace(stage, payload, d.now());
@@ -254,6 +288,7 @@ export function mountAIRoutes(app, store, config, { project, mutate, activeJobs,
           }
         }
         if (['strategy', 'planning'].includes(stage)) Object.assign(result, { documentContextSnapshot: structuredClone(payload.adoptedDocumentContext), styleReferencesSnapshot: structuredClone(payload.styleReferences) });
+        if (inspirationClaim) completeInspirationTurn(state, inspirationClaim, result);
         d.touch(p);
         d.activity(state, `${route.label}已生成`, `${route.model} · 请检查结果`, p.id); return result;
       });
@@ -269,17 +304,36 @@ export function mountAIRoutes(app, store, config, { project, mutate, activeJobs,
       throw error;
     } finally { if (activeJobs.release) activeJobs.release(req.params.id, resourceKey, lockToken); else activeJobs.delete(req.params.id); }
   }
-  app.post('/api/projects/:id/strategies', (req, res) => {
-    const data = z.object({ mode: z.enum(['demo', 'openai']), stage: z.enum(['strategy', 'planning']).default('strategy'), instruction: z.string().trim().max(4000).default(''), query: z.string().trim().max(500).default(''), agentInput: agentInputSchema.optional() }).parse(req.body);
+  app.post('/api/projects/:id/strategies', async (req, res) => {
+    const data = z.object({ mode: z.enum(['demo', 'openai']), stage: z.enum(['strategy', 'planning']).default('strategy'), instruction: z.string().trim().max(4000).default(''), query: z.string().trim().max(500).default(''), agentInput: agentInputSchema.optional(), inspirationTurn: inspirationTurnReferenceSchema.optional() }).parse(req.body);
+    let inspirationClaim;
+    const activeAttempts = app.locals.inspirationActiveAttempts ||= new Set();
+    if (data.inspirationTurn) {
+      requireLocal(req);
+      d.assert(Object.keys(req.body).every(key => ['mode', 'stage', 'instruction', 'query', 'agentInput', 'inspirationTurn'].includes(key)), '灵感对话请求包含未支持的选项，请重新打开工作页');
+      d.assert(!data.query, '灵感对话的检索依据由已保存的本轮消息生成，不能追加未确认的检索词');
+      d.assert(data.mode === 'openai' && data.stage === 'strategy' && data.agentInput && req.body.modelOverride === undefined, '灵感对话轮次只支持 strategy 模型生成，并使用已保存的模型选项');
+      // The generic executor must never see legacy flags that the conversation
+      // contract did not validate (for example copy-only reviewOnly).
+      req.body = data;
+      project(store.get(), req.params.id);
+      inspirationClaim = store.mutate(state => claimInspirationTurn(state, req.params.id, data, d.id()));
+      activeAttempts.add(inspirationClaim.attemptId);
+    }
+    try {
     if (data.mode === 'demo') return mutate(req, res, (p, state) => { const s = d.makeDraft(p, {}, data.instruction, 'demo', rulesOf(state), data.query); d.activity(state, '策略草稿已生成', `V${s.version} · 检索语料并筛选文案`, p.id); return s; });
-    return execute(req, res, data.stage, p => ({ brief: p.brief, instruction: data.instruction, retrievalQuery: data.query || corpusQuery(p, data.instruction), corpusReferences: searchCorpus(p, data.query || corpusQuery(p, data.instruction)), previousStrategy: previousStrategyContext(p.strategies.at(-1)), feedback: p.experiences.filter(e => e.active).map(e => ({ text: e.text, evidence: p.insights.find(i => i.id === e.insightId)?.evidenceIds.map(id => p.comments.find(c => c.id === id)?.text).filter(Boolean) || [] })) }), (p, value, model, payload, state) => {
+    return await execute(req, res, data.stage, p => ({ brief: p.brief, instruction: data.instruction, retrievalQuery: data.query || corpusQuery(p, data.instruction), corpusReferences: searchCorpus(p, data.query || corpusQuery(p, data.instruction)), previousStrategy: previousStrategyContext(p.strategies.at(-1)), feedback: p.experiences.filter(e => e.active).map(e => ({ text: e.text, evidence: p.insights.find(i => i.id === e.insightId)?.evidenceIds.map(id => p.comments.find(c => c.id === id)?.text).filter(Boolean) || [] })) }), (p, value, model, payload, state) => {
       // Agent experiences have already been supplied to the model. Do not
       // append their private source text again into shareable output prompts.
       const scoped = payload.agentContext ? { ...p, brief: payload.brief, experiences: [] } : p;
       const s = d.makeDraft(scoped, value, '', MODELS[model].provider, rulesOf(state), payload.retrievalQuery);
       if (payload.agentContext) s.feedbackIds = [...payload.agentContext.experienceIds];
       Object.assign(s, { model, stage: data.stage, corpusReferences: payload.corpusReferences, researchReferences: payload.researchReferences, retrievalMethod: payload.retrievalMethod, retrievalNote: payload.retrievalNote }); return s;
-    });
+    }, inspirationClaim);
+    } catch (error) {
+      if (inspirationClaim) store.mutate(state => failInspirationTurn(state, inspirationClaim, error));
+      throw error;
+    } finally { if (inspirationClaim) activeAttempts.delete(inspirationClaim.attemptId); }
   });
   app.post('/api/projects/:id/assets/:assetId/copy', (req, res) => execute(req, res, 'copy', p => {
     const a = p.assets.find(a => a.id === req.params.assetId); d.assert(a, '内容不存在', 404);

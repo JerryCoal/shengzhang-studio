@@ -83,6 +83,7 @@ export function mountXhsAssistantRoutes(app, store, config, { project, activeJob
     }
   });
   const configured = provider => {
+    if (provider === 'local-qwen') return config.allowLocalModels !== false && !!store.get().localQwenConnection?.enabled && !config.localQwenVault?.status().problem;
     const vault = provider === 'glm' ? config.glmVault : provider === 'deepseek' ? config.deepseekVault : provider === 'qwen' ? config.qwenVault : config.vault;
     const status = vault?.status() || {};
     return !status.problem && (!!status.configured || provider === 'openai' && !!config.apiKey);

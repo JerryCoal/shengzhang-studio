@@ -19,6 +19,11 @@ ios/App/Pods/
 ios/App/build/
 test-results/
 outputs/
+output/
+tmp/
+design/
+sites/
+xhs-ad-review-v0.1/
 home-pages-dist/
 static-site/dist/
 github-pages/

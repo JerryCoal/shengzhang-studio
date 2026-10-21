@@ -13,7 +13,7 @@ const curlExample = `curl https://ark.cn-beijing.volces.com/api/v3/images/genera
     "model": "ep-xxxxxxxxxxxxxx-xxxxx",
     "prompt": "一只可爱的小猫",
     "size": "2K",
-    "watermark": true
+    "watermark": false
   }'`;
 
 function DocLink({ href, children }: { href: string; children: string }) {

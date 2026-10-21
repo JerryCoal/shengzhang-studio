@@ -3,6 +3,7 @@ import { api } from './api';
 import App from './App';
 import LocalAuth from './LocalAuth';
 import TeamAuth, { type TeamSession } from './TeamAuth';
+import { flushWorkspaceSavers } from './workspace-save';
 
 export default function BackendAuth() {
   const [status, setStatus] = useState<'loading' | 'profiles' | 'legacy' | 'error'>('loading');
@@ -39,7 +40,7 @@ export default function BackendAuth() {
     const result = await api<{ token: string; username: string }>(`/profiles/${mode}`, 'POST', { username: name, password, remember });
     sessionStorage.setItem('studio-session', result.token); setUsername(result.username); return result.username;
   };
-  const logout = async () => { await window.studioDesktop?.resetPlatformConnections?.(); await api('/profiles/logout', 'POST'); sessionStorage.removeItem('studio-session'); localStorage.removeItem('studio-project'); setUsername(''); };
+  const logout = async () => { await flushWorkspaceSavers(); await window.studioDesktop?.resetPlatformConnections?.(); await api('/profiles/logout', 'POST'); sessionStorage.removeItem('studio-session'); localStorage.removeItem('studio-project'); setUsername(''); };
   const quick = async (id: string) => { const value = await api<{ token: string; username: string }>('/profiles/quick', 'POST', { id }); sessionStorage.setItem('studio-session', value.token); setUsername(value.username); return value.username; };
   const forget = async (id: string) => { await api(`/profiles/remembered/${id}`, 'DELETE'); await loadRemembered(); };
   if (team) return <TeamAuth username={username} workspaceName={team.workspaceName} setupRequired={team.setupRequired} logout={logout} authenticate={async (name, password, setupCode) => {

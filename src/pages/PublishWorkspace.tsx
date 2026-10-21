@@ -10,6 +10,7 @@ import { hasBuiltinPageAssistant } from '../../server/platform-catalog.mjs';
 import { hasDesktopCreator } from '../desktop';
 import { ExportDialog } from '../components/ExportDialog';
 import { MCPPublishDialog } from '../components/MCPPublishDialog';
+import { BatchPublishDialog } from '../components/BatchPublishDialog';
 import { CreatorDraftDialog } from '../components/CreatorDraftDialog';
 import { ScheduleDialog, ConfirmPublish, EditPlanTime } from './PublishPage';
 import { PlatformActions, publicationStatusLabel } from './PlatformActions';
@@ -17,7 +18,8 @@ import { FeishuPlanPanel, FeishuRecord } from './Feishu';
 import { openPublishingSettings } from './SettingsPage';
 
 export function PublishWorkspace() {
-  const { project, state, settings, target, accountScope, go, busy, run, mutate, notify } = useStudio();
+  const { project, state, settings, target, accountScope, scope = { projectIds: project ? [project.id] : [], accountIds: accountScope ? [accountScope] : [] }, go, busy, run, mutate, notify } = useStudio();
+  const [batchOpen, setBatchOpen] = useState(false);
   const [filter, setFilter] = useState('pending');
   const [preparing, setPreparing] = useState<Asset | Publication | null>(null);
   const [exporting, setExporting] = useState<Asset | Publication | null>(null);
@@ -43,21 +45,21 @@ export function PublishWorkspace() {
   const p = project, canPublish = !settings.team || settings.team.role !== 'editor';
   const selectedRecord = p.publications.find(r => r.id === target.publicationId);
   const focusId = selectedRecord?.assetId || target.assetId;
-  const assets = p.assets.filter(a => (!focusId || a.id === focusId) && (!accountScope || assetAccountId(a) === accountScope));
+  const assets = p.assets.filter(a => (!focusId || a.id === focusId) && (!scope.accountIds.length || scope.accountIds.includes(assetAccountId(a))));
   const ready = assets.filter(a => assetPublishReadiness(a).ready && !assetPublicationRecords(p, a, accountScope).length);
   const unfinished = assets.filter(a => !assetPublishReadiness(a).ready);
   const arranged = assets.filter(a => assetPublishReadiness(a).ready && assetPublicationRecords(p, a, accountScope).length);
-  const records = scopedPublications(p, accountScope).filter(r => (!target.publicationId || r.id === target.publicationId) && (!focusId || r.assetId === focusId) && (filter === 'all' || (filter === 'published' ? r.status === 'published' : ['scheduled', 'exported'].includes(r.status)))).slice().sort((a,b) => b.scheduledAt.localeCompare(a.scheduledAt));
+  const records = scopedPublications(p, accountScope).filter(r => (!scope.accountIds.length || scope.accountIds.includes(r.accountId)) && (!target.publicationId || r.id === target.publicationId) && (!focusId || r.assetId === focusId) && (filter === 'all' || (filter === 'published' ? r.status === 'published' : ['scheduled', 'exported'].includes(r.status)))).slice().sort((a,b) => b.scheduledAt.localeCompare(a.scheduledAt));
   const pub = preparing && 'platform' in preparing ? preparing : null;
   const asset = preparing && 'channel' in preparing ? preparing : null;
   const platform = pub?.platform || asset?.channel;
   const availableAccounts = (a: Asset) => state.accounts.filter(account => account.platform === a.channel && !p.publications.some(r => r.assetId === a.id && r.assetRevision === a.revision && r.accountId === account.id && r.status !== 'cancelled'));
   const open = (content: Asset | Publication) => setPreparing(content);
   return <div className="publish-workspace">
-    <PageTitle title="发布 Agent" subtitle="核对平台、账号与内容，确认后投送并保留发布时间和真实回执。"><button className="button" onClick={() => openPublishingSettings(go)}>管理账号</button></PageTitle>
+    <PageTitle title="发布 Agent" subtitle="核对平台、账号与内容，确认后投送并保留发布时间和真实回执。"><button className="button" onClick={() => openPublishingSettings(go)}>管理账号</button><button className="button primary" disabled={LOCAL_DATA || !canPublish || busy} onClick={() => setBatchOpen(true)}>多选平台 / 批量发布</button></PageTitle>
     {(focusId || target.publicationId) && <div className="publish-focus"><b>正在处理：{selectedRecord?.title || p.assets.find(a => a.id === focusId)?.title || '所选内容'}</b><button className="text-button" onClick={() => go('publish', p.id)}>查看全部内容</button></div>}
     {!canPublish && <p className="info-box">当前为创作者权限，可以核对与导出；发布和排期由发布者或管理员处理。</p>}
-    <section className="panel"><div className="section-heading"><h2>待安排发布 · {ready.length}</h2><button className="text-button" onClick={() => go('studio', p.id)}>返回内容</button></div><div className="workflow-task-list">{ready.map(a => <article className="workflow-task" key={a.id}><div className="workflow-task-copy"><Channel platform={a.channel} compact/><h3>{a.title}</h3><p>R{a.revision} · {state.accounts.find(account => account.id === assetAccountId(a))?.name || '发布前选择账号'}</p></div><button className="button primary" disabled={busy} onClick={() => open(a)}>准备发布</button></article>)}</div>{!ready.length && <p className="small-note">当前范围没有需要新安排的成品。已有计划请在下方继续处理。</p>}
+    <section className="panel"><div className="section-heading"><h2>待安排发布 · {ready.length}</h2><button className="text-button" onClick={() => go('studio', p.id)}>返回内容</button></div><div className="workflow-task-list">{ready.map(a => <article className="workflow-task" key={a.id}><div className="workflow-task-copy"><Channel platform={a.channel} compact/><h3>{a.title}</h3><p>R{a.revision} · {state.accounts.find(account => account.id === assetAccountId(a))?.name || '发布前选择账号'}</p></div><div className="workflow-task-actions"><button className="button primary" disabled={busy} onClick={() => open(a)}>准备发布</button><button className="button" disabled={busy} onClick={() => setRetarget(a)}>增加平台 / 账号</button></div></article>)}</div>{!ready.length && <p className="small-note">当前范围没有需要新安排的成品。已有计划请在下方继续处理。</p>}
       {unfinished.length > 0 && <details open={!!focusId} className="workflow-secondary"><summary>尚需制作 · {unfinished.length}</summary>{unfinished.map(a => <div className="workflow-task" key={a.id}><div className="workflow-task-copy"><h3>{a.title || a.name}</h3><p>{assetPublishReadiness(a).message}</p></div><button className="button" onClick={() => go('studio', p.id, { assetId: a.id })}>继续制作</button></div>)}</details>}
       {arranged.length > 0 && <details className="workflow-secondary"><summary>当前版本已安排或已发布 · {arranged.length}</summary>{arranged.map(a => <div className="workflow-task" key={a.id}><div className="workflow-task-copy"><h3>{a.title}</h3><p>{assetPublicationRecords(p,a,accountScope).map(r => r.accountName + ' · ' + publicationStatusLabel(r)).join('；')}</p></div><button className="button" onClick={() => { setFilter('all'); go('publish',p.id,{assetId:a.id}); }}>查看记录</button>{availableAccounts(a).length > 0 && <button className="text-button" disabled={busy || !canPublish} onClick={() => setSchedule(a)}>安排到其他账号</button>}</div>)}</details>}
     </section>
@@ -71,6 +73,7 @@ export function PublishWorkspace() {
     {schedule && <ScheduleDialog asset={schedule} onClose={()=>setSchedule(null)}/>}{confirm && <ConfirmPublish record={confirm} onClose={()=>setConfirm(null)}/>}{editing && <EditPlanTime record={editing} onClose={()=>setEditing(null)}/>}
     {cancel && <Modal title="取消这条发布待办？" description="内容和历史记录保留。" onClose={()=>setCancel(null)}><p>{cancel.title}</p><button className="button danger" disabled={busy || !canPublish} onClick={()=>void run(async()=>{await mutate('/projects/'+p.id+'/publications/'+cancel.id,'PATCH',{status:'cancelled'});setCancel(null);notify('已取消待办');})}>确认取消</button></Modal>}
     {retarget && <RetargetDialog asset={retarget} onClose={() => setRetarget(null)}/>}
+    {batchOpen && <BatchPublishDialog onClose={() => setBatchOpen(false)}/>}
     {syncOffer && !preparing && !schedule && !mcp && !desktop && !confirm && !retarget && <Modal title="要将这条计划记录到飞书吗？" description="已连接的团队表格可记录项目、平台、账号、标题、计划时间、状态和链接；不会上传正文、素材或密钥。" onClose={() => setSyncOffer(null)}><p>{p.publications.find(record => record.id === syncOffer)?.title}</p><p className="small-note">{state.feishu?.tableUrl}</p><div className="modal-actions"><button className="button" onClick={() => setSyncOffer(null)}>本次不记录</button><button className="button primary" disabled={busy} onClick={() => void run(async () => { await mutate(`/projects/${p.id}/feishu-sync`, 'POST', { confirmed: true, recordId: syncOffer }); setSyncOffer(null); notify('已记录到飞书，请核对结果'); })}>确认记录到飞书</button></div></Modal>}
   </div>;
 }

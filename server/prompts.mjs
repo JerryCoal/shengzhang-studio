@@ -5,6 +5,7 @@ import { PLATFORM_WORK } from './platform-catalog.mjs';
 import { corpusQuery, searchCorpus, screenCopy, defaultRules } from './workflow.mjs';
 import { contentRequirement, contentKnowledge, knowledgeInstructions } from './content-workflow.mjs';
 import { agentInstructions, agentMediaContext } from './agent-workspace.mjs';
+import { inspirationInstructions } from './inspiration-conversation.mjs';
 
 export const PROMPT_VERSION = '2026-10-19.v11';
 export const promptStages = {
@@ -24,7 +25,7 @@ export function textInstructions(stage, payload = {}) {
   if (stage === 'copy' && payload.copyReview?.mode === 'semantic') return builtinSkillInstructions(stage, payload) + userRules + '\n只执行逐处价格语境分类，按接口输出 JSON。';
   const spec = promptStages[stage];
   if (!spec) throw new Error('未知提示词步骤');
-  let skills = builtinSkillInstructions(stage, payload) + userRules + accountCreationInstructions(payload.accountContext) + knowledgeInstructions(payload.knowledgeContext) + agentInstructions(payload.agentContext);
+  let skills = builtinSkillInstructions(stage, payload) + userRules + accountCreationInstructions(payload.accountContext) + knowledgeInstructions(payload.knowledgeContext) + agentInstructions(payload.agentContext) + inspirationInstructions(payload.inspirationConversation);
   if (payload.requirement) skills += '\n【本篇创作要求】requirement 是当前用户保存的本篇要求，优先决定主题、内容形式和表达方向；与旧策略表达方向冲突时采用本篇要求，但不得改写已提供事实、输出字段、安全边界或发布授权，不把要求原文拼成发布正文。\n';
   if (stage === 'analysis') skills += '\n【复盘归属】评论的 accountId、platform 和 publicationId 表示来源账号、平台和作品。不同账号或平台的观察分别说明，不把同一项目当成同一账号，不混算口径；归属缺失时明确未知，不能推断。\n';
   if (stage === 'copy' && !payload.copyReview && payload.task?.kind === 'image') skills += '\n【本篇形式：静态图文】task.kind=image 对所有平台均表示静态图片与独立发布正文。当前形式优先于平台 Skill 中的视频默认写法；prompt 和 scenes 只描述静态画面、主体、环境、构图与光线，不写视频时长、动作过程、镜头运动或音轨。保留既定输出字段，不将创作要求原文写进成品。\n';

@@ -1,0 +1,10 @@
+import type { State, Platform } from '../src/types';
+import type { AgentDraft, AgentIdea, AgentInput } from './agent-workspace.mjs';
+export type InspirationTurn = { id: string; user: string; at: string; platform: Platform; accountId: string; model: string; status: 'pending' | 'completed' | 'failed' | 'interrupted'; reply?: AgentIdea; strategyId?: string; error?: string; submittedAt?: string };
+export type InspirationConversation = { version: 1; id: string; input: string; turns: InspirationTurn[] };
+export type InspirationReceipt = { projectId: string; conversationId: string; attemptId: string; status: InspirationTurn['status']; submittedAt: string; dispatchedAt?: string; strategyId?: string; accountId: string; platform: Platform; model: string; user: string; at: string };
+export type InspirationContext = { version: 1; conversationId?: string; history: { user: string; reply: AgentIdea }[]; truncated: boolean };
+export type InspirationRequest = { instruction: string; agentInput: AgentInput; inspirationConversation: InspirationContext };
+export function buildInspirationRequest(draft: AgentDraft, message: string): InspirationRequest;
+export function inspirationInstructions(context?: InspirationContext): string;
+export function recoverInspirationTurns(state: State, activeAttempts?: Set<string>): number;

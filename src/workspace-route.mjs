@@ -1,5 +1,5 @@
-const pages = new Set(['dashboard', 'projects', 'corpus', 'trends', 'strategy', 'studio', 'publish', 'comments', 'analytics', 'planning', 'settings', 'help', 'inspiration', 'xiaohongshu-agent', 'douyin-agent', 'instagram-agent', 'youtube-agent', 'analysis-agent']);
-const keys = ['assetId', 'publicationId', 'accountId', 'tab'];
+const pages = new Set(['controller', 'tasks', 'accounts', 'materials', 'dashboard', 'projects', 'corpus', 'trends', 'strategy', 'studio', 'publish', 'comments', 'analytics', 'planning', 'settings', 'help', 'inspiration', 'xiaohongshu-agent', 'douyin-agent', 'instagram-agent', 'youtube-agent', 'analysis-agent']);
+const keys = ['assetId', 'publicationId', 'accountId', 'tab', 'planId', 'taskId', 'runId', 'artifactId', 'artifactVersion', 'eventId'];
 export function readWorkspaceRoute(hash = '') {
   const [name, query = ''] = hash.replace(/^#/, '').split('?');
   const params = new URLSearchParams(query), target = {};

@@ -46,7 +46,7 @@ export function createMCPClient({ endpoint, token = '', fetcher = fetchLoopbackM
       const refused = [error?.code, error?.cause?.code].includes('ECONNREFUSED');
       throw failure(method === 'tools/call' ? 'MCP 操作连接中断或超时。发布结果不明时请先核对平台，不会自动重试。' : refused ? '这个本机地址没有运行 MCP 服务。内置助手可点“修复内置连接”；外部服务需要先下载并启动，填写地址不会安装软件。首次启动还可能需要下载配套浏览器。' : '尚未连上本机 MCP 服务。内置助手可点“修复内置连接”；外部服务请先启动，配套浏览器下载完成后再检查。', refused ? 'mcp_not_running' : 'mcp_unavailable');
     }
-    if (!response.ok) { await response.body?.cancel().catch(() => {}); throw failure([401,403].includes(response.status) ? 'MCP 访问令牌未通过验证，请核对服务启动时配置的令牌。这与平台扫码登录是两回事。' : `MCP 服务返回 HTTP ${response.status}。请核对服务地址与版本；没有自动重试。`, 'mcp_http'); }
+    if (!response.ok) { await response.body?.cancel().catch(() => {}); throw failure([401,403].includes(response.status) ? 'MCP 访问令牌未通过验证，请核对服务启动时配置的令牌。这与平台扫码登录是两回事。' : `MCP 服务返回 HTTP ${response.status}。请核对服务地址与版本；没有自动重试。`, [401,403].includes(response.status) ? 'mcp_auth' : response.status === 429 ? 'mcp_rate_limited' : 'mcp_http'); }
     if (method === 'initialize') { const value = response.headers.get('Mcp-Session-Id') || ''; if (value.length > 1024 || /[^\x21-\x7e]/.test(value)) throw failure('MCP 会话编号无效'); session = value; }
     if (notification) { await response.body?.cancel().catch(() => {}); return; }
     let data;
@@ -58,7 +58,7 @@ export function createMCPClient({ endpoint, token = '', fetcher = fetchLoopbackM
   }
   return {
     async connect() {
-      const result = await request('initialize', { protocolVersion: version, capabilities: {}, clientInfo: { name: 'shengzhang-studio', version: '2.0.0' } });
+      const result = await request('initialize', { protocolVersion: version, capabilities: {}, clientInfo: { name: 'shengzhang-studio', version: '2.1.0' } });
       if (!['2024-11-05', '2025-03-26', '2025-06-18', '2025-11-25'].includes(result.protocolVersion)) throw failure('MCP 协议版本尚未支持，请更新服务');
       version = result.protocolVersion; initialized = true;
       await request('notifications/initialized', {}, true);
@@ -79,7 +79,10 @@ export function createMCPClient({ endpoint, token = '', fetcher = fetchLoopbackM
         // Only expose a known error category, never upstream account details or paths.
         const detail = (Array.isArray(result.content) ? result.content : []).filter(item => item?.type === 'text' && typeof item.text === 'string').slice(0, 5).map(item => item.text.slice(0, 4000)).join('\n');
         if (/side-by-side configuration is incorrect|并行配置不正确/i.test(detail)) throw failure('外部 MCP 的配套浏览器启动失败（Windows 组件配置错误）。请重启或更新该服务；也可以在连接设置中切换为内置官方页面助手。若曾提交发布，请先核对平台结果。', 'mcp_browser_startup');
-        throw failure('MCP 工具未完成操作。请检查登录、素材与平台页面；发布操作不要直接重复提交。');
+        if (/captcha|验证码|安全验证|人机验证/i.test(detail)) throw failure('平台要求人工验证，请在该服务的官方平台窗口完成；不会绕过验证或自动重试。', 'mcp_verification');
+        if (/not logged in|login required|未登录|请先登录|登录已过期/i.test(detail)) throw failure('当前 MCP 平台登录未就绪，请在连接设置检查登录。', 'mcp_login');
+        if (/rate.?limit|too many requests|访问频繁|请求过于频繁|限流/i.test(detail)) throw failure('平台或服务暂时限流，请稍后人工核对，不自动重复采集。', 'mcp_rate_limited');
+        throw failure('MCP 工具未完成操作。请检查登录、素材与平台页面；发布操作不要直接重复提交。', 'mcp_tool');
       }
       return result;
     },

@@ -113,6 +113,8 @@ export function mountIntegrations(app, store, config, helpers) {
     redfoxResearchStatus: redfoxSocial.researchStatus,
     mcpResearchSearch: mcp.researchSearch,
     mcpResearchStatus: mcp.researchStatus,
+    workResearchConnection: mcp.workResearchConnection,
+    workResearchSearch: mcp.workResearchSearch,
     start() { media.recover(); douyin.recover(); feishu.recover(); timer = setInterval(tick, 10000); timer.unref(); },
     async close() { clearInterval(timer); douyin.close(); feishu.close(); mcp.close(); redfoxSocial.close?.(); await currentTick; await media.close(); },
   };

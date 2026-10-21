@@ -1,6 +1,6 @@
 // User-installed rules and old generation recipes remain local. This scrubber
 // only removes data; it never enables forwarding rules to a relay or provider.
-const privateKeys = new Set(['contentEditDrafts', 'agentWorkspace', 'agentContext', 'agentPacket', 'agentHandoffs', 'taskJournal', 'knowledge', 'knowledgeContext', 'contentBrief', 'contentRequests', 'xhsAssistant', 'xhsCoverPlan', 'skillTrace', 'researchReferences', 'creativeSkill', 'builtinSkills', 'builtinSkillOverrides', 'userSkillVersions', 'briefImports', 'recipe', 'installedSkills', 'skillsRevision', 'skillSelections', 'creationProfile', 'creationSelections', 'activeCreationAccounts', 'accountContext', 'creationTrace']);
+const privateKeys = new Set(['localQwenConnection', 'contentEditDrafts', 'agentWorkspace', 'agentContext', 'agentPacket', 'agentHandoffs', 'taskJournal', 'knowledge', 'knowledgeContext', 'contentBrief', 'contentRequests', 'xhsAssistant', 'xhsCoverPlan', 'skillTrace', 'researchReferences', 'creativeSkill', 'builtinSkills', 'builtinSkillOverrides', 'userSkillVersions', 'briefImports', 'recipe', 'installedSkills', 'skillsRevision', 'skillSelections', 'creationProfile', 'creationSelections', 'activeCreationAccounts', 'accountContext', 'creationTrace']);
 export function removeWebSkillHistory(value) {
   if (!value || typeof value !== 'object') return;
   if (Array.isArray(value)) { for (const item of value) removeWebSkillHistory(item); return; }

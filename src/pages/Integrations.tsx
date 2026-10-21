@@ -20,8 +20,9 @@ export function IntegrationSettings() {
   const { run, busy, refresh, notify } = useStudio();
   const [seedKey, setSeedKey] = useState(''), [region, setRegion] = useState<'volcengine' | 'byteplus'>('volcengine'), [model, setModel] = useState('');
   const [reservation, setReservation] = useState(2), [price, setPrice] = useState(0);
+  const [watermark, setWatermark] = useState(false);
   const [deleteService, setDeleteService] = useState('');
-  useEffect(() => { if (value) { setRegion(value.seedance.region); setModel(value.seedance.model); setReservation(value.seedance.reservationUsd); setPrice(value.seedance.outputPriceUsd); } }, [value]);
+  useEffect(() => { if (value) { setRegion(value.seedance.region); setModel(value.seedance.model); setReservation(value.seedance.reservationUsd); setPrice(value.seedance.outputPriceUsd); setWatermark(value.seedance.watermark ?? false); } }, [value]);
   const changed = async () => { await reload(); await refresh(); };
   if (error) return <div className="info-box"><span>{error}</span><button className="button small" onClick={() => void reload()}>重新加载连接</button></div>;
   if (!value) return <p className="muted">正在读取图片与视频连接…</p>;
@@ -32,11 +33,12 @@ export function IntegrationSettings() {
       <SeedreamSettings value={value} changed={changed} onDelete={() => setDeleteService('seedream')}/>
       <article className="service-card"><div className="service-title"><Video size={21}/><h3>Seedance 视频生成</h3><Pill color={value.seedance.configured ? 'green' : 'gray'}>{value.seedance.configured ? '密钥已保存 · 待实测' : '待配置'}</Pill></div>
         <p>先选择 <b>GPT Image 2 或 Seedream</b> 生成首尾关键帧，再由 Seedance 生成短片。视频密钥单独保存；如果使用同一个火山方舟密钥，可在两处分别填写。</p>
-        <form autoComplete="off" onSubmit={e => { e.preventDefault(); const submitted = seedKey; setSeedKey(''); void run(async () => { await api('/integrations/seedance', 'PUT', { region, model, reservationUsd: reservation, outputPriceUsd: price, ...(submitted.trim() ? { apiKey: submitted.trim() } : {}) }); await changed(); notify('Seedance 配置已保存；可到内容制作检查并生成关键帧'); }); }}>
+        <form autoComplete="off" onSubmit={e => { e.preventDefault(); const submitted = seedKey; setSeedKey(''); void run(async () => { await api('/integrations/seedance', 'PUT', { region, model, reservationUsd: reservation, outputPriceUsd: price, watermark, ...(submitted.trim() ? { apiKey: submitted.trim() } : {}) }); await changed(); notify('Seedance 配置已保存；可到内容制作检查并生成关键帧'); }); }}>
           <Field label="Seedance 服务区域" hint="密钥、模型与服务区域必须来自同一控制台。"><select disabled={!editable || busy} value={region} onChange={e => setRegion(e.target.value as typeof region)}><option value="volcengine">火山方舟 · 中国北京</option><option value="byteplus">BytePlus ModelArk · 新加坡</option></select></Field>
           <Field label="Seedance 模型 / 接入点 ID" hint="从控制台复制已开通的 Seedance 模型或 ep- 接入点，选择支持首尾帧的型号。"><input required value={model} maxLength={120} spellCheck={false} disabled={!editable || busy} onChange={e => setModel(e.target.value)} placeholder="粘贴模型 ID 或 ep-…"/></Field>
           <Field label="Seedance API Key" hint={value.seedance.configured ? `已加密保存 · 末尾 ${value.seedance.suffix}；留空保留当前密钥` : IS_WEB ? '由本地登录密码加密保存在浏览器；联网调用时临时解密。' : '使用 Windows 当前用户加密，仅在这台电脑上使用。'}><input type="password" autoComplete="off" disabled={!editable || !value.seedance.supported || busy} maxLength={512} value={seedKey} onChange={e => setSeedKey(e.target.value)} placeholder={value.seedance.configured ? '留空保留现有密钥' : '填写官方 API Key'}/></Field>
           <div className="service-fields"><Field label="每段视频预算预留（美元）"><input type="number" min={0.1} max={100} step={0.1} value={reservation} disabled={!editable || busy} onChange={e => setReservation(Number(e.target.value))}/></Field><Field label="视频单价（美元 / 百万 token）"><input type="number" min={0} max={1000} step={0.01} value={price} disabled={!editable || busy} onChange={e => setPrice(Number(e.target.value))}/></Field></div>
+          <label className="checkbox-row"><input type="checkbox" checked={watermark} disabled={!editable || busy} onChange={e => setWatermark(e.target.checked)}/><span>默认请求视频可见水印（不影响已有任务，可逐次修改）</span></label>
           <p className="small-note">请按自己账户的型号与音频档位填写单价；人民币报价请先换算。填 0 时只记录预算预留。预留金额用于项目预算检查，不是服务商收费上限。</p>
           <button className="button primary full" disabled={!editable || busy || !model.trim() || (!value.seedance.configured && !seedKey.trim())}><LockKeyhole size={16}/>保存视频连接</button>
         </form>

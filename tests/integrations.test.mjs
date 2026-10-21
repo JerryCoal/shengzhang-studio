@@ -58,13 +58,24 @@ test('Seedream-only account generates referenced first/last frames and completes
   const body = { productionId: f.a().aiProduction.id, expectedRevision: 1, prompt: 'camera', duration: 5, generateAudio: false, confirmed: true };
   await f.req(f.base + '/seedance', 'POST', body); await until(() => f.a().aiProduction.phase === 'generating-video');
   const video = JSON.parse(calls[2].init.body);
-  assert.equal(video.watermark, true, 'Seedream image preferences must not disable the Seedance video watermark');
+  assert.equal(video.watermark, false, 'new video tasks default to no watermark independently of image preferences');
   assert.deepEqual(video.content.slice(1).map(v => v.image_url.url), f.a().aiProduction.frames.map(v => v.mediaData));
   await f.req(f.base + '/video-status', 'POST'); assert.equal(f.a().mediaData, mp4);
   assert(!calls.some(v => v.url.includes('openai.com')));
   for (const path of ['/integrations', '/state', '/backup']) assert(!JSON.stringify((await f.req(path)).body).includes(key));
   await f.req('/integrations/seedream', 'DELETE'); const status = (await f.req('/integrations')).body;
   assert.equal(status.seedream.configured, false); assert.equal(status.seedance.configured, true);
+});
+
+test('Seedance defaults off, preserves explicit video preferences, and snapshots per-task watermark overrides', async t => {
+  for (const [saved, override, expected] of [[undefined, undefined, false], [true, undefined, true], [false, undefined, false], [true, false, false], [false, true, true]]) await t.test(`${saved}/${override} -> ${expected}`, async child => {
+    const calls = [], f = await fixture(child, { fetcher: async (_url, init) => { calls.push(JSON.parse(init.body)); return Response.json({ id: 'video-watermark-test' }); } });
+    f.preferences.save({ region: 'volcengine', model: 'seedance-test-model', reservationUsd: 2, outputPriceUsd: 0, ...(saved === undefined ? {} : { watermark: saved }) });
+    f.store.mutate(state => { const a = state.projects[0].assets.find(a => a.id === f.aid); a.aiProduction = { id: 'watermark-video', assetRevision: a.revision, phase: 'frames', frames: ['first_frame', 'last_frame'].map(role => ({ id: role, role, mediaData: `data:image/png;base64,${png}` })) }; });
+    const result = await f.req(f.base + '/seedance', 'POST', { productionId: 'watermark-video', expectedRevision: f.a().revision, prompt: '镜头平移', duration: 5, generateAudio: false, ...(override === undefined ? {} : { watermark: override }), confirmed: true });
+    assert.equal(result.status, 202, JSON.stringify(result.body)); await until(() => f.a().aiProduction.phase === 'generating-video');
+    assert.equal(calls.length, 1); assert.equal(calls[0].watermark, expected); assert.equal(f.a().aiProduction.watermarkRequested, expected); assert.equal(f.preferences.get().seedance.watermark, saved ?? false);
+  });
 });
 
 test('Seedream budget is checked before dispatch, keys cannot change mid-task, ambiguous failures stay locked', async t => {

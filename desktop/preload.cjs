@@ -1,6 +1,8 @@
 const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('studioDesktop', {
   setTaskState: value => ipcRenderer.send('studio:task-state', value),
+  notifyWork: args => ipcRenderer.invoke('studio:work-notify', args),
+  onWorkNotification: callback => { const listener = (_event, value) => callback(value); ipcRenderer.on('studio:work-notification', listener); return () => ipcRenderer.removeListener('studio:work-notification', listener); },
   onPrepareQuit: callback => { const listener = () => { void callback(); }; ipcRenderer.on('studio:prepare-quit', listener); return () => ipcRenderer.removeListener('studio:prepare-quit', listener); },
   confirmTaskSave: value => ipcRenderer.invoke('studio:task-save-confirmed', value),
   documentParserStatus: args => ipcRenderer.invoke('studio:document-parser-status', args),

@@ -39,7 +39,7 @@ export function CoverDialog({ assetId, onClose }: { assetId: string; onClose: ()
   const configured = !IS_STATIC && value?.local && (redfox || value.seedream.configured);
   const cost = value ? Math.max(value.seedream.reservationUsd, value.seedream.imagePriceUsd) : null;
   const resultImage = saved?.mediaData || (saved?.phase === 'applied' && saved.appliedRevision === asset.revision ? asset.mediaData : '');
-  const watermark = input.watermark ?? (redfox ? true : value?.seedream.watermark ?? true);
+  const watermark = input.watermark ?? value?.seedream.watermark ?? false;
   const approvalSignature = saved ? `${saved.id}:${saved.assetRevision}:${saved.watermarkCheck?.checkedAt || ''}` : '';
   const imageApproved = !!approvalSignature && approvedImage === approvalSignature;
   return <Modal title={asset.contentBrief ? "制作本篇图片" : nurture ? "生成养号配图" : "生成小红书 AI 封面"} description="单张 3:4 静态图片 · 预览满意后再采用" onClose={onClose} wide>

@@ -3,7 +3,7 @@ import { createProfileApp } from './profiles.mjs';
 const dataDirectory = process.env.STUDIO_DATA_DIR || resolve(process.env.LOCALAPPDATA || 'data', 'ShengzhangStudio');
 const desktopMCP = process.env.STUDIO_MCP_ENDPOINT && process.env.STUDIO_MCP_SECRET ? { endpoint: process.env.STUDIO_MCP_ENDPOINT, token: process.env.STUDIO_MCP_SECRET } : undefined;
 delete process.env.STUDIO_MCP_ENDPOINT; delete process.env.STUDIO_MCP_SECRET;
-const app = createProfileApp({ dataDirectory, staticDirectory: process.env.STUDIO_STATIC_DIR || resolve('dist'), allowedOrigins: ['http://127.0.0.1:5173', 'http://localhost:5173'], workspaceOptions: { desktopMCP } });
+const app = createProfileApp({ dataDirectory, staticDirectory: process.env.STUDIO_STATIC_DIR || resolve('dist'), allowedOrigins: ['http://127.0.0.1:5173', 'http://localhost:5173'], workspaceOptions: { desktopMCP, onWorkProgress: progress => { if (process.connected) process.send({ event: 'work-progress', ...progress }); } } });
 const server = app.listen(Number(process.env.PORT ?? 4319), '127.0.0.1', () => {
   const url = `http://127.0.0.1:${server.address().port}`;
   if (process.send) process.send({ event: 'ready', url });

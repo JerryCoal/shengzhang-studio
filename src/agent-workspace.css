@@ -66,6 +66,13 @@ body .agent-context-card .knowledge-picker .section-heading { margin-bottom: 12p
 body .agent-context-card .knowledge-picker .section-heading > span { font-size: 10px; color: #8a91a1; }
 body .agent-context-card .knowledge-picker-item { padding: 11px; background: #f9fafe; border-color: #e9edf5; }
 body .agent-context-card .knowledge-picker-list { max-height: 380px; overflow-y: auto; }
+/* Checkbox controls must not inherit the full-width text-input layout. */
+body :is(.knowledge-picker-item, .agent-experience-picker .checkbox-row, .agent-skills .checkbox-row) { min-width: 0; }
+body :is(.knowledge-picker-item, .agent-experience-picker .checkbox-row, .agent-skills .checkbox-row) > input[type=checkbox] { width: 16px; height: 16px; min-height: 16px; flex: 0 0 16px; padding: 0; margin: 3px 0 0; }
+body .knowledge-picker-item > span { flex: 1; min-width: 0; color: var(--ui-text); overflow-wrap: anywhere; }
+body .knowledge-picker-item > span > b { font-size: 13px; line-height: 1.65; }
+body .knowledge-picker-item > span > span { display: block; color: var(--ui-text-secondary); white-space: normal; }
+body .agent-experience-picker .checkbox-row > span { min-width: 0; flex: 1; overflow-wrap: anywhere; line-height: 1.8; }
 body .agent-priority-note { display: flex; gap: 7px; margin: 16px 0; font-size: 10px; line-height: 1.85; color: #8a7653; padding: 10px; background: #fdfaf4; border-radius: 7px; }
 body .agent-priority-note > svg { flex-shrink: 0; margin-top: 2px; }
 body .agent-picked-research { border-top: 1px solid #edf0f5; margin-top: 14px; padding-top: 14px; }

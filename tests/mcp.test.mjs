@@ -78,6 +78,30 @@ test('MCP settings do not reveal access tokens, disallow origin/proxy access and
   await req('/mcp/xiaohongshu',{mode:'external',endpoint:'http://127.0.0.1:18061/mcp'},'PUT');assert.equal(JSON.parse(await mcpVaults.xiaohongshu.getKey()).accounts.find(account=>account.id==='default').apiKey,'');
 });
 
+test('a reviewed connection change rejects publication before any platform call', async t => {
+  let calls=0; const f=await fixture(t,async()=>{calls++; return {};});
+  const response=await f.req(f.base+'/publish',{confirmed:true,expectedRevision:1,title:'测试',body:'正文',accountId:'default',expectedConnection:{mode:'external',endpoint:'http://127.0.0.1:19999/mcp',remoteAccount:''}});
+  assert.equal(response.status,409); assert.match(response.data.error,/连接或实际账号已变化/); assert.equal(calls,0);
+  assert.equal(f.store.get().projects[0].publications.find(p=>p.id===f.publication.id).delivery,undefined);
+});
+
+test('independent platforms can publish in the same project concurrently while duplicate publication stays locked', {timeout:5000}, async t => {
+  const gate=Promise.withResolvers(), entered=Promise.withResolvers(); let calls=0;
+  const f=await fixture(t,async()=>({}),{desktopMCP:{endpoint:'http://127.0.0.1:19990/mcp',token:'synthetic-only'},mcpFetcher:mockMCP(async(name)=>{
+    calls++; if(name==='publish_content'){entered.resolve();await gate.promise;return {content:[{type:'text',text:'已提交，待核对'}]};}
+    assert.equal(name,'studio_publish');return {content:[{type:'text',text:'{"attempted":false,"cancelled":true}'}]};
+  },[...tools,tool('studio_publish')])});
+  const second={...f.publication,id:'other-platform',platform:'douyin'}; f.store.mutate(s=>s.projects[0].publications.push(second));
+  const payload={confirmed:true,expectedRevision:1,title:'测试',body:'正文'};
+  const first=f.req(f.base+'/publish',payload);
+  try {
+    await entered.promise;
+    assert.equal((await f.req(f.base+'/publish',payload)).status,409);
+    const response=await f.req(`/projects/${f.p.id}/publications/${second.id}/mcp/publish`,payload);
+    assert.equal(response.status,200,JSON.stringify(response.data));assert.equal(calls,2);
+  } finally {gate.resolve();await first;}
+});
+
 test('MCP accounts migrate legacy settings, isolate credentials and guard stale account actions',async t=>{
   let calls=0;const f=await fixture(t,async()=>{calls++;return{content:[{type:'text',text:'✅ 已登录\n仅测试'}]};});
   await f.mcpVaults.xiaohongshu.save(JSON.stringify({mode:'external',endpoint:'http://127.0.0.1:18060/mcp',apiKey:'legacy-fixture-token'}));

@@ -6,6 +6,7 @@ import { resolveAccountCreation } from '../server/account-creation.mjs';
 import type { State } from './types';
 
 export function webPayload(source: State, path: string, body: unknown, projectId?: string): State {
+  if ((body as { modelOverride?: string } | undefined)?.modelOverride === 'local-qwen' || path.startsWith('/settings/providers/local-qwen/')) throw new Error('本地 Qwen 不能通过网站中转调用，请使用 Windows 完整版或团队主机。');
   if (/\/corpus\/context(?:\/|$)/.test(path)) throw new Error('文档资料提炼目前仅支持本机完整版，请在 Windows 应用中使用');
   const input = (body || {}) as { instruction?: string; query?: string; prompt?: string; skillId?: string; reviewOnly?: boolean };
   if ((body as { agentInput?: unknown } | undefined)?.agentInput) throw new Error('Agent 的账号身份、多选 Skills 与经验数据包请在 Windows 版或团队工作区生成；此网页版仅保存草稿，不会丢弃这些选择后继续生成。');

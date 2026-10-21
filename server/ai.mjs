@@ -4,6 +4,7 @@ import { openAIResponseError, openAINetworkError } from './openai-errors.mjs';
 import { generateDeepSeek, deepseekInstructions } from './deepseek.mjs';
 import { generateQwen } from './qwen.mjs';
 import { generateGLM } from './glm.mjs';
+import { generateLocalQwen } from './local-qwen.mjs';
 import { assert, strategyTextSchema, categories } from './domain.mjs';
 import { textInstructions } from './prompts.mjs';
 import { documentContextDefinition } from './document-context.mjs';
@@ -43,7 +44,7 @@ export function estimateReservation(payload, config) {
 }
 export function estimateStructuredReservation(payload, config, definition, base) {
   const vision = structuredVisionReservation(config);
-  const instructions = ['deepseek', 'qwen', 'glm'].includes(config.provider) ? deepseekInstructions(base, definition) : base;
+  const instructions = ['deepseek', 'qwen', 'glm', 'local-qwen'].includes(config.provider) ? deepseekInstructions(base, definition) : base;
   const inputUpperBound = Buffer.byteLength(instructions + JSON.stringify(providerPayload(payload)), 'utf8') + 2500 + vision.inputTokens + vision.textInputUpperBound;
   return (inputUpperBound * config.inputPrice + (config.maxTokens || 4500) * config.outputPrice) / 1e6;
 }
@@ -74,8 +75,9 @@ function providerPayload(payload) {
 }
 export async function generateStructured(payload, config, definition, instructions, fetcher = fetch) {
   const visionInputs = normalizeStructuredVision(config);
-  assert(config.apiKey, '请先在设置页保存 API 密钥', 400);
+  assert(config.apiKey || config.provider === 'local-qwen', '请先在设置页保存 API 密钥', 400);
   const input = providerPayload(payload);
+  if (config.provider === 'local-qwen') return generateLocalQwen(input, config, definition, instructions, fetcher);
   if (config.provider === 'deepseek') return generateDeepSeek(input, { ...config, visionInputs }, definition, instructions, fetcher);
   if (config.provider === 'qwen') return generateQwen(input, config, definition, instructions, fetcher);
   if (config.provider === 'glm') return generateGLM(input, config, definition, instructions, fetcher);

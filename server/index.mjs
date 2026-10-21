@@ -17,6 +17,7 @@ const app = createApp(store, {
   vault: createVault(resolve(dataDirectory, 'private/openai.dpapi.json')),
   qwenVault: createVault(resolve(dataDirectory, 'private/qwen.dpapi.json')),
   glmVault: createVault(resolve(dataDirectory, 'private/glm.dpapi.json')),
+  localQwenVault: createVault(resolve(dataDirectory, 'private/local-qwen.dpapi.json')),
   deepseekVault: createVault(resolve(dataDirectory, 'private/deepseek.dpapi.json')),
   redfoxVault: createVault(resolve(dataDirectory, 'private/redfox.dpapi.json')),
   seedanceVault: createVault(resolve(dataDirectory, 'private/seedance.dpapi.json')),
@@ -34,4 +35,4 @@ const server = app.listen(port, host, error => {
   console.log(`生长运营工作台：http://${host}:${port}`);
   app.locals.integrations.start();
 });
-for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => server.close(async () => { await app.locals.integrations.close(); store.close(); process.exit(0); }));
+for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => server.close(async () => { await app.locals.workControl?.close(); await app.locals.integrations.close(); store.close(); process.exit(0); }));

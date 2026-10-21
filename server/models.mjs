@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { atomicJSON } from './vault.mjs';
 export const MODELS = {
+  'local-qwen': { provider: 'local-qwen', label: '本地 Qwen · Ollama / vLLM', inputPrice: 0, outputPrice: 0, priceNote: '不计云 API 费用；使用主机算力、电力和本地部署资源。服务是否转发云端由部署者负责。', description: '通过主机回环接口使用自行部署的 Qwen 指令模型，与百炼官方服务独立' },
   'glm-5.3': { provider: 'glm', label: 'GLM-5.3', inputPrice: 1.143, outputPrice: 4, priceNote: '2026-10-19 官方 8/28 元每百万 token，按约 7 元/美元折算，未计缓存折扣', description: '智谱旗舰文字模型，适合灵感策略和复盘；始终开启思考' },
   'glm-5.3-flash': { provider: 'glm', label: 'GLM-5.3 Flash', inputPrice: 0.115, outputPrice: 0.4, priceNote: '2026-10-19 官方 0.8/2.8 元每百万 token，按约 7 元/美元折算，未计临时折扣', description: '适合日常文案和评论分类；本工作站按文字模式接入' },
   'glm-4.7-flash': { provider: 'glm', label: 'GLM-4.7 Flash · 免费', inputPrice: 0, outputPrice: 0, priceNote: '2026-10-19 官方免费文本模型，速率和免费政策以智谱为准', description: '适合试用与轻量文字任务，关闭思考以加快结构化生成' },

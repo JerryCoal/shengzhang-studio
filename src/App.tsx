@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Bell, BookOpen, CircleHelp, Clapperboard, FolderOpen, Instagram, LayoutDashboard, Leaf, Lightbulb, Loader2, Menu, Search, Settings2, Sparkles, Sprout, Upload, UsersRound, Video, X, Youtube } from 'lucide-react';
+import { Bell, BookOpen, CircleHelp, Clapperboard, FolderOpen, Instagram, LayoutDashboard, Leaf, Lightbulb, ListTodo, Loader2, Menu, Search, Settings2, Sparkles, Sprout, Upload, UsersRound, Video, X, Youtube } from 'lucide-react';
 import { api, IS_STATIC, IS_WEB, LOCAL_DATA, type Mutation } from './api';
 import { Context, type WorkspaceTarget } from './context';
 import { readWorkspaceRoute, writeWorkspaceRoute } from './workspace-route.mjs';
@@ -21,6 +21,18 @@ import { TEAM_ROLES } from './pages/TeamSettings';
 import { ReviewWorkspace } from './pages/ReviewWorkspace';
 import './workflow-shell.css';
 import { AnalysisAgent, InspirationAgent, PlatformAgent } from './pages/AgentWorkspace';
+import { WorkspaceScopePicker, WorkspaceScopeSummary } from './components/WorkspaceScope';
+import { normalizeWorkspaceScope, scopeWithPrimary, type WorkspaceScope } from './workspace-scope.mjs';
+import './publish-layout.css';
+import { flushWorkspaceSavers } from './workspace-save';
+import { AccountsPage, ControllerPage, MaterialsPage, TasksPage, WorkNotificationCenter } from './pages/WorkControl';
+
+const primaryNavigation = [
+  { page: 'controller', label: '总控', icon: Sparkles },
+  { page: 'tasks', label: '任务', icon: ListTodo },
+  { page: 'accounts', label: '账号', icon: UsersRound },
+  { page: 'materials', label: '资料', icon: BookOpen },
+] as const;
 
 const navigation = [
   { page: 'inspiration', label: '灵感 Agent', icon: Sparkles },
@@ -45,9 +57,13 @@ function LocalUserLogout({ user, disabled, running, onLogout }: { user?: string;
   const saving = appearance?.saving;
   return <button className="text-button local-user-button" disabled={disabled || saving} title={saving ? '正在保存外观设置，请稍候再退出' : running ? '请等待后台任务完成再退出用户' : undefined} onClick={() => { if (!saving) void onLogout?.(); }} aria-label="退出当前用户"><span>{user}</span> · 退出</button>;
 }
-function initialPage(): Page { return location.hash ? readWorkspaceRoute(location.hash).page : 'inspiration'; }
+function initialPage(): Page { return location.hash ? readWorkspaceRoute(location.hash).page : 'controller'; }
 function WorkspacePage({ page, search }: { page: Page; search: string }) {
   switch (page) {
+    case 'controller': return <ControllerPage/>;
+    case 'tasks': return <TasksPage/>;
+    case 'accounts': return <AccountsPage/>;
+    case 'materials': return <MaterialsPage/>;
     case 'inspiration': return <InspirationAgent/>;
     case 'xiaohongshu-agent': return <PlatformAgent platform="xiaohongshu"/>;
     case 'douyin-agent': return <PlatformAgent platform="douyin"/>;
@@ -71,7 +87,8 @@ function WorkspacePage({ page, search }: { page: Page; search: string }) {
 export default function App({ localUser, onLocalLogout }: { localUser?: string; onLocalLogout?: () => void | Promise<void> } = {}) {
   const [state, setState] = useState<State | null>(null); const [settings, setSettings] = useState<Settings | null>(null);
   const [page, setPage] = useState<Page>(initialPage); const [selectedId, setSelectedId] = useState(readWorkspaceRoute(location.hash).projectId || (LOCAL_DATA ? '' : localStorage.getItem('studio-project') || ''));
-  const [accountScope, setAccountScope] = useState('');
+  const [selectedScope, setSelectedScope] = useState<WorkspaceScope>({ projectIds: [], accountIds: [] });
+  const setAccountScope = useCallback((accountId: string) => setSelectedScope(current => ({ ...current, accountIds: accountId ? [accountId] : [] })), []);
   const selectedProjectRef = useRef(selectedId); selectedProjectRef.current = selectedId;
   const [targets, setTargets] = useState<Record<string, WorkspaceTarget>>({});
   const routeTarget = useRef(readWorkspaceRoute(location.hash));
@@ -92,7 +109,8 @@ export default function App({ localUser, onLocalLogout }: { localUser?: string; 
     const hash = () => {
       const route = readWorkspaceRoute(location.hash); routeTarget.current = route;
       setPage(route.page);
-      if (route.projectId) { setSelectedId(route.projectId); setAccountScope(''); }
+      if (route.projectId) { setSelectedId(route.projectId); setSelectedScope(current => scopeWithPrimary(current, route.projectId!)); }
+      if (route.target.assetId || route.target.publicationId) setAccountScope('');
       setTargets(current => ({ ...current, [workspaceKey(route.page, route.projectId || selectedProjectRef.current)]: route.target }));
     }; window.addEventListener('hashchange', hash);
     return () => { window.removeEventListener('studio-auth-required', auth); window.removeEventListener('hashchange', hash); };
@@ -114,8 +132,8 @@ export default function App({ localUser, onLocalLogout }: { localUser?: string; 
   };
   const go = (target: Page, projectId?: string, detail: WorkspaceTarget = {}) => {
     const destination = projectId || selectedId || state?.projects[0]?.id || '';
-    if (projectId && projectId !== selectedId || detail.assetId || detail.publicationId) setAccountScope('');
-    if (projectId) { setSelectedId(projectId); if (!LOCAL_DATA) localStorage.setItem('studio-project', projectId); }
+    if (detail.assetId || detail.publicationId) setAccountScope('');
+    if (projectId) { setSelectedId(projectId); setSelectedScope(current => scopeWithPrimary(current, projectId)); if (!LOCAL_DATA) localStorage.setItem('studio-project', projectId); }
     setTargets(current => ({ ...current, [workspaceKey(target, destination)]: detail }));
     setPage(target); history.pushState(null, '', writeWorkspaceRoute(target, destination, detail)); setSidebar(false); window.scrollTo({ top: 0 });
   };
@@ -124,6 +142,17 @@ export default function App({ localUser, onLocalLogout }: { localUser?: string; 
     window.addEventListener('keydown', help); return () => window.removeEventListener('keydown', help);
   }, []);
   const project = state?.projects.find(p => p.id === selectedId) || state?.projects[0];
+  const scope = normalizeWorkspaceScope(selectedScope, state?.projects.map(item => item.id) || [], state?.accounts.map(item => item.id) || [], project?.id || '');
+  // Old pages retain their single-account interface; multi-account readers use scope.
+  const accountScope = scope.accountIds.length === 1 ? scope.accountIds[0] : '';
+  const setScope = (next: WorkspaceScope) => setSelectedScope(normalizeWorkspaceScope(next, state?.projects.map(item => item.id) || [], state?.accounts.map(item => item.id) || [], project?.id || ''));
+  useEffect(() => {
+    if (!state) return;
+    setSelectedScope(current => {
+      const next = normalizeWorkspaceScope(current, state.projects.map(item => item.id), state.accounts.map(item => item.id), project?.id || '');
+      return JSON.stringify(current) === JSON.stringify(next) ? current : next;
+    });
+  }, [state?.projects, state?.accounts, project?.id]);
   // Keep the current project stable when another member adds a project at the
   // front of the shared list; otherwise a refresh remounts open editing views.
   useEffect(() => { if (project && project.id !== selectedId) setSelectedId(project.id); }, [project?.id, selectedId]);
@@ -160,34 +189,35 @@ export default function App({ localUser, onLocalLogout }: { localUser?: string; 
   }, [settings?.team, state?.teamRevision, progressVersion, page, anyRunning, newProject, login, refresh]);
   if (login) return <div className="boot-screen login-screen"><div className="brand-mark"><Sprout size={30}/></div><h1>欢迎回到生长</h1><p>登录你的运营工作区</p><form onSubmit={e => { e.preventDefault(); void run(async () => { const result = await api<{ token: string }>('/login', 'POST', { password }); sessionStorage.setItem('studio-session', result.token); setPassword(''); setLogin(false); await refresh(); }); }}><label className="field"><span>工作区密码</span><input type="password" autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)}/></label><button className="button primary" disabled={busy}>登录工作区</button></form>{toast && <p className="error-text" role="alert">{toast.message}</p>}</div>;
   if (!state || !settings) return <div className="boot-screen"><div className="brand-mark"><Sprout size={32}/></div><h2>{bootError ? '暂时连接不上工作区' : '让好想法，慢慢生长'}</h2><p>{bootError || '正在打开你的运营工作台…'}</p>{bootError ? <button className="button primary" onClick={() => void refresh().catch(e => setBootError(e.message))}>重新连接</button> : <Loader2 className="spin"/>}</div>;
-  const pageLabel = ({ projects: '项目与账号', corpus: '项目文档', strategy: '内容计划', comments: '结果与复盘', analytics: '结果与复盘', planning: '运营经验', help: '使用指南' } as Record<string, string>)[page] || navigation.find(n => n.page === page)?.label || '连接与设置';
+  const pageLabel = ({ controller: '总控', tasks: '任务', accounts: '账号', materials: '资料', projects: '项目与账号', corpus: '项目文档', strategy: '内容计划', comments: '结果与复盘', analytics: '结果与复盘', planning: '运营经验', help: '使用指南' } as Record<string, string>)[page] || navigation.find(n => n.page === page)?.label || '连接与设置';
   const upcoming = state.projects.flatMap(p => p.publications).filter(p => ['scheduled', 'exported'].includes(p.status)).length;
   const taskOrigin = (taskPage: Page, taskProjectId: string, taskProjectName: string, detail: WorkspaceTarget) => {
     const source = state.projects.find(item => item.id === taskProjectId)?.assets.find(item => item.id === detail.assetId);
     const accountId = source?.contentBrief?.accountId || detail.accountId;
     return { page: taskPage, projectId: taskProjectId, projectName: taskProjectName, target: structuredClone(detail), accountId, accountName: state.accounts.find(item => item.id === accountId)?.name };
   };
-  const baseContext = { state, project, settings, busy, go, target: targets[currentKey] || (routeTarget.current.page === page && (!routeTarget.current.projectId || routeTarget.current.projectId === viewId) ? routeTarget.current.target : {}), accountScope, setAccountScope, notify, run, mutate, refresh, startProject: () => setNewProject(true), runBackground: (label: string, work: (control: BackgroundControl) => Promise<unknown>) => background.run(taskOrigin(page, viewId, project?.brief.name || '工作区', targets[currentKey] || routeTarget.current.target), label, work) };
+  const baseContext = { state, project, settings, busy, go, target: targets[currentKey] || (routeTarget.current.page === page && (!routeTarget.current.projectId || routeTarget.current.projectId === viewId) ? routeTarget.current.target : {}), scope, setScope, accountScope, setAccountScope, notify, run, mutate, refresh, startProject: () => setNewProject(true), runBackground: (label: string, work: (control: BackgroundControl) => Promise<unknown>) => background.run(taskOrigin(page, viewId, project?.brief.name || '工作区', targets[currentKey] || routeTarget.current.target), label, work) };
   const views = [...new Map([...background.tasks.filter(task => task.retained || background.active(task.status)).map(task => ({ page: task.page, projectId: task.projectId, key: task.workspaceKey })), { page, projectId: viewId, key: currentKey }].map(view => [view.key, view])).values()];
   return <AppearanceProvider persisted={state.appearance} save={value => mutate<AppearancePreferences>('/appearance', 'PUT', value)}><Context.Provider value={baseContext}>
     <div className="app-shell feishu-workspace">
       {sidebar && <button className="sidebar-scrim" aria-label="关闭导航" onClick={() => setSidebar(false)}/>}
       <aside className={`sidebar ${sidebar ? 'open' : ''}`} onKeyDown={event => { if (event.key === 'Escape') setSidebar(false); }}>
         <button className="icon-button sidebar-close" aria-label="收起导航" onClick={() => setSidebar(false)}><X size={20}/></button>
-        <button className="brand" onClick={() => go('inspiration')}><span className="brand-mark"><Sprout size={27}/></span><span><strong>生长<span className="brand-dot">.</span></strong><small>SHENGZHANG STUDIO · v2</small></span></button>
+        <button className="brand" onClick={() => go('controller')}><span className="brand-mark"><Sprout size={27}/></span><span><strong>生长<span className="brand-dot">.</span></strong><small>SHENGZHANG STUDIO · v2</small></span></button>
         <div className="workspace-switch"><span className="workspace-avatar">{settings.team ? '团' : localUser?.slice(0, 1) || '我'}</span><div><b>{settings.team?.workspaceName || (localUser ? `${localUser}的工作区` : '我的工作空间')}</b><small>{settings.team ? `${localUser} · ${TEAM_ROLES[settings.team.role]}` : LOCAL_DATA ? '独立用户 · 浏览器本地保存' : localUser ? '独立用户 · 电脑本地加密' : '个人创作 · MVP'}</small></div></div>
-        <nav className="workspace-navigation" aria-label="主导航">{navigationGroups.map(group => <div className="navigation-group" key={group.label}><div className="nav-caption">{group.label}</div>{navigation.filter(item => group.pages.includes(item.page)).map(({ page: target, label, icon: Icon }) => <button key={target} className={`nav-item ${page === target ? 'active' : ''}`} onClick={() => { setSearch(''); go(target); }} aria-current={page === target ? 'page' : undefined}><Icon size={19}/><span>{label}</span>{target === 'publish' && upcoming > 0 && <span className="nav-count">{upcoming}</span>}</button>)}</div>)}</nav>
+        <WorkspaceScopePicker projects={state.projects} accounts={state.accounts} primaryProjectId={viewId} scope={scope} onChange={setScope} onEditProject={id => go(page, id)} onManage={() => go('projects')}/>
+        <nav className="workspace-navigation" aria-label="主导航"><div className="work-primary-navigation">{primaryNavigation.map(({ page: destination, label, icon: Icon }) => <button className={`nav-item ${page === destination ? 'active' : ''}`} key={destination} aria-current={page === destination ? 'page' : undefined} onClick={() => { setSearch(''); go(destination); }}><Icon size={19}/><span>{label}</span></button>)}</div><details className="work-legacy-navigation" open={!primaryNavigation.some(item => item.page === page) && page !== 'settings'}><summary>原有工作区与交付入口</summary>{navigationGroups.map(group => <div className="navigation-group" key={group.label}><div className="nav-caption">{group.label}</div>{navigation.filter(item => group.pages.includes(item.page)).map(({ page: destination, label, icon: Icon }) => <button key={destination} className={`nav-item ${page === destination ? 'active' : ''}`} onClick={() => { setSearch(''); go(destination); }} aria-current={page === destination ? 'page' : undefined}><Icon size={19}/><span>{label}</span>{destination === 'publish' && upcoming > 0 && <span className="nav-count">{upcoming}</span>}</button>)}</div>)}</details></nav>
         <div className="sidebar-bottom"><button className={`nav-item ${page === 'projects' ? 'active' : ''}`} onClick={() => go('projects')}><FolderOpen size={19}/><span>项目与账号</span></button><button className="nav-item platform-accounts-entry" onClick={() => { setSearch(''); openPublishingSettings(go); }}><UsersRound size={19}/><span>账号连接与身份</span><span className="nav-count">{state.accounts.length}</span></button><button className={`nav-item ${page === 'help' ? 'active' : ''}`} onClick={() => go('help')} aria-current={page === 'help' ? 'page' : undefined}><CircleHelp size={19}/><span>使用指南</span><span className="nav-ai">F1</span></button><button className={`nav-item ${page === 'settings' ? 'active' : ''}`} onClick={() => go('settings')}><Settings2 size={19}/><span>连接与设置</span></button><div className="sidebar-footer"><span className="dot"/>{settings.team ? '团队工作区' : '本地工作区'}<span>v{settings.version}</span></div></div>
       </aside>
       <div className="main-shell">
-        <header className="topbar"><div className="row gap-12"><button className="icon-button mobile-menu" aria-label="打开导航" onClick={() => setSidebar(true)}><Menu size={22}/></button><span className="breadcrumb">创作空间 <span>/</span> <b>{pageLabel}</b></span></div><div className="top-actions"><BackgroundTasks tasks={background.tasks} onDismiss={background.dismiss} onPause={background.pause} onContinue={background.continueTask} muted={background.muted} onToggleMuted={background.toggleMuted} serial={IS_WEB} onOpen={task => { background.resume(task); go(task.page, task.projectId, task.target || targets[task.workspaceKey] || {}); }}/><label className="searchbox"><Search size={16}/><input aria-label="搜索项目" placeholder="搜索项目…" value={search} onChange={e => { setSearch(e.target.value); if (page !== 'projects') go('projects'); }}/><kbd>⌕</kbd></label><button className="icon-button help-button" aria-label="打开使用指南" title="使用指南 · F1" onClick={() => go('help')}><CircleHelp size={19}/></button><button className="icon-button bell-button" aria-label={`待发布计划 ${upcoming} 条`} onClick={() => go('publish')}><Bell size={19}/>{upcoming > 0 && <span/>}</button><span className="user-avatar" title={localUser || '当前工作区'}>{localUser?.slice(0, 1) || '我'}</span></div></header>
+        <header className="topbar"><div className="row gap-12"><button className="icon-button mobile-menu" aria-label="打开导航" onClick={() => setSidebar(true)}><Menu size={22}/></button><span className="breadcrumb">创作空间 <span>/</span> <b>{pageLabel}</b></span></div><div className="top-actions"><WorkNotificationCenter/><details className="work-legacy-progress"><summary>旧版任务</summary><BackgroundTasks tasks={background.tasks} onDismiss={background.dismiss} onPause={background.pause} onContinue={background.continueTask} muted={background.muted} onToggleMuted={background.toggleMuted} serial={IS_WEB} onOpen={task => { background.resume(task); go(task.page, task.projectId, task.target || targets[task.workspaceKey] || {}); }}/></details><label className="searchbox"><Search size={16}/><input aria-label="搜索项目" placeholder="搜索项目…" value={search} onChange={e => { setSearch(e.target.value); if (page !== 'projects') go('projects'); }}/><kbd>⌕</kbd></label><button className="icon-button help-button" aria-label="打开使用指南" title="使用指南 · F1" onClick={() => go('help')}><CircleHelp size={19}/></button><button className="icon-button bell-button" aria-label={`待发布计划 ${upcoming} 条`} onClick={() => go('publish')}><Bell size={19}/>{upcoming > 0 && <span/>}</button><span className="user-avatar" title={localUser || '当前工作区'}>{localUser?.slice(0, 1) || '我'}</span></div></header>
         <main>
-          {IS_STATIC && <div className="static-notice"><Leaf size={16}/><span>静态体验版 · 当前数据仅在此浏览器中加密保存。AI 生成与可选评论同步需本地完整版；发布请导出后手动完成。</span><a className="text-button green" href="https://github.com/JerryCoal/shengzhang-studio/releases/latest" target="_blank" rel="noreferrer">下载 Windows 完整版 ↗</a><LocalUserLogout user={localUser} disabled={busy || anyRunning} running={anyRunning} onLogout={onLocalLogout}/></div>}
-          {!IS_STATIC && localUser && <div className="static-notice"><Leaf size={16}/><span>{settings.team ? '团队模式 · 项目与素材保存在主机 · 主机需持续运行' : IS_WEB ? '联网网页版 · 数据仅在此浏览器加密保存 · 自动任务需保持网页打开' : 'Windows 完整版 · 本地加密保存 · 保持应用运行以执行后台任务'}</span><LocalUserLogout user={localUser} disabled={busy || anyRunning} running={anyRunning} onLogout={() => { if (!background.locked()) return run(async () => { await onLocalLogout?.(); }); }}/></div>}
+          {IS_STATIC && <div className="static-notice"><Leaf size={16}/><span>静态体验版 · 当前数据仅在此浏览器中加密保存。AI 生成与可选评论同步需本地完整版；发布请导出后手动完成。</span><a className="text-button green" href="https://github.com/JerryCoal/shengzhang-studio/releases/latest" target="_blank" rel="noreferrer">下载 Windows 完整版 ↗</a><LocalUserLogout user={localUser} disabled={busy || anyRunning} running={anyRunning} onLogout={() => run(async () => { await flushWorkspaceSavers(); await onLocalLogout?.(); })}/></div>}
+          {!IS_STATIC && localUser && <div className="static-notice"><Leaf size={16}/><span>{settings.team ? '团队模式 · 项目与素材保存在主机 · 主机需持续运行' : IS_WEB ? '联网网页版 · 数据仅在此浏览器加密保存 · 自动任务需保持网页打开' : 'Windows 完整版 · 本地加密保存 · 保持应用运行以执行后台任务'}</span><LocalUserLogout user={localUser} disabled={busy || anyRunning} running={anyRunning} onLogout={() => { if (!background.locked()) return run(async () => { await flushWorkspaceSavers(); await onLocalLogout?.(); }); }}/></div>}
           {settings.team && teamUpdate && <div className="team-update-notice" role="status"><span>团队工作区有新内容。当前输入已保留，请完成或保存后刷新查看。</span><button className="button small" disabled={busy || anyRunning || newProject} onClick={() => { if (document.querySelector('dialog[open]')) notify('请先保存或关闭当前编辑窗口，再刷新团队内容。'); else void run(refresh); }}>刷新团队内容</button></div>}
           {settings.team?.role === 'editor' && page === 'publish' && <p className="info-box">当前为创作者权限，可以预览和导出内容。修改发布计划、标记发布或直接投稿需要发布者或管理员权限。</p>}
-          {!['projects', 'settings', 'help'].includes(page) && state.projects.length > 0 && <div className="project-context"><span className="project-context-icon"><FolderOpen size={16}/></span><label htmlFor="active-project">当前项目</label><select id="active-project" value={project?.id} onChange={e => go(page, e.target.value)}>{state.projects.map(p => <option key={p.id} value={p.id}>{p.brief.name}{p.sample ? '（示例）' : ''}</option>)}</select><span className="context-separator"/><span className="muted">{project?.brief.brand}</span><label htmlFor="account-scope">账号范围</label><select id="account-scope" value={accountScope} onChange={e => setAccountScope(e.target.value)}><option value="">全部账号</option>{state.accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select><small className="muted">仅筛选查看范围</small></div>}
-          <details className="workflow-help"><summary>页面帮助</summary><PracticeCoach page={page}/><PageHelp page={page}/></details>
+          {state.projects.length > 0 && <WorkspaceScopeSummary projects={state.projects} accounts={state.accounts} primaryProjectId={viewId} scope={scope} onOpen={() => { setSidebar(true); const picker = document.querySelector('.workspace-scope-picker'); picker?.querySelectorAll('details').forEach(item => { item.open = true; }); picker?.scrollIntoView({ block: 'nearest' }); }}/>} 
+          {!primaryNavigation.some(item => item.page === page) && <details className="workflow-help"><summary>页面帮助</summary><PracticeCoach page={page}/><PageHelp page={page}/></details>}
           {page === 'settings' && anyRunning && <p className="info-box">后台任务正在使用当前连接配置，完成后即可修改连接设置。外观与阅读选项仍可即时调整。</p>}
           {views.map(view => {
             const visible = view.key === currentKey;
@@ -197,14 +227,18 @@ export default function App({ localUser, onLocalLogout }: { localUser?: string; 
             const locked = busy || (view.page === 'settings' ? anyRunning : projectLocked);
             const minimized = background.minimized.includes(view.key);
             const viewTasks = background.tasks.filter(task => task.workspaceKey === view.key && task.retained);
+            const currentTask = viewTasks.at(-1);
             const context = { ...baseContext, target: view.key === currentKey ? baseContext.target : targets[view.key] || {}, project: origin, busy: locked, taskPending, dialogsVisible: visible && !minimized,
+              backgroundTask: currentTask,
+              pauseBackground: currentTask ? () => background.pause(currentTask.id) : undefined,
+              continueBackground: currentTask ? () => background.continueTask(currentTask.id) : undefined,
               minimizeTask: () => background.minimize(view.key),
               restoreDialogs: () => background.restoreDialogs(view.key),
               run: (work: () => Promise<unknown>) => {
                 if (background.locked(view.page === 'settings' ? undefined : view.projectId, view.page === 'settings' ? undefined : view.page)) { notify('当前 Agent 仍在处理，可以先切换到其他 Agent 继续工作。'); return Promise.resolve(); }
                 return run(work);
               },
-              runBackground: (label: string, work: (control: BackgroundControl) => Promise<unknown>) => background.run(taskOrigin(view.page, view.projectId, origin?.brief.name || '工作区', view.key === currentKey ? baseContext.target : targets[view.key] || {}), label, work),
+              runBackground: (label: string, work: (control: BackgroundControl) => Promise<unknown>, frozenTarget?: WorkspaceTarget) => background.run(taskOrigin(view.page, view.projectId, origin?.brief.name || '工作区', frozenTarget || (view.key === currentKey ? baseContext.target : targets[view.key] || {})), label, work),
             };
             return <Context.Provider key={view.key} value={context}><div hidden={!visible} className="workspace-view">
               {projectLocked && <div className="background-work-notice" role="status"><Loader2 size={16} className="spin"/><span>此 Agent 正在处理，可切换其他 Agent 继续工作；结果保留原项目与账号归属。</span>{taskPending && !minimized && <button className="button small" onClick={() => background.minimize(view.key)}>收起窗口</button>}</div>}

@@ -11,17 +11,17 @@ import { providerLabel } from './model-provider';
 import { normalizeQwenKey, qwenConnection, qwenConnectionSchema, QWEN_CONNECTION_OPTIONS } from '../server/qwen-connection.mjs';
 import { resolveWebBackend, requestWebOperation, webCallbackUrl } from './web-connection';
 
-const defaults = (): WebPrivate => ({ credentials: {}, seedream: { ...defaultSeedream }, imageProvider: 'seedream', routes: { ...catalog.routes }, seedance: { region: 'volcengine', model: '', reservationUsd: 2, outputPriceUsd: 0 }, authorizations: [], verification: null });
+const defaults = (): WebPrivate => ({ credentials: {}, seedream: { ...defaultSeedream }, imageProvider: 'seedream', routes: { ...catalog.routes }, seedance: { watermark: false, region: 'volcengine', model: '', reservationUsd: 2, outputPriceUsd: 0 }, authorizations: [], verification: null });
 const privateOf = (state: State) => state.webPrivate || defaults();
 export const publicState = (state: State): State => { const copy = structuredClone(state); delete copy.webPrivate; return copy; };
 let onlineBusy = false;
 const pendingMessage = '有一项联网请求尚未确认。请核对服务商结果，再到设置页解除锁定；不会自动重复提交。';
 function settingsOf(state: State): Settings {
   const saved = privateOf(state), model = saved.routes.strategy;
-  const credential = (provider: TextProvider): Settings['credential'] => ({ supported: true, editable: true, local: true, configured: !!saved.credentials[provider], suffix: saved.credentials[provider]?.slice(-4) || '', source: saved.credentials[provider] ? 'vault' : 'none', protection: '浏览器 · 登录密码 AES-GCM 加密', problem: '' });
-  return { ...catalog, routes: saved.routes, model, ...catalog.models[model as keyof typeof catalog.models], authEnabled: true, version: '2.0.0 · 联网网页版', browserStorage: true,
+  const credential = (provider: Exclude<TextProvider, 'local-qwen'>): Settings['credential'] => ({ supported: true, editable: true, local: true, configured: !!saved.credentials[provider], suffix: saved.credentials[provider]?.slice(-4) || '', source: saved.credentials[provider] ? 'vault' : 'none', protection: '浏览器 · 登录密码 AES-GCM 加密', problem: '' });
+  return { ...catalog, routes: saved.routes, model, ...catalog.models[model as keyof typeof catalog.models], authEnabled: true, version: '2.1.0 · 联网网页版', browserStorage: true,
     openaiConfigured: !!saved.credentials.openai, verification: saved.verification, apiDiagnostic: saved.apiDiagnostic,
-    providers: { glm: { configured: !!saved.credentials.glm, credential: credential('glm'), verification: saved.glmVerification || null, apiDiagnostic: saved.glmDiagnostic }, qwen: { configured: !!saved.credentials.qwen, credential: credential('qwen'), connection: qwenConnection(saved.qwenConnection || state.qwenConnection), connectionOptions: QWEN_CONNECTION_OPTIONS.map(({ id, label, requiresWorkspace }) => ({ id, label, requiresWorkspace: !!requiresWorkspace })), verification: saved.qwenVerification || null, apiDiagnostic: saved.qwenDiagnostic }, openai: { configured: !!saved.credentials.openai, credential: credential('openai'), verification: saved.verification, apiDiagnostic: saved.apiDiagnostic }, deepseek: { configured: !!saved.credentials.deepseek, credential: credential('deepseek'), verification: saved.deepseekVerification || null, apiDiagnostic: saved.deepseekDiagnostic } },
+    providers: { 'local-qwen': { configured: false, verification: null, credential: { supported: false, editable: false, local: false, configured: false, suffix: '', source: 'none', protection: '', problem: '本地 Qwen 请使用 Windows 完整版或团队主机；网页中转不访问内网。' } }, glm: { configured: !!saved.credentials.glm, credential: credential('glm'), verification: saved.glmVerification || null, apiDiagnostic: saved.glmDiagnostic }, qwen: { configured: !!saved.credentials.qwen, credential: credential('qwen'), connection: qwenConnection(saved.qwenConnection || state.qwenConnection), connectionOptions: QWEN_CONNECTION_OPTIONS.map(({ id, label, requiresWorkspace }) => ({ id, label, requiresWorkspace: !!requiresWorkspace })), verification: saved.qwenVerification || null, apiDiagnostic: saved.qwenDiagnostic }, openai: { configured: !!saved.credentials.openai, credential: credential('openai'), verification: saved.verification, apiDiagnostic: saved.apiDiagnostic }, deepseek: { configured: !!saved.credentials.deepseek, credential: credential('deepseek'), verification: saved.deepseekVerification || null, apiDiagnostic: saved.deepseekDiagnostic } },
     pendingWebRequest: saved.pending, recoveredWebResults: saved.recovery?.length || 0,
     credential: { supported: true, editable: true, local: true, configured: !!saved.credentials.openai, suffix: saved.credentials.openai?.slice(-4) || '', source: saved.credentials.openai ? 'vault' : 'none', protection: '浏览器 · 登录密码 AES-GCM 加密', problem: '' },
   } as Settings;
@@ -136,6 +136,7 @@ async function relay(path: string, method: string, body: unknown, projectId?: st
 }
 
 export async function webAPI<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
+  if (path.startsWith('/settings/providers/local-qwen/') || path === '/settings/models' && method === 'PUT' && Object.values((body || {}) as object).includes('local-qwen')) throw new Error('本地 Qwen 仅支持 Windows 完整版或团队主机，独立网页中转不能访问内网模型。');
   if (path === '/creative-skills/default' && method !== 'GET') throw new Error('默认 Skills 编辑目前支持 Windows 版和团队版，请在那里保存修改。');
   if (path === '/creative-skills' && method === 'GET') {
     const catalog = await localAPI<Record<string, unknown>>(path, method, body);

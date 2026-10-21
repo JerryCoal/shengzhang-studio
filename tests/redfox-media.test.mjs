@@ -45,7 +45,7 @@ test('Redfox cover preserves candidate approval and Skills; tracks CNY separatel
   assert.equal(f.asset('image').aiCover.provider, 'redfox'); assert.equal(f.p().usage.length, 0);
   assert.equal(f.store.get().redfoxUsage[0].amountCny, 1);
   assert.match(f.calls[0].body.prompt, /ONLY_COVER_RULE/); assert.deepEqual(f.calls[0].body.image, [png]);
-  assert.equal(f.calls[0].body.size, '1728x2304'); assert.equal(f.calls[0].body.watermark, true);
+  assert.equal(f.calls[0].body.size, '1728x2304'); assert.equal(f.calls[0].body.watermark, false);
   assert.equal((await f.cover()).status, 409);
   f.preferences.saveRedfox({ mediaEnabled: false }); // Existing tasks still finish using their original provider.
   f.app.locals.integrations.start(); await f.app.locals.integrations.tick();

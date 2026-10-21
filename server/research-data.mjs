@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { COMMON_WORDS } from './trends.mjs';
 import { RESEARCH_PLATFORMS, TOPIC_SORTS } from './topic-performance.mjs';
+import { researchImageEvidence } from './research-image-evidence.mjs';
 
 export const RESEARCH_WEEK = 7 * 86400000;
 export const RESEARCH_MAX_REFERENCES = 80;
@@ -166,7 +167,8 @@ export function cleanReferences(raw, { keywords = [], blockTerms = [], genericTe
     if (urls.has(url) || titles.has(titleKey)) { excluded.duplicate++; continue; }
     urls.add(url); titles.add(titleKey);
     const collected = sourceDate(item.collectedAt), collectedAt = new Date(!collected.error && collected.time <= now && collected.time >= date.time ? collected.time : now).toISOString();
-    references.push({ id: stableId(url), kind: item.kind, ...(noteType ? { noteType } : {}), title: cut(title, 180), url, text: cut(text, RESEARCH_MAX_TEXT), publishedAt: new Date(date.time).toISOString(), collectedAt, dateBasis,
+    const imageEvidence = researchImageEvidence(item);
+    references.push({ id: stableId(url), kind: item.kind, ...(noteType ? { noteType } : {}), ...(imageEvidence ? { imageEvidence } : {}), title: cut(title, 180), url, text: cut(text, RESEARCH_MAX_TEXT), publishedAt: new Date(date.time).toISOString(), collectedAt, dateBasis,
       ...(typeof item.sourceAccountId === 'string' && /^[\w-]{1,100}$/u.test(item.sourceAccountId) ? { sourceAccountId: item.sourceAccountId, sourceAccountName: cut(plain(item.sourceAccountName), 80) } : {}),
       ...(item.provider === 'redfox' ? { provider:'redfox', externalId:cut(plain(item.externalId),100), dateNote:cut(plain(item.dateNote),250) } : {}),
       sourceName: cut(plain(item.sourceName) || new URL(url).hostname, 160), metrics: { ...Object.fromEntries(metricNames.map(name => [name, metric(item.metrics?.[name])])), ...(item.metrics && Object.hasOwn(item.metrics, 'views') ? { views: metric(item.metrics.views) } : {}) }, ...riskFor(all, dateBasis) });

@@ -1,0 +1,58 @@
+/* Keep content, account identity and actions in bounded lanes at every width. */
+body .feishu-workspace main:has(.workspace-view:not([hidden]) .publish-workspace) { max-width:1540px; margin-inline:0; }
+body .publish-workspace { width:100%; min-width:0; }
+body .publish-workspace > section.panel { padding:20px; margin-bottom:22px; }
+body .publish-workspace .workflow-task { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:16px; }
+body .publish-workspace .workflow-task-copy h3 { margin-top:7px; overflow-wrap:anywhere; }
+body .publish-workspace .workflow-task-actions { justify-content:flex-end; max-width:320px; min-width:0; }
+body .publish-workspace .workflow-task-actions .button { white-space:normal; }
+body .publish-workspace .publish-records { margin-top:24px; }
+body .publish-workspace .publish-records > .workflow-task-list > article.panel { padding:18px; }
+body .publish-workspace .publish-records > .workflow-task-list > article.panel > .workflow-task { border:0; padding:0; }
+body .publish-workspace .publish-records > .workflow-task-list > article.panel > details { border-top:1px solid var(--ui-border); margin-top:14px; padding-top:12px; }
+body .publish-workspace .tabbar { display:flex; flex-wrap:wrap; gap:20px; }
+body .publish-workspace .tabbar > button { padding:10px 0; font-size:13px; }
+body .publish-workspace .publish-records > .empty { display:grid; grid-template-columns:36px minmax(0,1fr); align-content:center; column-gap:12px; row-gap:4px; min-height:0; padding:20px; text-align:left; background:#fff; border:1px dashed var(--ui-border); border-radius:8px; }
+body .publish-workspace .publish-records > .empty .empty-icon { grid-row:1/3; width:36px; height:36px; margin:0; align-self:center; }
+body .publish-workspace .publish-records > .empty h3 { margin:0; font-size:14px; }
+body .publish-workspace .publish-records > .empty p { margin:0; max-width:none; font-size:12px; }
+body .publish-workspace :is(.page-title, .section-heading, .row, .publish-focus) { min-width:0; }
+body .publish-workspace .page-title { align-items:flex-start; flex-wrap:wrap; }
+body .publish-workspace .page-actions { flex-wrap:wrap; max-width:100%; }
+body .publish-workspace :is(input[type=checkbox], input[type=radio]) { width:16px; height:16px; min-height:16px; flex:0 0 16px; margin:3px 0 0; padding:0; }
+body .publish-workspace :is(.checkbox-row, .channel-options > label) { min-width:0; align-items:flex-start; }
+body .publish-workspace :is(.checkbox-row, .channel-options > label) > span { min-width:0; overflow-wrap:anywhere; }
+body .publish-workspace select { min-width:0; max-width:100%; height:auto; min-height:36px; padding:7px 30px 7px 10px; border:1px solid var(--ui-border); border-radius:6px; background-color:#fff; color:var(--ui-text); font-size:12px; }
+body .publish-workspace .ready-item { display:grid; grid-template-columns:58px minmax(0,1fr); align-items:start; gap:12px 16px; }
+body .publish-workspace .ready-copy { min-width:0; }
+body .publish-workspace .ready-actions { grid-column:2; display:flex; width:auto; max-width:none; min-width:0; flex-shrink:1; justify-content:flex-start; padding:0; }
+body .publish-workspace .ready-item:not(:has(.ready-thumb)) { grid-template-columns:minmax(0,1fr); }
+body .publish-workspace .ready-item:not(:has(.ready-thumb)) .ready-actions { grid-column:1; }
+body .publish-workspace .publication-card { grid-template-columns:72px minmax(0,1fr); gap:14px 18px; }
+body .publish-workspace .publication-actions { grid-column:2; width:auto; max-width:none; min-width:0; justify-content:flex-start; padding:0; }
+body .publish-workspace :is(.ready-actions, .publication-actions) .button { white-space:normal; max-width:100%; text-align:center; }
+body .publish-workspace :is(.publish-ready, .publishing-overview, .feishu-plan-panel) { min-width:0; }
+body .publish-workspace .publish-status-strip { gap:12px; }
+body .publish-workspace .publish-status-strip button { min-width:0; padding:16px; }
+@media (min-width:1500px) {
+  body .publish-workspace .ready-item { grid-template-columns:58px minmax(0,1fr) minmax(220px,38%); align-items:center; }
+  body .publish-workspace .ready-actions { grid-column:3; justify-content:flex-end; }
+  body .publish-workspace .ready-item:not(:has(.ready-thumb)) { grid-template-columns:minmax(0,1fr) minmax(220px,38%); }
+  body .publish-workspace .ready-item:not(:has(.ready-thumb)) .ready-actions { grid-column:2; }
+}
+@media (max-width:760px) {
+  body .publish-workspace > section.panel { padding:16px; }
+  body .publish-workspace .workflow-task { grid-template-columns:minmax(0,1fr); }
+  body .publish-workspace .workflow-task-actions { max-width:none; justify-content:flex-start; }
+  body .publish-workspace .publish-records > .empty { padding:16px; }
+  body .publish-workspace .ready-item { grid-template-columns:44px minmax(0,1fr); padding:12px; gap:10px; }
+  body .publish-workspace .ready-thumb { width:44px; height:58px; }
+  body .publish-workspace .ready-actions { grid-column:1/-1; }
+  body .publish-workspace .publication-card { grid-template-columns:52px minmax(0,1fr); padding:14px; gap:12px; }
+  body .publish-workspace .publication-actions { grid-column:1/-1; }
+  body .publish-workspace .publish-status-strip { gap:7px; }
+  body .publish-workspace .publish-status-strip button { padding:12px 8px; }
+  body .publish-workspace .publish-status-strip small { font-size:10px; }
+  body .publish-workspace .feishu-plan-options { grid-template-columns:minmax(0,1fr); gap:12px; }
+  body .publish-workspace :is(.publish-ready, .publishing-overview, .feishu-plan-panel) { padding:16px; }
+}

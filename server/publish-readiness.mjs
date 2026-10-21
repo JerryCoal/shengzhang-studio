@@ -45,7 +45,10 @@ export function assetPublishReadiness(asset) {
 // require an explicit choice instead of silently using the first account.
 export function publicationAccountChoice(asset, accounts) {
   const eligible = accounts.filter(account => account.platform === asset.channel);
-  const source = asset.creationTrace?.accounts?.find(account => account.platform === asset.channel);
+  const traced = asset.creationTrace?.accounts?.find(account => account.platform === asset.channel);
+  const boundId = asset.contentBrief?.accountId;
+  const bound = eligible.find(account => account.id === boundId);
+  const source = boundId ? { accountId: boundId, accountName: bound?.name || (traced?.accountId === boundId ? traced.accountName : '原创作账号') } : traced;
   const sourceAvailable = !!source && eligible.some(account => account.id === source.accountId);
   return {
     defaultAccountId: source ? sourceAvailable ? source.accountId : '' : eligible[0]?.id || '',

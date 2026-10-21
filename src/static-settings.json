@@ -10,6 +10,7 @@
     "analysis": "gpt-5.4-mini"
   },
   "models": {
+    "local-qwen": { "provider": "local-qwen", "label": "本地 Qwen · Ollama / vLLM", "inputPrice": 0, "outputPrice": 0, "priceNote": "不计云 API 费用；使用主机算力、电力和本地部署资源。", "description": "主机回环接口的自部署 Qwen，与百炼官方服务独立" },
     "glm-5.3": {
       "provider": "glm",
       "label": "GLM-5.3",

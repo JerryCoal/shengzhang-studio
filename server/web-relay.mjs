@@ -32,7 +32,7 @@ const envelopeSchema = z.object({
   path: z.string().max(350), method: z.enum(['GET', 'POST', 'PUT', 'DELETE']), body: z.unknown().optional(),
   state: stateSchema,
   credentials: z.object({ openai: z.string().max(512).optional(), deepseek: z.string().max(512).optional(), glm: z.string().max(512).optional(), qwen: z.string().max(4096).optional(), seedance: z.string().max(512).optional(), seedream: z.string().max(512).optional(), douyin: z.string().max(100000).optional() }).strict(),
-  routes: routesSchema,
+  routes: routesSchema.refine(routes => !Object.values(routes).includes('local-qwen'), '中转服务不支持本地模型'),
   qwenConnection: qwenConnectionSchema.optional(),
   seedance: z.unknown().optional(), seedream: z.unknown().optional(), imageProvider: z.enum(['openai', 'seedream']).optional(),
   authorizations: z.array(z.tuple([z.string().max(100), z.object({ accountId: identifier, expiresAt: z.number().finite(), redirectUri: z.string().url().max(2048) }).strict()])).max(10).default([]),
@@ -84,7 +84,7 @@ export function createWebRelay({ staticDirectory = resolve('web-dist'), publicOr
     const requestOrigin = req.get('Origin');
     if (requestOrigin && !allowedOrigins.includes(requestOrigin)) return res.status(403).json({ error: '请从网站的正式地址访问' });
     if (requestOrigin) { res.set('Access-Control-Allow-Origin', requestOrigin); res.vary('Origin'); }
-    if (req.path === '/api/health' && req.method === 'GET') return res.status(closing ? 503 : 200).json({ ok: !closing, mode: 'web-local', storage: 'browser-encrypted', serverStoresWorkspaces: false, asyncJobs: true, version: '2.0.0' });
+    if (req.path === '/api/health' && req.method === 'GET') return res.status(closing ? 503 : 200).json({ ok: !closing, mode: 'web-local', storage: 'browser-encrypted', serverStoresWorkspaces: false, asyncJobs: true, version: '2.1.0' });
     if (req.get('Host') !== origin.host) return res.status(403).json({ error: '请从网站的正式地址访问' });
     if (req.method === 'OPTIONS') { res.set({ 'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, X-Studio-Client, Authorization', 'Access-Control-Max-Age': '600' }); return res.sendStatus(204); }
     if (closing) return res.status(503).json({ error: '联网服务正在更新，请稍后重试' });
@@ -153,7 +153,7 @@ export function createWebRelay({ staticDirectory = resolve('web-dist'), publicOr
       if (input.seedream) preferences.saveSeedream(input.seedream);
       if (input.imageProvider) preferences.saveImageProvider(input.imageProvider);
       for (const [key, value] of input.authorizations) if (value.expiresAt > Date.now()) authorizations.set(key, value);
-      workspace = createApp(store, { ...workspaceOptions, apiKey: '', password: '', allowedOrigins,
+      workspace = createApp(store, { ...workspaceOptions, allowLocalModels: false, apiKey: '', password: '', allowedOrigins,
         authorizeCredentials: request => request === req, modelStore, integrationPreferences: preferences, authorizations,
         vault: memoryVault(input.credentials, 'openai'), deepseekVault: memoryVault(input.credentials, 'deepseek'), qwenVault: memoryVault(input.credentials, 'qwen'), glmVault: memoryVault(input.credentials, 'glm'), seedanceVault: memoryVault(input.credentials, 'seedance'), seedreamVault: memoryVault(input.credentials, 'seedream'), douyinVault: memoryVault(input.credentials, 'douyin'),
       });

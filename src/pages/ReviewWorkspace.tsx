@@ -6,15 +6,16 @@ import { CommentsPage } from './CommentsPage';
 import { KnowledgeActions, KnowledgeLibrary } from './KnowledgeLibrary';
 import { Evidence } from './Insights';
 import type { Insight } from '../types';
+import { scopeHasAccount } from '../workspace-scope.mjs';
 
 export function ReviewWorkspace({ initialTab = 'metrics' }: { initialTab?: string }) {
-  const context = useStudio(), { project, target, accountScope, go } = context;
+  const context = useStudio(), { project, target, accountScope, scope, go } = context;
   const [tab, setTab] = useState(target.tab || initialTab);
   const [publicationId, setPublicationId] = useState(target.publicationId || '');
   const [evidence, setEvidence] = useState<Insight | null>(null);
   useEffect(() => { setPublicationId(target.publicationId || ''); setTab(target.tab || initialTab); }, [project?.id, target.publicationId, target.tab, initialTab]);
   if (!project) return <NeedProject/>;
-  const publications = project.publications.filter(p => p.status === 'published' && (!accountScope || p.accountId === accountScope));
+  const publications = project.publications.filter(p => p.status === 'published' && (scope ? scopeHasAccount(scope, p.accountId) : !accountScope || p.accountId === accountScope));
   const selected = publications.find(p => p.id === publicationId);
   const works = selected ? [selected] : publications;
   const ids = new Set(works.map(p => p.id));
@@ -31,7 +32,7 @@ export function ReviewWorkspace({ initialTab = 'metrics' }: { initialTab?: strin
       if (['comments', 'analytics', 'planning'].includes(page)) go('comments', projectId || project.id, { ...detail, publicationId: detail.publicationId || selected?.id, tab: detail.tab || (page === 'analytics' ? 'metrics' : page === 'planning' ? 'experience' : 'comments') });
       else go(page, projectId, detail);
     } }}>
-      {tab === 'metrics' ? <AnalyticsPage key={selected?.id || accountScope || 'all'}/> : tab === 'comments' ? <CommentsPage key={selected?.id || accountScope || 'all'}/> : null}
+      {tab === 'metrics' ? <AnalyticsPage key={selected?.id || scope?.accountIds.join('|') || accountScope || 'all'}/> : tab === 'comments' ? <CommentsPage key={selected?.id || scope?.accountIds.join('|') || accountScope || 'all'}/> : null}
     </Context.Provider>
     {source && tab !== 'experience' && <section className="panel"><h3>把这次观察留给下一篇</h3><p className="small-note">核对并补充具体改进后保存。累计指标只是观察依据，不直接证明效果原因。</p><KnowledgeActions source={source} actions={['experience']}/></section>}
     {tab === 'experience' && <>

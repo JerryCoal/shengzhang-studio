@@ -89,7 +89,7 @@ export function createRedfoxMedia(store, config, helpers, preferences) {
         if (brief.type === 'nurture' && p.imageData) validateSceneReference(p.imageData);
         const references = p.imageData ? [p.imageData] : []; validateSeedreamReferences(references);
         const recipe = recipeOf(state, p, a, 'cover', input), id = d.id();
-        const watermark = input.watermark ?? preferences.get().seedream?.watermark ?? true;
+        const watermark = input.watermark ?? preferences.get().seedream?.watermark ?? false;
         a.aiCover = { id, provider: 'redfox', phase: 'generating', assetRevision: a.revision, model: IMAGE_MODEL, size: SEEDREAM_COVER_SIZE, watermarkRequested: watermark, input, ...recipe, initiatedBy: actor(), createdAt: d.now(), error: '', failures: 0 };
         return { id, references, prompt: recipe.prompt, watermark };
       });
@@ -113,7 +113,7 @@ export function createRedfoxMedia(store, config, helpers, preferences) {
         const references = [p.imageData, ...(input.role === 'last_frame' ? [first.mediaData] : [])].filter(Boolean); validateSeedreamReferences(references);
         const recipe = recipeOf(state, p, a, input.role, input);
         if (input.role === 'last_frame') assertSameCreationAccount(first.recipe?.accountContext, recipe.accountContext);
-        const watermark = input.watermark ?? preferences.get().seedream?.watermark ?? true;
+        const watermark = input.watermark ?? preferences.get().seedream?.watermark ?? false;
         const frameJob = { role: input.role, prompt: input.prompt, recipe, watermarkRequested: watermark, initiatedBy: actor() };
         a.aiProduction = { ...current, phase: 'generating-frame', frameProvider: 'redfox', frameModel: IMAGE_MODEL, frameInitiatedBy: actor(), frameJob, error: '', failures: 0 };
         delete a.aiProduction.frameTaskId;

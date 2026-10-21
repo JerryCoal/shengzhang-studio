@@ -23,6 +23,7 @@ export function createTeamStore(base) {
     for (const preferences of Object.values(state.teamPreferences || {})) for (const job of preferences.newBriefImports || []) if (job.status === 'running') Object.assign(job, { status: 'uncertain', finishedAt: new Date().toISOString(), error: '主机上次运行中断，已保留预留费用，请核对账单后重试。', note: '运行中断，费用待核对；未自动重试' });
   });
   return {
+    work: base.work,
     get: () => projectView(base.get(), currentActor()),
     mutate(callback) {
       const actor = currentActor();

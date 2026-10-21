@@ -17,8 +17,8 @@ import { currentActor, runWithActor } from './request-actor.mjs';
 import { createRedfoxMedia } from './redfox-media.mjs';
 
 export const SEEDANCE_HOSTS = { volcengine: 'https://ark.cn-beijing.volces.com/api/v3', byteplus: 'https://ark.ap-southeast.bytepluses.com/api/v3' };
-export const seedanceSettingsSchema = z.object({ region: z.enum(['volcengine', 'byteplus']), model: z.string().trim().min(3).max(120).regex(/^[a-zA-Z0-9_-]+$/), reservationUsd: z.number().min(0.1).max(100), outputPriceUsd: z.number().min(0).max(1000) }).strict();
-export const defaultSeedance = { region: 'volcengine', model: '', reservationUsd: 2, outputPriceUsd: 0 };
+export const seedanceSettingsSchema = z.object({ region: z.enum(['volcengine', 'byteplus']), model: z.string().trim().min(3).max(120).regex(/^[a-zA-Z0-9_-]+$/), reservationUsd: z.number().min(0.1).max(100), outputPriceUsd: z.number().min(0).max(1000), watermark: z.boolean().default(false) }).strict();
+export const defaultSeedance = { region: 'volcengine', model: '', reservationUsd: 2, outputPriceUsd: 0, watermark: false };
 const working = ['generating-frame', 'submitting-video', 'generating-video'];
 const assetIn = (p, assetId) => { const a = p.assets.find(a => a.id === assetId); d.assert(a, '内容不存在', 404); return a; };
 function assertSameCreationAccount(previous, current) {
@@ -134,7 +134,7 @@ export function mountMediaGeneration(app, store, config, { project, activeJobs }
   app.post('/api/projects/:id/assets/:assetId/seedance', async (req, res) => {
     local(req);
     if (config.redfox?.enabled('media')) return redfox.video(req, res);
-    const input = z.object({ productionId: z.string(), expectedRevision: z.number().int(), prompt: z.string().trim().min(1).max(4000), duration: z.union([z.literal(5), z.literal(8), z.literal(12)]), generateAudio: z.boolean(), confirmed: z.literal(true) }).strict().parse(req.body);
+    const input = z.object({ productionId: z.string(), expectedRevision: z.number().int(), prompt: z.string().trim().min(1).max(4000), duration: z.union([z.literal(5), z.literal(8), z.literal(12)]), generateAudio: z.boolean(), watermark: z.boolean().optional(), confirmed: z.literal(true) }).strict().parse(req.body);
     const settings = seedanceSettingsSchema.parse(preferences.get().seedance);
     const releaseTask = acquireTaskResource(activeJobs, req.params.id, `asset:${req.params.assetId}`);
     let key, recipe, job;
@@ -153,13 +153,13 @@ export function mountMediaGeneration(app, store, config, { project, activeJobs }
       d.assert(['frames', 'failed'].includes(g.phase) && !g.taskId, '任务已经提交或需要先核对结果，请勿重复生成', 409);
       d.assert(g.frames.length === 2 && g.frames.some(f => f.role === 'first_frame') && g.frames.some(f => f.role === 'last_frame'), '请先完成首尾两张关键帧');
       const usageId = reserve(p, settings.model, settings.reservationUsd, 'video', recipe);
-      Object.assign(g, { phase: 'submitting-video', prompt: input.prompt, recipe, duration: input.duration, generateAudio: input.generateAudio, videoUsageId: usageId, provider: settings.region, model: settings.model, outputPriceUsd: settings.outputPriceUsd, error: '', submittedAt: d.now(), failures: 0, initiatedBy: currentActor() ? { ...currentActor() } : null });
+      Object.assign(g, { phase: 'submitting-video', prompt: input.prompt, recipe, duration: input.duration, generateAudio: input.generateAudio, watermarkRequested: input.watermark ?? settings.watermark, videoUsageId: usageId, provider: settings.region, model: settings.model, outputPriceUsd: settings.outputPriceUsd, error: '', submittedAt: d.now(), failures: 0, initiatedBy: currentActor() ? { ...currentActor() } : null });
       return { projectId: p.id, assetId: a.id, productionId: g.id, frames: g.frames, usageId };
     });
     } finally { releaseTask(); }
     background(async () => {
       try {
-        const value = await requestJSON(`${SEEDANCE_HOSTS[settings.region]}/contents/generations/tasks`, { method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: settings.model, content: [{ type: 'text', text: recipe.prompt }, ...job.frames.map(f => ({ type: 'image_url', image_url: { url: f.mediaData }, role: f.role }))], duration: input.duration, ratio: 'adaptive', resolution: '720p', generate_audio: input.generateAudio, watermark: true }) }, fetcher, 'Seedance');
+        const value = await requestJSON(`${SEEDANCE_HOSTS[settings.region]}/contents/generations/tasks`, { method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: settings.model, content: [{ type: 'text', text: recipe.prompt }, ...job.frames.map(f => ({ type: 'image_url', image_url: { url: f.mediaData }, role: f.role }))], duration: input.duration, ratio: 'adaptive', resolution: '720p', generate_audio: input.generateAudio, watermark: input.watermark ?? settings.watermark }) }, fetcher, 'Seedance');
         d.assert(typeof value.id === 'string' && /^[A-Za-z0-9_-]{1,160}$/.test(value.id), 'Seedance 未返回任务编号，请核对控制台后再操作', 502);
         update(job.projectId, job.assetId, (_p, _a, g) => { if (g?.id === job.productionId) Object.assign(g, { taskId: value.id, phase: 'generating-video', nextPollAt: Date.now() + 10000 }); });
       } catch (error) {

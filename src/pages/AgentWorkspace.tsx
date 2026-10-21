@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
-import { ArrowRight, BookOpen, Check, ChevronRight, CircleAlert, Clapperboard, Download, Flame, Instagram, Lightbulb, Loader2, Plus, Save, Settings2, Sparkles, WandSparkles, Youtube } from 'lucide-react';
+import { ArrowRight, BookOpen, Check, ChevronRight, CircleAlert, Clapperboard, Download, Instagram, Lightbulb, Loader2, Plus, Save, Settings2, Sparkles, WandSparkles, Youtube } from 'lucide-react';
 import { api, download, LOCAL_DATA } from '../api';
 import { Context, useStudio } from '../context';
 import { Field, NeedProject } from '../components';
 import type { Asset, Page, Strategy } from '../types';
 import { creativeSkillWorkflowIds } from '../../server/creative-skills.mjs';
-import { KnowledgeLibrary, KnowledgePicker } from './KnowledgeLibrary';
-import { ResearchPanel } from './Research';
+import { KnowledgePicker } from './KnowledgeLibrary';
 import { StudioPage } from './ContentStudio';
 import { ReviewWorkspace } from './ReviewWorkspace';
-import { AIAction } from './AIAction';
+import { InspirationChatWork } from './InspirationChatWork';
 import { ExternalWorkDialog } from './ExternalWorkDialog';
 import { registerWorkspaceSaver } from '../workspace-save';
+import type { InspirationConversation as InspirationConversationState } from '../../server/inspiration-conversation.mjs';
+import { changeInspirationTarget } from '../inspiration-chat-state.mjs';
 import '../agent-workspace.css';
 
 export const PLATFORM_AGENTS = [
@@ -20,41 +21,53 @@ export const PLATFORM_AGENTS = [
   { platform: 'instagram', page: 'instagram-agent', name: 'Instagram', color: '#b34f9a', Icon: Instagram, description: '统一视觉气质，让图片、Reels 和账号语气相互呼应。', hint: '视觉、语气与社群互动' },
   { platform: 'youtube', page: 'youtube-agent', name: 'YouTube', color: '#dc514b', Icon: Youtube, description: '把选题发展成结构完整、可以持续追看的视频。', hint: '选题、叙事、分镜与封面' },
 ] as const;
-type AgentPlatform = typeof PLATFORM_AGENTS[number]['platform'];
+export type AgentPlatform = typeof PLATFORM_AGENTS[number]['platform'];
 type AgentIdea = Pick<Strategy, 'title' | 'core' | 'direction' | 'prompt'>;
-type AgentDraft = { requirement: string; platform: AgentPlatform; accountId: string; kind: 'image' | 'video'; knowledgeIds: string[]; experienceIds: string[]; referenceIds: string[]; skillIds: string[]; model: string; publishingNotes: string; idea?: AgentIdea; updatedAt?: string };
+export type AgentDraft = { requirement: string; platform: AgentPlatform; accountId: string; kind: 'image' | 'video'; knowledgeIds: string[]; experienceIds: string[]; referenceIds: string[]; skillIds: string[]; model: string; publishingNotes: string; idea?: AgentIdea; conversation?: InspirationConversationState; updatedAt?: string };
+export type AgentDraftForm = ReturnType<typeof useAgentDraft>;
 type DraftStore = { revision: number; drafts: Record<string, AgentDraft> };
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : '暂未保存，请重试';
+const currentSession = () => { try { return typeof sessionStorage === 'undefined' ? null : sessionStorage.getItem('studio-session'); } catch { return null; } };
 const toggle = (values: string[], value: string) => values.includes(value) ? values.filter(item => item !== value) : [...values, value];
-const fingerprint = (draft: AgentDraft) => JSON.stringify([draft.requirement || '', draft.platform || '', draft.accountId || '', draft.kind || 'image', draft.knowledgeIds || [], draft.experienceIds || [], draft.referenceIds || [], draft.skillIds || [], draft.model || '', draft.publishingNotes || '', draft.idea ? [draft.idea.title, draft.idea.core, draft.idea.direction, draft.idea.prompt] : null]);
+const fingerprint = (draft: AgentDraft) => JSON.stringify([draft.requirement || '', draft.platform || '', draft.accountId || '', draft.kind || 'image', draft.knowledgeIds || [], draft.experienceIds || [], draft.referenceIds || [], draft.skillIds || [], draft.model || '', draft.publishingNotes || '', draft.idea ? [draft.idea.title, draft.idea.core, draft.idea.direction, draft.idea.prompt] : null, draft.conversation || null]);
 const selectionOf = (draft: AgentDraft) => ({ platform: draft.platform, accountId: draft.accountId, model: draft.model, knowledgeIds: draft.knowledgeIds, experienceIds: draft.experienceIds, referenceIds: draft.referenceIds, skillIds: draft.skillIds, publishingNotes: draft.publishingNotes, ...(draft.idea ? { idea: draft.idea } : {}) });
 
 // Drafts use the encrypted, member-scoped store. Save operations are serialized
 // per editor so a delayed response cannot replace more recent typing.
 function useAgentDraft(agentId: string, platform: AgentPlatform) {
-  const { project, settings, target, notify } = useStudio();
+  const { project, settings, state, target, notify } = useStudio();
   const key = `${project?.id || ''}:${agentId}`;
   const initial = useRef<AgentDraft>({ requirement: '', platform, accountId: '', kind: platform === 'youtube' || platform === 'douyin' ? 'video' : 'image', knowledgeIds: [], experienceIds: [], referenceIds: [], skillIds: [], model: agentId === 'inspiration' ? settings.routes.strategy : agentId === 'analysis' ? settings.routes.analysis : settings.routes.copy, publishingNotes: '' });
   const [draft, setDraft] = useState(initial.current), [loaded, setLoaded] = useState(false), [saving, setSaving] = useState(false), [error, setError] = useState(''), [loadAttempt, setLoadAttempt] = useState(0);
   const latest = useRef(draft), saved = useRef(''), revision = useRef(0), mounted = useRef(true), ready = useRef(false), queue = useRef<Promise<void>>(Promise.resolve());
+  const session = useRef(currentSession());
+  const assertSession = () => { if (agentId === 'inspiration' && currentSession() !== session.current) throw new Error('登录身份已变化。原对话仍属于原用户，请重新打开灵感页。'); };
   latest.current = draft;
   const save = useCallback((keepalive = false) => {
     const operation = async () => {
       if (!ready.current || !project || fingerprint(latest.current) === saved.current) return;
+      assertSession();
       const snapshot = { ...latest.current }, snapshotKey = fingerprint(snapshot);
       if (mounted.current) { setSaving(true); setError(''); }
       try {
         let result: DraftStore | undefined;
         for (let attempt = 0; attempt < 3; attempt++) {
-          try { result = await api<DraftStore>('/agent-workspace', 'PUT', { expectedRevision: revision.current, key, draft: snapshot }, { keepalive }); break; }
+          try { assertSession(); result = await api<DraftStore>('/agent-workspace', 'PUT', { expectedRevision: revision.current, key, draft: snapshot }, { keepalive }); assertSession(); break; }
           catch (failure) {
+            assertSession();
             if (attempt === 2 || !/版本|冲突|revision|更新/i.test(errorMessage(failure))) throw failure;
-            const current = await api<DraftStore>('/agent-workspace');
+            assertSession(); const current = await api<DraftStore>('/agent-workspace'); assertSession();
             if (current.drafts[key] && fingerprint(current.drafts[key]) !== saved.current) throw new Error('此 Agent 的草稿已在另一窗口修改。当前输入已保留，请先复制输入再重新打开页面核对。');
             revision.current = current.revision;
           }
         }
-        if (result) { revision.current = result.revision; saved.current = snapshotKey; }
+        assertSession();
+        if (result) {
+          revision.current = result.revision;
+          const stored = { ...initial.current, ...result.drafts[key] };
+          saved.current = fingerprint(stored);
+          if (mounted.current && fingerprint(latest.current) === snapshotKey) { latest.current = stored; setDraft(stored); }
+        }
       } catch (failure) { if (mounted.current) setError(errorMessage(failure)); throw failure; }
       finally { if (mounted.current) setSaving(false); }
     };
@@ -66,7 +79,11 @@ function useAgentDraft(agentId: string, platform: AgentPlatform) {
     void api<DraftStore>('/agent-workspace').then(store => {
       if (!active) return;
       revision.current = store.revision;
-      const restored = { ...initial.current, ...store.drafts[key], ...(target.requirement ? { requirement: target.requirement } : {}), ...(target.accountId ? { accountId: target.accountId } : {}), ...(target.knowledgeIds ? { knowledgeIds: target.knowledgeIds } : {}) };
+      const base = { ...initial.current, ...store.drafts[key] };
+      const destination = target.accountId ? state.accounts.find(account => account.id === target.accountId) : undefined;
+      const changedInspiration = agentId === 'inspiration' && destination && destination.id !== base.accountId;
+      const scoped = changedInspiration && ['xiaohongshu', 'douyin', 'instagram', 'youtube'].includes(destination.platform) ? changeInspirationTarget(base, destination.platform as AgentPlatform, destination.id) : base;
+      const restored = { ...scoped, ...(target.requirement ? { requirement: target.requirement } : {}), ...(!changedInspiration && target.accountId ? { accountId: target.accountId } : {}), ...(!changedInspiration && target.knowledgeIds ? { knowledgeIds: target.knowledgeIds } : {}) };
       latest.current = restored; saved.current = store.drafts[key] ? fingerprint(store.drafts[key]) : fingerprint(initial.current); ready.current = true; setDraft(restored); setLoaded(true); setError('');
     }).catch(failure => { if (active) setError(errorMessage(failure)); });
     return () => { active = false; mounted.current = false; void save(true).catch(() => {}); };
@@ -79,8 +96,16 @@ function useAgentDraft(agentId: string, platform: AgentPlatform) {
     window.addEventListener('beforeunload', exit); document.addEventListener('visibilitychange', hidden);
     return () => { window.removeEventListener('beforeunload', exit); document.removeEventListener('visibilitychange', hidden); };
   }, [save]);
-  const update = (values: Partial<AgentDraft>) => setDraft(current => ({ ...current, ...values }));
-  return { draft, update, loaded, saving, error, save, retry: () => loaded ? void save().catch(() => {}) : setLoadAttempt(value => value + 1), dirty: fingerprint(draft) !== saved.current };
+  const update = (values: Partial<AgentDraft>) => { const next = { ...latest.current, ...values }; latest.current = next; setDraft(next); };
+  const reload = async () => {
+    await queue.current.catch(() => {}); assertSession();
+    const store = await api<DraftStore>('/agent-workspace'); assertSession();
+    if (!mounted.current) return;
+    const next = { ...initial.current, ...store.drafts[key] };
+    revision.current = store.revision; saved.current = fingerprint(next); latest.current = next;
+    setDraft(next); setError(''); return next;
+  };
+  return { draft, update, loaded, saving, error, save, reload, retry: () => loaded ? void save().catch(() => {}) : setLoadAttempt(value => value + 1), dirty: fingerprint(draft) !== saved.current };
 }
 
 function FlowSteps({ active }: { active: number }) {
@@ -179,38 +204,6 @@ export function InspirationAgent() {
   return <InspirationWork key={project.id}/>;
 }
 function InspirationWork() {
-  const { project, state, busy, mutate, run, notify, go } = useStudio();
-  const form = useAgentDraft('inspiration', 'xiaohongshu'), { draft, update } = form;
-  const [section, setSection] = useState('brief'), [researchSeed, setResearchSeed] = useState<{ keywords: string; platform: AgentPlatform } | null>(null);
-  const request = useRef({ fingerprint: '', id: crypto.randomUUID() });
-  if (!project) return null;
-  const locked = busy || !form.loaded;
-  const hotspotIntent = /热点|热帖|爆帖|爆款|趋势|hot\s?topic|trending/i.test(draft.requirement);
-  const accounts = state.accounts.filter(account => account.platform === draft.platform);
-  const selectedResearch = project.research?.analyses.filter(item => draft.referenceIds.includes(item.id) || project.research?.selectedIds.includes(item.id)) || [];
-  const startResearch = () => { setResearchSeed({ keywords: draft.requirement.replace(/帮我|分析一下|热点分析|热点帖子|热点|爆款|爆帖|请/g, '').trim().slice(0, 30) || project.brief.product.slice(0, 30), platform: draft.platform }); setSection('research'); };
-  async function handoff() {
-    if (!project) return;
-    await form.save();
-    const values = { ...selectionOf(draft), requirement: draft.requirement, kind: draft.kind, fromAgent: 'inspiration', skillIds: [], referenceIds: [...new Set([...draft.referenceIds, ...(project.research?.selectedIds || [])])] };
-    const valueKey = JSON.stringify(values); if (valueKey !== request.current.fingerprint) request.current = { fingerprint: valueKey, id: crypto.randomUUID() };
-    const response = await mutate<Asset>(`/projects/${project.id}/agent-handoffs`, 'POST', { ...values, requestId: request.current.id });
-    const destination = PLATFORM_AGENTS.find(agent => agent.platform === draft.platform)!;
-    notify(`资料包已交给${destination.name} Agent，可继续调整与制作`); go(destination.page, project.id, { assetId: response.result.id, tab: 'brief', accountId: draft.accountId });
-  }
-  return <div className="agent-workspace"><AgentHeader title="灵感 Agent" description="说说这次想做什么。把热点、项目资料和验证过的经验，变成下一篇的起点。" active={0} icon={Sparkles}/>
-    {LOCAL_DATA && <p className="info-box">浏览器版可保存需求、管理经验与交接草稿；热点读取与带账号资料的 Agent AI 生成请使用 Windows 完整版或团队版。</p>}
-    <div className="agent-platform-rail">{PLATFORM_AGENTS.map(({ platform, page, name, color, Icon, hint }) => <button key={platform} onClick={() => go(page, project.id)} style={{ '--agent-color': color } as CSSProperties}><span className="agent-platform-icon"><Icon size={19}/></span><span><b>{name} Agent</b><small>{hint}</small></span><ArrowRight size={15}/></button>)}</div>
-    <div className="agent-tabbar" role="tablist" aria-label="灵感工作区">{[['brief', '运营需求'], ['research', '热点与参考'], ['experience', '经验库']].map(([id, label]) => <button role="tab" aria-selected={section === id} key={id} onClick={() => setSection(id)}>{label}</button>)}<SavedState form={form}/></div>
-    <div hidden={section !== 'brief'}><div className="agent-composer-layout"><section className="panel agent-composer"><div className="agent-section-heading"><span className="agent-step-number">01</span><div><h2>这次，你想推动什么？</h2><p>明确受众、主题、目标与限制，Agent 会沿着你的方向展开。</p></div></div><textarea className="agent-main-input" aria-label="运营需求" rows={6} maxLength={4000} disabled={locked} value={draft.requirement} onChange={event => update({ requirement: event.target.value, idea: undefined })} placeholder="例如：为咖啡品牌的小红书账号策划一组通勤主题内容。先分析最近的同类热门帖子，沿用我选中的真实测评经验，语气轻松，重点展示便携和口感。"/>
-      <div className="agent-two-fields"><Field label="目标平台"><select value={draft.platform} disabled={locked} onChange={event => update({ platform: event.target.value as AgentPlatform, accountId: '', knowledgeIds: [], kind: ['youtube', 'douyin'].includes(event.target.value) ? 'video' : 'image' })}>{PLATFORM_AGENTS.map(agent => <option key={agent.platform} value={agent.platform}>{agent.name}</option>)}</select></Field><Field label="目标账号"><select value={draft.accountId} disabled={locked} onChange={event => update({ accountId: event.target.value, knowledgeIds: [] })}><option value="">先形成灵感，交接前再选择</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select></Field></div>
-      <ModelAndSkills draft={draft} update={update} workflow="strategy" disabled={locked}/>
-      {hotspotIntent && <div className="agent-intent"><Flame size={18}/><span>已识别热点研究需求。先选择读取账号、范围和来源，再确认采集与分析。</span><button className="button small" disabled={locked} onClick={startResearch}>进入热点研究 <ArrowRight size={14}/></button></div>}
-      <div className="agent-composer-footer"><span>草稿自动保存 · 生成前核对模型与费用</span><AIAction stage="strategy" title="生成灵感方案" description="根据本次需求、明确选中的经验和项目事实，生成可调整的内容方向。" path={`/projects/${project.id}/strategies`} body={{ mode: 'openai', stage: 'strategy', instruction: draft.requirement, agentInput: { ...selectionOf(draft), referenceIds: [...new Set([...draft.referenceIds, ...(project.research?.selectedIds || [])])] } }} modelOverride={draft.model} disabled={locked || LOCAL_DATA || !draft.requirement.trim()} onResult={result => { const value = result as Strategy; update({ idea: { title: value.title, core: value.core, direction: value.direction, prompt: value.prompt } }); }}/></div>
-    </section><aside className="panel agent-context-card"><div className="agent-section-heading"><span className="agent-step-number">02</span><div><h2>给灵感一点依据</h2><p>选中的经验优先，按账号保留适用范围。</p></div></div><SelectedExperience draft={draft} update={update} disabled={locked}/>{selectedResearch.length > 0 && <div className="agent-picked-research"><b>已确认的热点分析</b>{selectedResearch.map(item => <p key={item.id}><Check size={13}/>{item.title}</p>)}</div>}<button className="text-button" onClick={() => setSection('experience')}>管理资料与团队共享经验 <ArrowRight size={13}/></button></aside></div>
-    {draft.idea && <section className="panel agent-idea-result"><div className="agent-section-heading"><Sparkles size={20}/><div><h2>灵感方案已就绪</h2><p>调整后交给平台 Agent，继续写文案、补充素材与制作画面。</p></div><span className="agent-result-badge">待你确认</span></div><Field label="灵感标题"><input maxLength={200} value={draft.idea.title} onChange={event => update({ idea: { ...draft.idea!, title: event.target.value } })}/></Field><div className="agent-two-fields"><Field label="核心表达"><textarea rows={4} maxLength={2000} value={draft.idea.core} onChange={event => update({ idea: { ...draft.idea!, core: event.target.value } })}/></Field><Field label="内容方向"><textarea rows={4} maxLength={4000} value={draft.idea.direction} onChange={event => update({ idea: { ...draft.idea!, direction: event.target.value } })}/></Field></div><details><summary>展开创作提示</summary><Field label="创作提示"><textarea rows={5} maxLength={16000} value={draft.idea.prompt} onChange={event => update({ idea: { ...draft.idea!, prompt: event.target.value } })}/></Field></details></section>}
-    <section className="panel agent-handoff"><div><span className="agent-eyebrow">NEXT · 平台创作</span><h2>{draft.idea ? '带着这份灵感，开始制作' : '想法已经清晰？直接开始制作'}</h2><p>资料、经验与发布要求一起交接，每篇内容绑定独立账号。</p></div><div className="agent-handoff-options"><Field label="内容形式"><select disabled={locked} value={draft.kind} onChange={event => update({ kind: event.target.value as 'image' | 'video' })}><option value="image" disabled={draft.platform === 'youtube'}>图文</option><option value="video">视频</option></select></Field><Field label="发布要求（可选）"><input maxLength={2000} value={draft.publishingNotes} disabled={locked} onChange={event => update({ publishingNotes: event.target.value })} placeholder="期望发布时间、标签、审核重点…"/></Field><button className="button primary" disabled={locked || !draft.requirement.trim() || !accounts.some(account => account.id === draft.accountId)} onClick={() => void run(handoff)}>交给{PLATFORM_AGENTS.find(agent => agent.platform === draft.platform)?.name} Agent <ArrowRight size={16}/></button></div>{!draft.accountId && <p className="small-note">交接前请选择目标账号。{!accounts.length && <button className="text-button" onClick={() => go('projects')}>添加平台账号</button>}</p>}</section></div>
-    {section === 'research' && <div className="agent-research"><p className="agent-inline-note"><Flame size={16}/>读取范围和费用将在开始前确认。收藏或确认的分析可带回灵感需求继续创作。</p><ResearchPanel key={researchSeed ? `${researchSeed.platform}:${researchSeed.keywords}` : 'saved'} initialKeywords={researchSeed?.keywords} initialPlatform={researchSeed?.platform || draft.platform}/><button className="button primary" onClick={() => { update({ referenceIds: project.research?.selectedIds || [] }); setSection('brief'); }}>带回已确认的热点分析 <ArrowRight size={15}/></button></div>}
-    {section === 'experience' && <KnowledgeLibrary/>}
-  </div>;
+  const form = useAgentDraft('inspiration', 'xiaohongshu');
+  return <div className="agent-workspace"><FlowSteps active={0}/><InspirationChatWork form={form} platforms={PLATFORM_AGENTS} savedState={<SavedState form={form}/>} renderModels={(draft, disabled) => <ModelAndSkills draft={draft} update={form.update} workflow="strategy" disabled={disabled}/>} renderExperience={(draft, disabled) => <SelectedExperience draft={draft} update={form.update} disabled={disabled}/>} /></div>;
 }

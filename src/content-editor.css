@@ -25,7 +25,7 @@
 .content-step-panel { padding:28px; margin-bottom:18px; }
 .content-step-panel>.field { margin-bottom:14px; }
 .content-step-panel h3 { margin-top:0; }
-.content-step-panel textarea,.content-step-panel input { width:100%; }
+.content-step-panel textarea,.content-step-panel input:not([type=checkbox]):not([type=radio]) { width:100%; }
 .content-two-fields { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:15px 0; }
 .content-inline-tools { display:flex; gap:18px; flex-wrap:wrap; margin:6px 0 22px; }
 .content-fold { border:1px solid #e2e8e2; border-radius:10px; padding:14px 16px; margin:16px 0; }

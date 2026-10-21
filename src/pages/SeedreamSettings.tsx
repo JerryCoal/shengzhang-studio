@@ -10,11 +10,11 @@ import { VisibleWatermarkOption } from '../components/ImageWatermarkReview';
 
 export function SeedreamSettings({ value, changed, onDelete }: { value: Integrations; changed: () => Promise<void>; onDelete: () => void }) {
   const { run, busy, notify } = useStudio();
-  const [config, setConfig] = useState<Configuration>({ ...value.seedream, watermark: value.seedream.watermark ?? true }), [key, setKey] = useState('');
+  const [config, setConfig] = useState<Configuration>({ ...value.seedream, watermark: value.seedream.watermark ?? false }), [key, setKey] = useState('');
   const [showHelp, setShowHelp] = useState(false);
   const helpButton = useRef<HTMLButtonElement>(null);
   const closeHelp = () => { setShowHelp(false); requestAnimationFrame(() => helpButton.current?.focus()); };
-  useEffect(() => { const { family, model, reservationUsd, imagePriceUsd } = value.seedream; setConfig({ family, model, reservationUsd, imagePriceUsd, watermark: value.seedream.watermark ?? true }); }, [value.seedream]);
+  useEffect(() => { const { family, model, reservationUsd, imagePriceUsd } = value.seedream; setConfig({ family, model, reservationUsd, imagePriceUsd, watermark: value.seedream.watermark ?? false }); }, [value.seedream]);
   const editable = value.local && !busy;
   return <article className="service-card">
     <div className="service-title"><ImagePlus size={21}/><h3>Seedream 封面与关键帧</h3><Pill color={value.seedream.configured ? 'green' : 'gray'}>{value.seedream.configured ? '密钥已保存 · 待实测' : '待配置'}</Pill></div>

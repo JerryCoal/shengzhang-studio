@@ -9,6 +9,7 @@ import { MatrixConnectionCard } from './MatrixConnectionCard';
 import '../mcp.css';
 import { useStudio } from '../context';
 import { MCPAccountIdentity } from './AccountCreation';
+import { LocalMCPManager } from './LocalMCPManager';
 
 export type MCPConnection = { platform: Platform; accountId?:string;accountName?:string;remoteAccount?:string;readEndpoint?:string;readTokenConfigured?:boolean;accounts?:{id:string;name:string;mode:'builtin'|'external';endpoint:string;tokenConfigured:boolean}[];mode: 'builtin' | 'external'; endpoint: string; tokenConfigured: boolean; editable: boolean; builtinAvailable: boolean; connected: boolean; checkedAt?: string; capabilities?: { image: boolean; video: boolean; comments: boolean; login: boolean; loginStatus?: boolean; search?:boolean;notice?:string;adapter?:string }; toolCount?: number };
 const platformNames = PLATFORM_NAMES;
@@ -191,8 +192,10 @@ export function MCPConnections() {
   const { settings } = useStudio();
   const { connections, error, reload } = useMCPConnections();
   const [selectedPlatform,setSelectedPlatform]=useState<Platform>('xiaohongshu');
+  const selectedConnection = connections.find(value => value.platform === selectedPlatform);
   return <section className="panel mcp-settings"><div className="section-heading"><div><h2><Link2 size={19}/>平台连接与使用引导</h2><p className="muted">MCP 负责操作平台；Qwen、DeepSeek 等模型负责创作，模型密钥请在“文字模型”中设置。</p></div></div>
     <div className="mcp-intro"><b>一个入口，管理多个平台账号</b><p>{settings.team ? '先选平台与账号，再核对主机上的独立 MCP 服务与实际登录。每位同事的账号选择独立保存，平台连接由管理员维护。' : '先选平台与账号，再连接服务、核对登录。小红书与抖音可用自带页面助手；海外平台使用独立 MCP 与官方授权。能力以连接后的实际检测结果为准。'}</p></div>
+    {!LOCAL_DATA && selectedConnection && <LocalMCPManager key={`local:${selectedConnection.platform}:${selectedConnection.accountId || 'default'}`} value={selectedConnection} team={!!settings.team} reload={reload}/>}
     {LOCAL_DATA ? <p className="info-box">本机 MCP 需要 Windows 应用或同机后端。静态网站及远程网站不能调用你的本机助手。</p> : error ? <p className="info-box" role="alert">{error}<button className="text-button" onClick={() => void reload()}>重新读取</button></p> : !connections.length ? <p className="small-note" role="status">正在读取连接设置…</p> : <><div className="mcp-platform-picker" aria-label="选择连接平台">{connections.map(value=><button key={value.platform} className={`button small ${selectedPlatform===value.platform?'primary':''}`} aria-pressed={selectedPlatform===value.platform} onClick={()=>setSelectedPlatform(value.platform)}><Channel platform={value.platform}/></button>)}</div><div className="mcp-grid matrix-single">{connections.filter(value=>value.platform===selectedPlatform).map(value=>hasBuiltinPageAssistant(value.platform)?<ConnectionCard key={`${value.platform}:${value.accountId||'default'}`} value={{...value,platform:value.platform}} reload={reload}/>:<MatrixConnectionCard key={`${value.platform}:${value.accountId||'default'}`} value={{...value,platform:value.platform as 'tiktok'|'youtube'|'instagram'}} reload={reload}/>)}</div></>}
   </section>;
 }

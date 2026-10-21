@@ -58,7 +58,7 @@ test('Seedream cover is 3:4, grounded in confirmed facts, screened and adopted o
   await until(() => f.a().aiCover?.phase === 'ready');
   assert.equal(calls.length, 1); assert.equal(calls[0].url, 'https://ark.cn-beijing.volces.com/api/v3/images/generations');
   const payload = JSON.parse(calls[0].init.body);
-  assert.equal(payload.size, '1728x2304'); assert.deepEqual(payload.image, [png]); assert.equal(payload.watermark, true);
+  assert.equal(payload.size, '1728x2304'); assert.deepEqual(payload.image, [png]); assert.equal(payload.watermark, false);
   assert.match(payload.prompt, /已核实的包装介绍/); assert.doesNotMatch(payload.prompt, /后来修改但尚未/); assert.doesNotMatch(payload.prompt, /顶级/);
   assert.equal(f.a().mediaData, old.mediaData); assert.equal(f.a().revision, old.revision); assert.equal(f.a().history.length, old.history.length);
   assert.equal(f.p().usage.at(-1).amountUsd, .04); assert.equal(f.a().aiCover.corpusReferences[0].name, '已核实的包装介绍');

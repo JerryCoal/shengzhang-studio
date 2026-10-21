@@ -21,6 +21,7 @@ function removeLocalOnlyRecords(value) {
   if (!value || typeof value !== 'object') return;
   if (Array.isArray(value)) { for (const item of value) removeLocalOnlyRecords(item); return; }
   delete value.briefImports;
+  delete value.localQwenConnection;
   // The browser relay cannot create these local-only assistant records. Ignore
   // supplied values before restoring our own exact matching local versions.
   delete value.xhsAssistant;

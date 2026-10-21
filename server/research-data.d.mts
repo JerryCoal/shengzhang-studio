@@ -11,6 +11,7 @@ export type ResearchGrowthAdvice = {
   focus: 'title' | 'opening' | 'content' | 'tags' | 'engagement' | 'experiment'; action: string; reason: string; validation: string; referenceIds: string[];
 };
 export type ResearchReference = {
+  imageEvidence?: import('./research-image-evidence.mjs').ResearchImageEvidence;
   id: string; kind: ResearchKind; title: string; url: string; text: string;
   noteType?: 'image' | 'video' | 'unknown';
   publishedAt: string; collectedAt: string; dateBasis: string; sourceName: string;
@@ -21,6 +22,7 @@ export type ResearchReference = {
   topicRanking?: { platform: ResearchPlatform; metric: string; sortBy: XhsDiscovery['sortBy']; sampleRank: number | null; matchedKeywords: string[]; relevant: boolean; value: number | null; approximate: boolean; knownSamples: number; relevantSamples: number; sampleMedian: number | null; comparison: string };
 };
 export type RawResearchReference = {
+  imageEvidence?: import('./research-image-evidence.mjs').ResearchImageEvidence;
   kind: ResearchKind; externalId?: string; title: string; url?: string; text: string;
   noteType?: 'image' | 'video' | 'unknown';
   publishedAt?: string | number; collectedAt?: string | number; dateBasis?: string; sourceName?: string;

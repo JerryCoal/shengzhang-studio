@@ -54,7 +54,8 @@ export async function createTeamApp(options) {
     ...options.workspaceOptions, teamMode: true, profileMode: true, workspaceName, staticDirectory,
     password: '', allowedOrigins: [origin.origin], getActor: currentActor,
     authorizeCredentials: req => !!req.teamUser,
-    vault: vault('openai'), deepseekVault: vault('deepseek'), qwenVault: vault('qwen'), glmVault: vault('glm'), researchVault: vault('web-search'),
+    authorizeWorkActor: actor => { const member = actor?.userId && db.prepare('SELECT role, disabled FROM users WHERE id=?').get(actor.userId); return !!member && !member.disabled && member.role === actor.role; },
+    vault: vault('openai'), deepseekVault: vault('deepseek'), qwenVault: vault('qwen'), glmVault: vault('glm'), localQwenVault: vault('local-qwen'), researchVault: vault('web-search'),
     redfoxVault: vault('redfox'), seedanceVault: vault('seedance'), seedreamVault: vault('seedream'), douyinVault: vault('douyin'), feishuVault: vault('feishu'),
     mcpVaults: Object.fromEntries(['xiaohongshu','douyin','tiktok','youtube','instagram'].map(platform => [platform, vault(`${platform}-mcp`)])),
     modelStore: createModelStore(resolve(dataDirectory, 'models.json')),
@@ -79,7 +80,7 @@ export async function createTeamApp(options) {
     next();
   });
   app.use(express.json({ limit: '32mb' }));
-  app.get('/api/health', (_req, res) => res.json({ ok: true, authRequired: true, authMode: 'profiles', teamMode: true, localOnly: false, workspaceName, setupRequired: !usersCount(), version: '2.0.0' }));
+  app.get('/api/health', (_req, res) => res.json({ ok: true, authRequired: true, authMode: 'profiles', teamMode: true, localOnly: false, workspaceName, setupRequired: !usersCount(), version: '2.1.0' }));
   app.use('/api', (req, res, next) => req.get('X-Studio-Client') === 'studio-v1' ? next() : res.status(403).json({ error: '请从团队工作站访问' }));
   const keyOf = req => tokenHash((req.get('Authorization') || '').replace(/^Bearer /, ''));
   const sessionIdentity = req => {
@@ -194,6 +195,7 @@ export async function createTeamApp(options) {
   app.locals.close = () => closing ||= (async () => {
     shuttingDown = true; clearInterval(maintenance); sessions.clear();
     await workspace.locals.integrations.close();
+    await workspace.locals.workControl?.close();
     while (authenticating) await new Promise(accept => setTimeout(accept, 25));
     if (active) await new Promise(accept => idle.push(accept));
     while (workspace.locals.activeJobs.size) await new Promise(accept => setTimeout(accept, 25));

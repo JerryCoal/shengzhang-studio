@@ -18,6 +18,7 @@ import { KnowledgePicker } from './KnowledgeLibrary';
 import { useIntegrations } from './Integrations';
 import { assetPublishReadiness } from '../../server/publish-readiness.mjs';
 import { assetAccountId, assetPublicationRecords } from '../../server/workspace-view.mjs';
+import { scopeHasAccount } from '../workspace-scope.mjs';
 import { renderPoster, renderVideo } from '../media';
 import { guideProgress } from '../../server/guide.mjs';
 import { useContentEditDraft } from '../useContentEditDraft';
@@ -174,7 +175,7 @@ function ContentEditor({ asset, initialStep, onBack, onCreate, onExport, onPrepa
 }
 
 export function StudioPage({ embedded = false, onNewContent }: { embedded?: boolean; onNewContent?: () => void } = {}) {
-  const { state, project, target, accountScope, mutate, run, busy, go, notify } = useStudio();
+  const { state, project, target, scope, accountScope, mutate, run, busy, go, notify } = useStudio();
   const [filter, setFilter] = useState('all');
   const [newContent, setNewContent] = useState(!!target?.newContent);
   const [job, setJob] = useState<{ id: string; progress: number } | null>(null);
@@ -188,7 +189,7 @@ export function StudioPage({ embedded = false, onNewContent }: { embedded?: bool
   useEffect(() => () => { controller.current?.abort(); pauseRef.current = true; }, []);
   if (!project) return <NeedProject/>;
   const p = project, selected = p.assets.find(item => item.id === target?.assetId);
-  const scoped = p.assets.filter(asset => !accountScope || contentAccount(asset)?.accountId === accountScope);
+  const scoped = p.assets.filter(asset => scope ? scopeHasAccount(scope, contentAccount(asset)?.accountId) : !accountScope || contentAccount(asset)?.accountId === accountScope);
   const assets = scoped.filter(asset => filter === 'all' || asset.kind === filter);
   async function create(asset: Asset) {
     setJobError(''); controller.current = new AbortController(); setJob({ id: asset.id, progress: 0 });

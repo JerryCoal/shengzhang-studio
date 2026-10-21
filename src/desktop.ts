@@ -9,6 +9,8 @@ declare global {
   interface Window {
     studioDesktop?: {
       setTaskState?: (value: {active: number; paused: number; connected?: boolean}) => void;
+      notifyWork?: (args: { notificationId: string; sessionToken: string; sound: boolean }) => Promise<{ delivered: boolean }>;
+      onWorkNotification?: (callback: (value: { notificationId: string }) => void) => () => void;
       onPrepareQuit?: (callback: () => void | Promise<void>) => () => void;
       confirmTaskSave?: (value: {saved: boolean}) => Promise<void>;
       documentParserStatus: (args:{sessionToken:string})=>Promise<import('./document-parser-types').DocumentParserStatus>;

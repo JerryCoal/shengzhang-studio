@@ -3,6 +3,7 @@ import { PLATFORM_IDS } from './platform-catalog.mjs';
 import { createContentDraft, selectKnowledge } from './content-workflow.mjs';
 import { resolveWorkflowSkill } from './creative-skills.mjs';
 import { selectedResearchContext } from './research-data.mjs';
+import { inspirationConversationSchema, validateInspirationDraftSave } from './inspiration-conversation.mjs';
 
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status, noCharge: true }); };
 const text = max => z.string().trim().max(max);
@@ -14,7 +15,7 @@ export const agentInputSchema = z.object({
   model: text(100).default(''), knowledgeIds: ids.default([]), experienceIds: ids.default([]),
   referenceIds: ids.optional(), skillIds: ids.default([]), publishingNotes: text(2000).default(''), idea: idea.optional(),
 }).strict();
-const draftSchema = agentInputSchema.extend({ requirement: text(4000).default(''), kind: z.enum(['image', 'video']).default('image'), updatedAt: text(40).optional() });
+const draftSchema = agentInputSchema.extend({ requirement: text(4000).default(''), kind: z.enum(['image', 'video']).default('image'), updatedAt: text(40).optional(), conversation: inspirationConversationSchema.optional() });
 
 function experienceForAccount(project, id, accountId) {
   const row = project.experiences.find(e => e.id === id && e.active);
@@ -43,6 +44,8 @@ export function saveAgentWorkspace(state, input) {
   if (!AGENT_IDS.includes(agentId) || !state.projects.some(p => p.id === projectId)) fail('工作页所属项目或 Agent 不存在，请重新打开', 409);
   const current = agentWorkspace(state);
   if (current.revision !== data.expectedRevision) fail('Agent 草稿已在另一窗口更新，请重新读入后再保存', 409);
+  if (data.draft.conversation && agentId !== 'inspiration') fail('多轮对话只用于灵感 Agent');
+  if (agentId === 'inspiration') validateInspirationDraftSave(current.drafts[data.key], data.draft, current.inspirationReceipts);
   if (!Object.hasOwn(current.drafts, data.key) && Object.keys(current.drafts).length >= 200) fail('Agent 草稿已达上限，请整理项目后继续');
   current.drafts[data.key] = { ...data.draft, updatedAt: new Date().toISOString() };
   current.revision++;

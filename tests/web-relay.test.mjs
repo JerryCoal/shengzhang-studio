@@ -26,6 +26,17 @@ const envelope = (path, state = seedState(), credentials = { openai: 'sk-test-we
   return { path, method: 'POST', body, state: minimized, credentials, routes: DEFAULT_ROUTES, authorizations: [] };
 };
 
+test('web relay rejects local Qwen routes, private configuration and manual aliases before any local request', async t => {
+  let calls = 0;
+  const f = await fixture(t, async () => { calls++; throw Error('Unexpected cloud call'); }, { workspaceOptions: { allowLocalModels: true, localQwenFetcher: async () => { calls++; throw Error('Must never connect loopback'); } } });
+  const state = seedState(), input = envelope(`/projects/${state.projects[0].id}/strategies`, state, {}, { mode: 'openai' });
+  assert.equal((await f.request({ ...input, routes: { ...DEFAULT_ROUTES, strategy: 'local-qwen' } })).status, 400);
+  assert.equal((await f.request({ ...input, state: { ...input.state, localQwenConnection: { enabled: true, engine: 'ollama', baseUrl: 'http://127.0.0.1:11434/v1', model: 'qwen3:8b' } } })).status, 400);
+  assert.equal((await f.request(envelope('/settings/providers/local-qwen/credential/check', state, {}))).status, 404);
+  const manual = await f.request({ ...input, body: { ...input.body, modelOverride: 'local-qwen' } });
+  assert.equal(manual.value.status, 403, JSON.stringify(manual.value)); assert.equal(calls, 0);
+});
+
 test('web relay uses only supplied Qwen credentials and never exposes local MCP routes', async t => {
   const key='sk-qwen-browser-test-only-123456789', calls=[];
   const f=await fixture(t, async (url,init)=>{

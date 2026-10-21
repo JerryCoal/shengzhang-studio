@@ -18,7 +18,7 @@ test('Seedream uses official host, exact portrait size, local references and mod
       assert.equal(init.headers.Authorization, `Bearer ${key}`); assert.equal(init.redirect, 'error');
       const body = JSON.parse(init.body);
       assert.equal(body.model, preset.model); assert.equal(body.size, '1440x2560'); assert.equal(body.response_format, 'b64_json');
-      assert.deepEqual(body.image, [reference, reference]); assert.equal(body.watermark, true);
+      assert.deepEqual(body.image, [reference, reference]); assert.equal(body.watermark, false);
       assert.equal(body.quality, undefined); assert.equal(body.n, undefined);
       assert.equal(body.sequential_image_generation, family === '5.0-pro' ? undefined : 'disabled');
       return Response.json({ data: [{ b64_json: jpeg }], usage: { generated_images: 1 } });
@@ -59,15 +59,15 @@ test('Seedream-only settings survive restart and upgrade legacy Seedance setting
   assert.deepEqual(store.get().seedream, defaultSeedream);
   const seedance = { region: 'byteplus', model: 'ep-test', reservationUsd: 2, outputPriceUsd: 1 };
   writeFileSync(path, JSON.stringify({ seedance })); store = createIntegrationPreferences(path);
-  assert.equal(store.get().imageProvider, 'openai'); assert.deepEqual(store.get().seedance, seedance);
-  store.saveSeedream(defaultSeedream); assert.deepEqual(createIntegrationPreferences(path).get().seedance, seedance);
+  assert.equal(store.get().imageProvider, 'openai'); assert.deepEqual(store.get().seedance, { ...seedance, watermark: false });
+  store.saveSeedream(defaultSeedream); assert.deepEqual(createIntegrationPreferences(path).get().seedance, { ...seedance, watermark: false });
   store.saveImageProvider('openai'); assert.equal(createIntegrationPreferences(path).get().imageProvider, 'openai', 'an explicitly selected legacy provider survives upgrade');
 });
 
-test('Seedream watermark defaults on for legacy settings and an explicit off survives restart', t => {
-  assert.equal(defaultSeedream.watermark, true);
+test('Seedream missing watermark defaults off and explicit choices survive restart', t => {
+  assert.equal(defaultSeedream.watermark, false);
   const { watermark: _watermark, ...legacy } = defaultSeedream;
-  assert.equal(seedreamSettingsSchema.parse(legacy).watermark, true);
+  assert.equal(seedreamSettingsSchema.parse(legacy).watermark, false);
   for (const value of ['false', 0, null]) assert.throws(() => seedreamSettingsSchema.parse({ ...legacy, watermark: value }));
   const dir = mkdtempSync(join(tmpdir(), 'studio-seedream-watermark-'));
   t.after(() => { if (!dir.startsWith(resolve(tmpdir()) + sep)) throw Error('Unexpected directory'); rmSync(dir, { recursive: true }); });
@@ -75,12 +75,14 @@ test('Seedream watermark defaults on for legacy settings and an explicit off sur
   let preferences = createIntegrationPreferences(path);
   writeFileSync(path, JSON.stringify({ ...preferences.get(), seedream: legacy }));
   preferences = createIntegrationPreferences(path);
-  assert.equal(preferences.get().seedream.watermark, true);
+  assert.equal(preferences.get().seedream.watermark, false);
   preferences.saveSeedream({ ...preferences.get().seedream, watermark: false });
   preferences = createIntegrationPreferences(path);
   assert.equal(preferences.get().seedream.watermark, false);
   const detached = preferences.get(); detached.seedream.watermark = true;
   assert.equal(preferences.get().seedream.watermark, false, 'reading preferences must not mutate their saved value');
+  preferences.saveSeedream({ ...preferences.get().seedream, watermark: true });
+  assert.equal(createIntegrationPreferences(path).get().seedream.watermark, true, 'explicit saved opt-in is never reset by the new default');
 });
 
 test('every Seedream model transmits the exact watermark boolean without altering PNG or JPEG bytes', async () => {

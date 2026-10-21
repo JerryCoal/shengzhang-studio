@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { tmpdir } from 'node:os';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
+import { runWithActor } from './request-actor.mjs';
 import { createMCPClient, localMCPEndpoint, mcpValue } from './mcp-client.mjs';
 import { isLocalClient } from './ai-routes.mjs';
 import { canUseTeamWorkspace } from './workspace-access.mjs';
@@ -13,6 +14,9 @@ import { douyinMCPLogin, douyinMCPDraft, douyinMCPPlan } from './douyin-mcp-adap
 import { PLATFORM_IDS, PLATFORM_NAMES, hasBuiltinPageAssistant } from './platform-catalog.mjs';
 import { matrixCapabilities, matrixResearchSearch, matrixComments, matrixCheckLogin, matrixPublishPlan, matrixPublishReceipt, matrixPublishOptions } from './matrix-adapters.mjs';
 import { prepareXhsTopics } from './xhs-topics.mjs';
+import { researchSourceDiagnostic } from './research-source-diagnostics.mjs';
+import { researchImageEvidence } from './research-image-evidence.mjs';
+import { acquireTaskResource } from './active-jobs.mjs';
 
 const platformSchema = z.enum(PLATFORM_IDS);
 const accountIdSchema = z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/);
@@ -95,7 +99,8 @@ export function xhsMCPResearchItem(value, feedId, { at, token = '', secrets = []
   const publishedAt = Number.isFinite(millis) && millis >= 946684800000 && millis <= 8640000000000000 ? new Date(millis).toISOString() : '';
   const info = note.interactInfo;
   const noteType = note.type === 'normal' ? 'image' : note.type === 'video' ? 'video' : 'unknown';
-  return { kind: 'xiaohongshu', externalId: feedId, noteType, title, url: `https://www.xiaohongshu.com/explore/${feedId}`, text: researchText(note.desc, 1600, privateValues), publishedAt, dateBasis: 'platform-timestamp', sourceName: '小红书', collectedAt: researchAt(at), metrics: { likes: researchCount(info?.likedCount, preserveCompactMetrics), comments: researchCount(info?.commentCount, preserveCompactMetrics), favorites: researchCount(info?.collectedCount, preserveCompactMetrics), shares: researchCount(info?.sharedCount, preserveCompactMetrics) } };
+  const imageEvidence = researchImageEvidence(note, privateValues);
+  return { kind: 'xiaohongshu', externalId: feedId, noteType, title, url: `https://www.xiaohongshu.com/explore/${feedId}`, text: researchText(note.desc, 1600, privateValues), publishedAt, dateBasis: 'platform-timestamp', sourceName: '小红书', collectedAt: researchAt(at), ...(imageEvidence ? { imageEvidence } : {}), metrics: { likes: researchCount(info?.likedCount, preserveCompactMetrics), comments: researchCount(info?.commentCount, preserveCompactMetrics), favorites: researchCount(info?.collectedCount, preserveCompactMetrics), shares: researchCount(info?.sharedCount, preserveCompactMetrics) } };
 }
 export function mountMCPPlatforms(app, store, config, { project, activeJobs }) {
   const locks = new Set(), checks = new Map(), previews = new Map(), publishOptions = new Map();
@@ -164,7 +169,7 @@ export function mountMCPPlatforms(app, store, config, { project, activeJobs }) {
     const checked = checks.get(checkKey(platform, saved.accountId));
     return { platform, accountId: saved.accountId, accountName: saved.accountName, remoteAccount: saved.remoteAccount || '', readEndpoint:saved.readEndpoint || '',readTokenConfigured:!!saved.readApiKey,accounts, mode: saved.mode, endpoint: saved.mode === 'external' ? saved.endpoint : '', tokenConfigured: !!saved.apiKey, builtinAvailable, editable: !!config.mcpVaults?.[platform]?.status().supported && (config.teamMode !== true || config.getActor?.()?.role === 'admin'), ...(checked || {}), connected: !!checked?.checkedAt };
   }
-  async function connected(platform, work, requestedAccount, chooseAccount = false, purpose = 'primary') {
+  async function connected(platform, work, requestedAccount, chooseAccount = false, purpose = 'primary', hooks) {
     assert(!locks.has(platform), '该平台正在执行 MCP 任务，请先完成当前操作', 409); locks.add(platform);
     let client;
     try {
@@ -174,6 +179,7 @@ export function mountMCPPlatforms(app, store, config, { project, activeJobs }) {
         const settings = await accountSettings(platform), account = settings.accounts.find(item => item.id === accountIdSchema.parse(requestedAccount));
         assert(account, '所选研究账号已不存在', 409); saved = {...account, accountId:account.id, accountName:account.name};
       } else if (requestedAccount !== undefined) assert(saved.accountId === accountIdSchema.parse(requestedAccount), '当前平台账号已切换，请重新打开并确认', 409);
+      await hooks?.validateConnection?.(saved);
       const reading = purpose === 'read' && saved.mode === 'external' && !!saved.readEndpoint;
       if(reading)saved = {...saved,endpoint:saved.readEndpoint,apiKey:saved.readApiKey || ''};
       const builtin = saved.mode === 'builtin';
@@ -182,7 +188,18 @@ export function mountMCPPlatforms(app, store, config, { project, activeJobs }) {
       client = createMCPClient({ endpoint: builtin ? config.desktopMCP.endpoint : saved.endpoint, token: builtin ? config.desktopMCP.token : saved.apiKey || '', ...(config.mcpFetcher ? { fetcher: config.mcpFetcher } : {}), timeout: builtin ? 65 * 60000 : 5 * 60000 });
       const cacheKey = checkKey(platform, saved.accountId);
       if (saved.accountId === activeConnection.accountId && !reading) checks.delete(cacheKey);
+      if (hooks?.beforeRequest) await hooks.beforeRequest('connect');
       const tools = await client.connect(), available = capabilities(tools, saved.mode, platform);
+      if (hooks?.afterRequest) await hooks.afterRequest('connect');
+      if (hooks) {
+        const call = client.call.bind(client);
+        client.call = async (name, arguments_) => {
+          await hooks.beforeRequest?.(name);
+          const result = await call(name, arguments_);
+          await hooks.afterRequest?.(name);
+          return result;
+        };
+      }
       assert(['image','video','comments','search','login','loginStatus'].some(key => available[key] === true), `服务已响应，但没有兼容的${PLATFORM_NAMES[platform]}工具。请核对平台、服务项目与版本；不能把小红书服务地址填到抖音。`, 502);
       if (saved.accountId === activeConnection.accountId) {
         const previous = checks.get(cacheKey);
@@ -206,8 +223,11 @@ export function mountMCPPlatforms(app, store, config, { project, activeJobs }) {
     const supported = saved.mode === 'external' && !!endpoint && (saved.readEndpoint || !cached?.capabilities || cached.capabilities.search === true);
     return { ...identity, configured: saved.mode === 'external' && !!endpoint, supported: platform !== 'tiktok' && !!supported, checked: !!cached?.checkedAt && !saved.readEndpoint, note: platform === 'tiktok' ? '当前兼容的 TikTok 开源 MCP 没有关键词搜索工具；不会使用自有视频冒充全站热点。' : saved.mode !== 'external' ? '同话题搜索需要独立 MCP；自带页面助手不提供搜索。' : !endpoint ? '请先在账号设置中配置该平台的独立 MCP。' : !cached?.checkedAt || saved.readEndpoint ? '采集时会检查读取服务的工具能力与平台权限。' : supported ? '已发现兼容搜索工具，结果仅为当前关键词样本。' : '当前服务没有兼容搜索工具，请检查平台引导与服务版本。' };
   }
-  async function researchSearch(req, { queries, at, assertActive, discovery, accountId, sourceAccountId, platform: requestedPlatform } = {}) {
+  async function researchSearch(req, input = {}) {
     local(req);
+    return runResearchSearch(input);
+  }
+  async function runResearchSearch({ queries, at, assertActive, discovery, accountId, sourceAccountId, platform: requestedPlatform, hooks } = {}) {
     const options = discovery === undefined ? null : discoveryOptions.parse(discovery);
     const platform = platformSchema.parse(requestedPlatform || options?.platform || 'xiaohongshu'), requestedAccount = accountId || sourceAccountId;
     assert(!requestedPlatform || !options?.platform || requestedPlatform === options.platform, '研究来源与筛选平台不一致');
@@ -218,15 +238,15 @@ export function mountMCPPlatforms(app, store, config, { project, activeJobs }) {
     const saved = { ...account, accountId: account.id, accountName: account.name };
     if (platform !== 'xiaohongshu') {
       if (saved.mode !== 'external' || !(saved.readEndpoint || saved.endpoint)) return {items:[],reports:[{sourceId:platform,name:`${PLATFORM_NAMES[platform]} MCP`,status:'skipped',count:0,message:'请先连接该平台的独立 MCP 服务。'}]};
-      return connected(platform, async (client, _mode, _caps, current, tools) => matrixResearchSearch({platform,client,tools,queries,at,discovery:options,accountId:current.accountId,accountName:current.accountName,remoteAccount:current.remoteAccount,assertActive,secrets:[current.apiKey,current.readApiKey]}), saved.accountId, true, 'read');
+      return connected(platform, async (client, _mode, _caps, current, tools) => matrixResearchSearch({platform,client,tools,queries,at,discovery:options,accountId:current.accountId,accountName:current.accountName,remoteAccount:current.remoteAccount,assertActive,secrets:[current.apiKey,current.readApiKey]}), saved.accountId, true, 'read', hooks);
     }
-    const selected = researchQueries(queries, options ? 3 : 2), collectedAt = researchAt(at), items = [], reports = [], seen = new Set();
+    const selected = researchQueries(queries, options ? 3 : 2), collectedAt = researchAt(at), items = [], reports = [], pendingReferences = [], seen = new Set();
     // Upstream supports day/week/half-year/all, but no calendar-month filter.
     // Month candidates are fetched using half-year and verified locally later.
     const filters = options ? { publish_time: { week: '一周内', month: '半年内', all: '不限' }[options.timeRange], sort_by: { general: '综合', likes: '最多点赞', favorites: '最多收藏', comments: '最多评论', views: '最多点赞', shares: '最多点赞' }[options.sortBy], note_type: { all: '不限', image: '图文', video: '视频' }[options.noteType] } : { publish_time: '一周内', sort_by: '最多收藏' };
     const passes = options?.sortBy === 'general' ? [filters, { ...filters, sort_by: '最多点赞' }] : [filters];
     const scopeNote = options ? `本次使用“${passes.map(pass => pass.sort_by).join('＋')}”搜索、${filters.note_type}类型，每词最多核对 4 篇详情；两路按作品去重，最多 6 次搜索与 12 篇详情。仅代表本次关键词样本，不是全站榜单。${options.timeRange === 'month' ? '平台先按半年内搜索，工作台随后按详情发布时间筛选近 30 天。' : options.timeRange === 'all' ? '本轮不限制笔记发布时间，历史笔记不代表近期热点。' : '工作台会再次核对近七天的详情发布时间。'}` : '';
-    let inactiveError;
+    let inactiveError, sourceStage = 'connection';
     const active = async () => { try { if (assertActive) await assertActive(); } catch (error) { inactiveError = error; throw error; } };
     await active();
     if (!selected.length) return { items, reports: [researchReport('skipped', 0, '没有可用搜索词，本次未调用小红书 MCP。')] };
@@ -235,9 +255,10 @@ export function mountMCPPlatforms(app, store, config, { project, activeJobs }) {
       await connected('xiaohongshu', async (client, mode, caps, current) => {
         await active();
         if (mode !== 'external' || !caps.search) { reports.push(researchReport('skipped', 0, '当前 MCP 缺少兼容的搜索、详情或登录检查工具，请核对服务版本。')); return; }
+        sourceStage = 'login';
         const login = xhsLoginState(await client.call('check_login_status', {}));
         await active();
-        if (login !== 'logged-in') { reports.push(researchReport('skipped', 0, '请先在账号设置中完成小红书 MCP 扫码登录；不会绕过平台验证。')); return; }
+        if (login !== 'logged-in') { reports.push({ ...researchReport('skipped', 0, '请先在账号设置中完成小红书 MCP 扫码登录；不会绕过平台验证。'), diagnostic: researchSourceDiagnostic({ code: 'mcp_login' }, 'login') }); return; }
         for (const query of selected) {
           await active();
           const pools = [];
@@ -246,36 +267,43 @@ export function mountMCPPlatforms(app, store, config, { project, activeJobs }) {
             try {
               const result = mcpValue(await client.call('search_feeds', { keyword: query, filters: pass }));
               const values = result?.feeds || result?.data?.feeds;
-              assert(Array.isArray(values), '搜索列表无法读取', 502); pools.push(values.slice(0, 20));
-            } catch { reports.push(researchReport('failed', 0, '本次小红书一路搜索未完成，请核对服务登录与平台页面；其他成功候选仍保留。')); }
+              if (!Array.isArray(values)) throw Object.assign(Error('搜索列表无法读取'), { status: 502, code: 'mcp_schema' }); pools.push(values.slice(0, 20));
+            } catch (error) { reports.push({ ...researchReport('failed', 0, '本次小红书一路搜索未完成；其他成功候选仍保留。'), diagnostic: researchSourceDiagnostic(error, 'search') }); }
           }
           const feeds = [];
           for (let index = 0; index < 20; index++) for (const pool of pools) if (pool[index]) feeds.push(pool[index]);
           await active();
-          let added = 0, failed = 0, detailCalls = 0;
+          let added = 0, failed = 0, detailCalls = 0, firstFailure;
+          const stats = { rawCount: pools.reduce((n, pool) => n + pool.length, 0), normalizedCount: 0, invalidCount: 0, duplicateCount: 0, missingDateCount: 0, emptyContentCount: 0, searchRequests: passes.length, detailRequests: 0 };
           if (!pools.length) continue;
           for (const feed of feeds) {
             if (detailCalls >= 4) break;
             await active();
             const feedId = typeof feed?.id === 'string' && /^[a-f0-9]{24}$/i.test(feed.id) ? feed.id : '';
             const token = typeof feed?.xsecToken === 'string' && feed.xsecToken.length <= 2048 && !/[\u0000-\u0020\u007f]/.test(feed.xsecToken) ? feed.xsecToken : '';
-            if (!feedId || !token || seen.has(feedId)) { if (!feedId || !token) failed++; continue; }
+            if (!feedId || !token || seen.has(feedId)) { if (!feedId || !token) { failed++; stats.invalidCount++; firstFailure ||= researchSourceDiagnostic({ code: 'mcp_protocol' }, 'search'); } else stats.duplicateCount++; continue; }
             seen.add(feedId);
-            detailCalls++;
+            detailCalls++; stats.detailRequests++;
             try {
               const value = mcpValue(await client.call('get_feed_detail', { feed_id: feedId, xsec_token: token, load_all_comments: false }));
-              items.push({ ...xhsMCPResearchItem(value, feedId, { at: collectedAt, token, secrets: [current.apiKey], preserveCompactMetrics: !!options }), sourceAccountId: current.accountId, sourceAccountName: current.accountName }); added++;
-            } catch { failed++; }
+              const item = xhsMCPResearchItem(value, feedId, { at: collectedAt, token, secrets: [current.apiKey], preserveCompactMetrics: !!options });
+              items.push({ ...item, sourceAccountId: current.accountId, sourceAccountName: current.accountName }); added++; stats.normalizedCount++;
+              if (!item.publishedAt) stats.missingDateCount++; if (!item.text) stats.emptyContentCount++;
+            } catch (error) {
+              failed++; firstFailure ||= researchSourceDiagnostic(!error?.code && error?.status === 502 ? { code: 'mcp_schema' } : error, 'detail');
+              const card = feed.noteCard || {}, privateValues = [token, current.apiKey], title = researchText(card.displayTitle || card.title, 240, privateValues), text = researchText(card.desc || card.description, 1600, privateValues), imageEvidence = researchImageEvidence(card, privateValues);
+              if (title || text) pendingReferences.push({ title: title || '待核对的搜索候选', text, url: `https://www.xiaohongshu.com/explore/${feedId}`, reason: '详情未取得，保留搜索摘要供人工核对；未进入已验证参考或本轮分析。', ...(imageEvidence ? { imageEvidence } : {}) });
+            }
             await active();
           }
-          reports.push(researchReport(failed && !added ? 'failed' : 'ok', added, (failed ? `取得 ${added} 条小红书候选，另有 ${failed} 条详情未能核对；成功结果仍保留。` : `取得 ${added} 条小红书候选，已读取详情发布时间与可用互动数；这是关键词样本，不是全站热榜。`) + scopeNote));
+          reports.push({ ...researchReport(failed && !added ? 'failed' : 'ok', added, (failed ? `取得 ${added} 条小红书候选，另有 ${failed} 条详情未能核对；成功结果仍保留。` : `取得 ${added} 条小红书候选，已读取详情发布时间与可用互动数；这是关键词样本，不是全站热榜。`) + scopeNote), stats, ...(firstFailure ? { diagnostic: firstFailure } : {}) });
         }
       }, saved.accountId, true, 'read');
     } catch (error) {
       if (inactiveError === error) throw error;
-      reports.push(researchReport('failed', 0, error?.status === 409 ? '小红书 MCP 正在执行其他任务，本次搜索未启动。' : '未能完成本机小红书 MCP 采集，请检查服务与登录状态；不会自动重试。'));
+      reports.push({ ...researchReport('failed', 0, error?.status === 409 ? '小红书 MCP 正在执行其他任务，本次搜索未启动。' : '未能完成本机小红书 MCP 采集；不会自动重试。'), diagnostic: researchSourceDiagnostic(error, sourceStage) });
     }
-    return { items, reports };
+    return { items, reports, ...(pendingReferences.length ? { pendingReferences } : {}) };
   }
   app.get('/api/mcp/settings', async (req, res) => { local(req); res.json({ platforms: await Promise.all(PLATFORM_IDS.map(status)) }); });
   app.post('/api/mcp/:platform/accounts', async (req, res) => {
@@ -371,16 +399,24 @@ export function mountMCPPlatforms(app, store, config, { project, activeJobs }) {
   });
   app.post('/api/projects/:id/publications/:publicationId/mcp/publish', async (req, res) => {
     local(req);
-    const data = z.object({ confirmed: z.literal(true), expectedRevision: z.number().int(), title: z.string().trim().min(1).max(100), body: z.string().max(4000), tags:z.array(z.string().max(300)).max(100).optional(), accountId: accountIdSchema.optional(), publicMediaUrl:z.string().max(2048).optional(), privacy:z.string().max(40).optional(), preflightId:z.string().uuid().optional(), brandOrganic:z.boolean().optional(),brandContent:z.boolean().optional(),aiGenerated:z.boolean().optional(),allowComments:z.boolean().optional(),allowDuet:z.boolean().optional(),allowStitch:z.boolean().optional(),musicConfirmed:z.boolean().optional(),brandedContentConfirmed:z.boolean().optional(),durationSeconds:z.number().positive().max(86400).optional() }).strict().parse(req.body);
-    assert(!activeJobs.has(req.params.id), '项目还有任务进行中', 409); activeJobs.add(req.params.id);
+    const data = z.object({ confirmed: z.literal(true), expectedRevision: z.number().int(), title: z.string().trim().min(1).max(100), body: z.string().max(4000), tags:z.array(z.string().max(300)).max(100).optional(), accountId: accountIdSchema.optional(), expectedConnection: z.object({ mode: z.enum(['builtin', 'external']), endpoint: z.string().max(300), remoteAccount: z.string().max(80) }).strict().optional(), publicMediaUrl:z.string().max(2048).optional(), privacy:z.string().max(40).optional(), preflightId:z.string().uuid().optional(), brandOrganic:z.boolean().optional(),brandContent:z.boolean().optional(),aiGenerated:z.boolean().optional(),allowComments:z.boolean().optional(),allowDuet:z.boolean().optional(),allowStitch:z.boolean().optional(),musicConfirmed:z.boolean().optional(),brandedContentConfirmed:z.boolean().optional(),durationSeconds:z.number().positive().max(86400).optional() }).strict().parse(req.body);
+    const releasePublication = acquireTaskResource(activeJobs, req.params.id, `publication:${req.params.publicationId}`);
     try {
       const p = project(store.get(), req.params.id), pub = p.publications.find(p => p.id === req.params.publicationId);
       assert(pub && !pub.sample && ['scheduled','exported'].includes(pub.status) && !pub.manualReviewRequired, '请选择真实的待发布内容');
       assert(pub.assetRevision === data.expectedRevision, '发布素材已更新，请重新打开', 409);
       assert(!pub.delivery || pub.delivery.phase === 'reset', '这条内容已尝试提交，请先核对平台结果，不能重复投送', 409);
+      if (data.expectedConnection) {
+        const current = await connection(pub.platform), expected = data.expectedConnection;
+        assert(current.mode === expected.mode && (current.mode === 'external' ? current.endpoint || '' : '') === expected.endpoint && (current.remoteAccount || '') === expected.remoteAccount, '核对后 MCP 连接或实际账号已变化，请重新核对这一条', 409);
+      }
       const draft = { platform: pub.platform, title: data.title, body: data.body, mime: pub.mime, mediaData: pub.mediaData };
       creatorPayload.validateDraft(draft);
       const result = await connected(pub.platform, async (client, mode, caps, saved, tools) => {
+        if (data.expectedConnection) {
+          const expected = data.expectedConnection;
+          assert(saved.mode === expected.mode && (saved.mode === 'external' ? saved.endpoint || '' : '') === expected.endpoint && (saved.remoteAccount || '') === expected.remoteAccount, '核对后 MCP 连接或实际账号已变化，请重新核对这一条', 409);
+        }
         const publicationAccount = store.get().accounts.find(item => item.id === pub.accountId);
         assert(!publicationAccount?.mcpAccountId || publicationAccount.mcpAccountId === saved.accountId, '所选发布账号与当前 MCP 账号不一致，请切换连接后重新确认', 409);
         assert(pub.mime.startsWith('image/') ? caps.image : caps.video, '所连接 MCP 没有兼容的素材发布工具，请检查服务版本');
@@ -428,7 +464,7 @@ export function mountMCPPlatforms(app, store, config, { project, activeJobs }) {
         } finally { await staged.dispose(); }
       }, data.accountId);
       res.json({ result, state: store.get() });
-    } finally { activeJobs.delete(req.params.id); }
+    } finally { releasePublication(); }
   });
   app.post('/api/projects/:id/publications/:publicationId/mcp/comments', async (req, res) => {
     local(req); const data = commentOptions.parse(req.body);
@@ -470,5 +506,24 @@ export function mountMCPPlatforms(app, store, config, { project, activeJobs }) {
     const result = store.mutate(state => { const p = project(state, req.params.id); return importComments(p, { source: 'mcp', publicationId: req.params.publicationId, sourceUrl: preview.sourceUrl, mode: 'page', confirmed: true, rows }); });
     previews.delete(data.previewId); res.json({ result, state: store.get() });
   });
-  return { researchSearch, researchStatus, close() { previews.clear(); checks.clear(); publishOptions.clear(); } };
+  const connectionFingerprint = saved => createHash('sha256').update(JSON.stringify({ id: saved.accountId || saved.id, mode: saved.mode, endpoint: saved.endpoint || '', readEndpoint: saved.readEndpoint || '', remoteAccount: saved.remoteAccount || '', apiKey: saved.apiKey || '', readApiKey: saved.readApiKey || '' })).digest('hex');
+  const authorizeWorker = async actor => assert(actor?.userId && typeof config.authorizeWorkActor === 'function' && await config.authorizeWorkActor(actor) === true, '此后台任务的工作区成员已失效或权限已撤销', 403);
+  async function workResearchConnection({ actor, accountId }) {
+    await authorizeWorker(actor);
+    accountIdSchema.parse(accountId);
+    const settings = await rawAccountSettings('douyin'), saved = settings.accounts.find(account => account.id === accountId);
+    assert(saved && saved.mode === 'external' && (saved.readEndpoint || saved.endpoint), '请选择已配置的抖音独立 MCP 读取账号；后台任务不能使用未指定的当前账号', 409);
+    localMCPEndpoint(saved.readEndpoint || saved.endpoint);
+    return { connectionAccountId: saved.id, connectionFingerprint: connectionFingerprint(saved) };
+  }
+  async function workResearchSearch({ run, queries, at, assertActive, discovery, hooks }) {
+    const input = run?.input;
+    await authorizeWorker(run?.actor);
+    assert(run.ownerId === run.actor.userId && input?.role === 'douyin-research' && run.projectId === input.projectId, '后台研究任务的归属不匹配', 403);
+    assert(run.approval?.permissions?.includes('mcp:douyin:search') && input.connectionFingerprint, '后台研究缺少已确认的读取连接权限', 403);
+    const expected = input.connectionFingerprint;
+    const validateConnection = saved => assert(connectionFingerprint(saved) === expected, '抖音读取服务或凭据已更改，请重新确认计划；没有向新连接发送任务', 409);
+    return runWithActor(run.actor, () => runResearchSearch({ queries, at, assertActive, discovery: { ...discovery, platform: 'douyin' }, platform: 'douyin', accountId: input.connectionAccountId, hooks: { ...hooks, validateConnection } }));
+  }
+  return { researchSearch, researchStatus, workResearchConnection, workResearchSearch, close() { previews.clear(); checks.clear(); publishOptions.clear(); } };
 }

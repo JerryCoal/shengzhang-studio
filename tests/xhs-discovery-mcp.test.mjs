@@ -40,6 +40,18 @@ function fixture(onCall, { mode = 'external', accountConfig } = {}) {
   return { mcp, config, calls, requests, get closed() { return closed; } };
 }
 
+test('failed detail preserves safe search text and existing image descriptions without claiming a verified post or retrying', async () => {
+  const f = fixture(async name => {
+    if (name === 'check_login_status') return login();
+    if (name === 'search_feeds') return json({ feeds: [{id:noteId(1),xsecToken:access,noteCard:{displayTitle:'保留搜索标题',desc:'保留搜索文字，但未核对详情。',imageAnalysis:'来源既有图片说明',imageList:[{url:'https://cdn.example.com/failed.jpg'}]}}] });
+    return { isError:true, content:[{type:'text',text:`需要验证码 PRIVATE_COOKIE ${secret}`}] };
+  });
+  const result = await f.mcp.researchSearch(req, {queries:['学习'],at:AT,discovery:settings()});
+  assert.equal(result.items.length,0); assert.equal(result.pendingReferences.length,1); assert.match(result.pendingReferences[0].text,/保留搜索文字/); assert.match(result.pendingReferences[0].reason,/未进入/);
+  assert.match(result.pendingReferences[0].imageEvidence.analysis,/来源既有/); assert.equal(result.reports[0].diagnostic.code,'mcp_verification'); assert.equal(result.reports[0].stats.detailRequests,1);
+  assert.equal(f.calls.filter(call=>call.name==='get_feed_detail').length,1); assert(!JSON.stringify(result).includes('PRIVATE_'));
+});
+
 test('real MCP status exposes saved configuration through research settings without making a platform request', async t => {
   for (const mode of ['external', 'builtin']) {
     const f = fixture(async () => { throw Error('status must not call a platform tool'); }, { mode });

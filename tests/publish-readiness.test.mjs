@@ -81,3 +81,10 @@ test('publishing starts with the account whose identity generated the content', 
   assert.equal(publicationAccountChoice(asset, accounts.filter(a => a.id !== 'selected')).sourceAvailable, false);
   assert.equal(publicationAccountChoice({ channel: 'xiaohongshu' }, accounts).defaultAccountId, 'first');
 });
+
+test('explicit content brief account takes priority and a removed account never silently becomes the first account', () => {
+  const accounts=[{id:'a',platform:'xiaohongshu',name:'甲账号'},{id:'b',platform:'xiaohongshu',name:'乙账号'}];
+  const asset={channel:'xiaohongshu',contentBrief:{accountId:'b'},creationTrace:{accounts:[{platform:'xiaohongshu',accountId:'a',accountName:'甲账号'}]}};
+  assert.deepEqual(publicationAccountChoice(asset,accounts),{defaultAccountId:'b',sourceAccountId:'b',sourceAccountName:'乙账号',sourceAvailable:true});
+  const removed=publicationAccountChoice(asset,accounts.slice(0,1));assert.equal(removed.defaultAccountId,'');assert.equal(removed.sourceAccountId,'b');assert.equal(removed.sourceAvailable,false);
+});

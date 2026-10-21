@@ -1,4 +1,5 @@
-import { assetAccountId, assetPublicationRecords, scopedPublications } from '../../server/workspace-view.mjs';
+import { assetAccountId, assetPublicationRecords } from '../../server/workspace-view.mjs';
+import { scopeHasAccount } from '../workspace-scope.mjs';
 import { assetPublishReadiness } from '../../server/publish-readiness.mjs';
 import { ProjectProfileEditor } from './ProjectProfileEditor';
 import { openPublishingSettings } from './SettingsPage';
@@ -17,10 +18,10 @@ import { Channel, date, Empty, Field, Modal, ModeNotice, NeedProject, PageTitle,
 
 export { ProjectProfileEditor as ProjectEditor } from './ProjectProfileEditor';
 export function DashboardPage() {
-  const { project, state, go, startProject, accountScope } = useStudio();
+  const { project, state, go, startProject, accountScope, scope } = useStudio();
   if (!project) return <><PageTitle title="工作台" subtitle="创建一个长期项目，之后每篇内容都可直接开始。"/><Empty title="建立你的第一个项目" text="保存项目资料、管理账号，开始创作。"><button className="button primary" onClick={startProject}>创建项目</button></Empty></>;
-  const assets = project.assets.filter(a => !accountScope || assetAccountId(a) === accountScope);
-  const pending = scopedPublications(project, accountScope).filter(p => ['scheduled', 'exported'].includes(p.status));
+  const assets = project.assets.filter(a => scope ? scopeHasAccount(scope, assetAccountId(a)) : !accountScope || assetAccountId(a) === accountScope);
+  const pending = project.publications.filter(p => (scope ? scopeHasAccount(scope, p.accountId) : !accountScope || p.accountId === accountScope) && ['scheduled', 'exported'].includes(p.status));
   const unfinished = assets.filter(a => !assetPublicationRecords(project, a, accountScope).length);
   return <>
     <PageTitle title="工作台" subtitle={project.brief.name + ' · 从上次停下的地方继续。'}><button className="button primary" onClick={() => go('studio', project.id, { newContent: true })}><Plus size={17}/>新建内容</button></PageTitle>

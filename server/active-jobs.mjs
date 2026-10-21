@@ -33,7 +33,7 @@ export function textTaskResource(stage, assetId) {
 
 export function acquireTaskResource(jobs, projectId, resourceKey) {
   const available = jobs.canAcquire ? jobs.canAcquire(projectId, resourceKey) : !jobs.has(projectId);
-  if (!available) { const error = new Error('这项内容正在执行任务，请等当前阶段完成；其他内容可同时工作。'); error.status = 409; throw error; }
+  if (!available) { const error = new Error('这项内容正在执行任务，请等当前阶段完成；其他内容可同时工作。'); error.status = 409; error.code = 'WORK_RESOURCE_BUSY'; error.noCharge = true; error.dispatched = false; throw error; }
   const token = jobs.acquire ? jobs.acquire(projectId, resourceKey) : jobs.add(projectId);
   return () => { if (jobs.release) jobs.release(projectId, resourceKey, token); else jobs.delete(projectId); };
 }

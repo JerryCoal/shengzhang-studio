@@ -26,10 +26,17 @@ import { attachBriefImports } from './project-brief-import-routes.mjs';
 import { mountRagRoutes } from './rag-routes.mjs';
 import { mountTrendRoutes } from './trend-routes.mjs';
 import { mountResearchRoutes } from './research-routes.mjs';
+import { createWorkControl } from './work-control.mjs';
+import { createWorkExecutors } from './work-executors.mjs';
+import { createWorkPlanner } from './work-planning.mjs';
+import { createWorkBackup } from './work-backup.mjs';
+import { currentActor } from './request-actor.mjs';
+import { mountWorkExperienceRoutes } from './work-experience.mjs';
 import { createOpenAITransport } from './openai-errors.mjs';
 import { createDeepSeekTransport } from './deepseek.mjs';
 import { createQwenTransport } from './qwen.mjs';
 import { createGLMTransport } from './glm.mjs';
+import { createLocalQwenTransport } from './local-qwen.mjs';
 import { qwenConnection, qwenRequestUrl } from './qwen-connection.mjs';
 import { mountIntegrations } from './integrations.mjs';
 import { consumeEditorDraft, rulesOf, saveRules, importCorpus, changeCorpus, searchCorpus, saveEditorDraft, reviewObject } from './workflow.mjs';
@@ -37,6 +44,8 @@ import { consumeEditorDraft, rulesOf, saveRules, importCorpus, changeCorpus, sea
 export function createApp(store, options = {}) {
   const app = express();
   const config = { apiKey: '', password: '', secret: randomBytes(32).toString('hex'), allowedOrigins: [], ...options };
+  if (!config.authorizeWorkActor && !config.teamMode) config.authorizeWorkActor = actor => actor?.userId === (config.workOwnerId || 'personal');
+  config.workFetcher = options.fetcher || fetch;
   config.getQwenConnection = () => qwenConnection(store.get().qwenConnection);
   const embeddingFetcher = options.ragFetcher || options.fetcher || fetch;
   config.ragFetcher = (url, init) => embeddingFetcher(qwenRequestUrl(url, store.get().qwenConnection), init);
@@ -44,7 +53,7 @@ export function createApp(store, options = {}) {
   const deepseekTransport = createDeepSeekTransport(openaiTransport.fetch);
   const qwenTransport = createQwenTransport(deepseekTransport.fetch, () => store.get().qwenConnection);
   const glmTransport = createGLMTransport(qwenTransport.fetch);
-  config.fetcher = glmTransport.fetch;
+  config.fetcher = createLocalQwenTransport(glmTransport.fetch, () => store.get().localQwenConnection, { allowed: config.allowLocalModels !== false, ...(options.localQwenFetcher ? { localFetcher: options.localQwenFetcher } : {}) }).fetch;
   config.glmTransport = app.locals.glmTransport = glmTransport;
   config.qwenTransport = app.locals.qwenTransport = qwenTransport;
   config.deepseekTransport = app.locals.deepseekTransport = deepseekTransport;
@@ -161,7 +170,19 @@ export function createApp(store, options = {}) {
   mountTrendRoutes(app, store, config, { project });
   app.locals.integrations = mountIntegrations(app, store, config, { project, mutate, activeJobs });
   mountResearchRoutes(app, store, config, { project, activeJobs });
+  if (store.work && config.workControl !== false && !config.webRelay) {
+    const executors = config.workExecutors || createWorkExecutors({ store, config, activeJobs, rag, integrations: app.locals.integrations });
+    const planner = config.workPlanner || createWorkPlanner({ store, config });
+    app.locals.workControl = createWorkControl({ store, config, executors, planner, activeJobs, ...config.workControlOptions });
+    app.locals.workControl.mount(app);
+    mountWorkExperienceRoutes({ app, store, config });
+  }
   app.get('/api/backup', (_req, res) => res.set('Content-Disposition', 'attachment; filename="shengzhang-backup.json"').json(store.get()));
+  app.get('/api/work-backup', (_req, res) => {
+    if (!store.work) return res.status(503).json({ error: '当前部署没有后台任务数据库' });
+    const backup = createWorkBackup(store, { ownerId: config.workOwnerId || 'personal' });
+    res.set('Content-Disposition', 'attachment; filename="shengzhang-work-backup.json"').json(backup.exportForOwner(currentActor()?.userId || config.workOwnerId || 'personal'));
+  });
   app.post('/api/projects/:id/export', async (req, res) => {
     const data = z.object({ kind: z.enum(['asset', 'publication']), id: z.string(), expectedRevision: z.number().int().positive().optional() }).parse(req.body);
     const p = project(store.get(), req.params.id);

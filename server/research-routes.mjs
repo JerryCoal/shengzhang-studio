@@ -6,6 +6,8 @@ import { assert, touch, activity, now } from './domain.mjs';
 import { stageConfig, MODELS } from './models.mjs';
 import { generateStructured, estimateStructuredReservation, tokenCost } from './ai.mjs';
 import { researchDefinition, researchInstructions } from './research-ai.mjs';
+import { researchSourceDiagnostic } from './research-source-diagnostics.mjs';
+import { textOnlyImageEvidence } from './research-image-evidence.mjs';
 import { skillVersionsFor } from './ai-skill-registry.mjs';
 import { resolveBuiltinSkills } from './builtin-skills.mjs';
 import { resolveWorkflowSkill, customSkillInstructions } from './creative-skills.mjs';
@@ -92,6 +94,12 @@ export function mountResearchRoutes(app, store, config, { project, activeJobs })
     res.json({ result, state: store.get() });
   });
   async function modelKey(route) {
+    if (route.provider === 'local-qwen') {
+      const status = config.localQwenVault?.status();
+      assert(config.allowLocalModels !== false && store.get().localQwenConnection?.enabled, '请先在主机设置中启用本地 Qwen');
+      assert(!status?.problem, '本地模型凭据无法读取，请重新保存。');
+      return status?.configured ? config.localQwenVault.getKey() : '';
+    }
     const vault = route.provider === 'glm' ? config.glmVault : route.provider === 'qwen' ? config.qwenVault : route.provider === 'deepseek' ? config.deepseekVault : config.vault;
     const status = vault?.status() || {};
     assert(!status.problem, '模型凭据无法读取，请在设置中重新保存。');
@@ -217,7 +225,7 @@ export function mountResearchRoutes(app, store, config, { project, activeJobs })
             const result = await search(req,{projectId:pid,platform,accountId:sourceAccount?.id,queries,at:Date.now(),assertActive,redfoxXhsExpansion:input.redfoxXhsExpansion,...(discovery?{discovery}:{})});
             raw.push(...result.items); reports.push(...result.reports);
             if (result.pendingReferences?.length) phase('search',{pendingReferences:[...(researchOf(current()).pendingReferences || []),...result.pendingReferences].slice(0,40)});
-          } catch(error) { assertActive(); reports.push({sourceId:platform,name:`${platformName} ${dataProvider === 'redfox' ? 'Redfox' : 'MCP'}`,status:'failed',count:0,message:dataProvider === 'redfox' ? error.redfoxSafe ? error.message : 'Redfox 读取未完成；未自动重试或切换服务，请核对连接与用量。' : 'MCP 搜索未完成，请检查服务、登录或平台验证。'}); }
+          } catch(error) { assertActive(); reports.push({sourceId:platform,name:`${platformName} ${dataProvider === 'redfox' ? 'Redfox' : 'MCP'}`,status:'failed',count:0,message:dataProvider === 'redfox' ? error.redfoxSafe ? error.message : 'Redfox 读取未完成；未自动重试或切换服务，请核对连接与用量。' : 'MCP 搜索未完成，请检查服务、登录或平台验证。', ...(dataProvider === 'mcp' ? { diagnostic: researchSourceDiagnostic(error) } : {})}); }
           phase('search',{reports});
         }
         if(sources.includes('rss')){const selected=trendsOf(initial).settings;const collected=await collectNews({...selected,keywords:input.keywords},{fetcher:config.newsFetcher,resolver:config.newsResolver});raw.push(...collected.articles.map(a=>({kind:'rss',title:a.title,url:a.url,text:a.excerpt,publishedAt:a.publishedAt,collectedAt:a.fetchedAt,dateBasis:'publisher-feed',sourceName:a.source,metrics:null})));reports.push(...collected.reports.map(r=>({...r,sourceId:'rss'})));}
@@ -250,7 +258,7 @@ export function mountResearchRoutes(app, store, config, { project, activeJobs })
       const references=ranked?ranked.analysisReferences:relevant.length?relevant:cleaned.references.slice(0,8);
       const retrieval=ranked?{method:'sample-interaction',count:references.length,note:ranked.summary.note,comparison:ranked.summary}:{method:relevant.length?retrieved.method:'recent-candidates',count:references.length,note:relevant.length?'已检索相关原文，仍须核对用途与语境。':'没有关键词命中，使用本轮少量近期候选供 AI 判断；不代表语义匹配。'};
       phase('analyze',{retrieval,ragIndex:index});
-      const result=await ai(discovery?'xhs-analysis':'analysis',{brief:{product:initial.brief.product,audience:initial.brief.audience,goal:initial.brief.goal,facts:initial.brief.facts},keywords:input.keywords,...filters,references:references.map(({sourceAccountId,sourceAccountName,...reference})=>reference),...(discovery?{discovery,sampleComparison:ranked.summary}: {})},analysisRoute,analysisKey);
+      const result=await ai(discovery?'xhs-analysis':'analysis',{brief:{product:initial.brief.product,audience:initial.brief.audience,goal:initial.brief.goal,facts:initial.brief.facts},keywords:input.keywords,...filters,references:references.map(({sourceAccountId,sourceAccountName,...reference})=>({...reference,...(reference.imageEvidence ? {imageEvidence:textOnlyImageEvidence(reference)} : {})})),...(discovery?{discovery,sampleComparison:ranked.summary}: {})},analysisRoute,analysisKey);
       assertActive();
       store.mutate(state=>{const p=project(state,pid),r=researchOf(p);p.research={...r,references:cleaned.references,analyses:result.analyses.map(a=>({...a,id:runId+':'+a.id})),selectedIds:[],acknowledgedIds:[],revision:r.revision+1,run:{...r.run,status:'completed',phase:'completed',finishedAt:now()},analysisModel:analysisRoute.model,skillVersions:skillVersionsFor('research-analysis',{builtinSkills:researchBuiltins['research-analysis']})};touch(p);activity(state,discovery?`${platformName}同话题研究已完成`:'近期内容研究已完成',`${cleaned.references.length} 条来源 · ${result.analyses.length} 个参考方向，等待选用`,pid);});
       res.json({result:researchOf(current()),state:store.get()});

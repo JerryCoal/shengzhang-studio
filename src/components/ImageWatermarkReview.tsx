@@ -4,7 +4,7 @@ import type { ImageWatermarkCheck } from '../types';
 import './image-watermark-review.css';
 
 export function VisibleWatermarkOption({ checked, onChange, disabled, defaultSetting = false }: { checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean; defaultSetting?: boolean }) {
-  return <div className="visible-watermark-option"><label><input type="checkbox" checked={checked} disabled={disabled} onChange={event => onChange(event.target.checked)}/><span><b>{defaultSetting ? '默认添加可见水印' : '本次添加可见水印'}</b><small>{defaultSetting ? '保存后用于新的 Seedream 封面和关键帧，可在生成时临时调整。' : '仅影响这次 Seedream 请求，不修改默认设置。'}</small></span></label><p>此选项控制服务商的可见角标。生成后仍需检查画面文字；当前生成记录保留本次请求与检查结果。</p></div>;
+  return <div className="visible-watermark-option"><label><input type="checkbox" checked={checked} disabled={disabled} onChange={event => onChange(event.target.checked)}/><span><b>{defaultSetting ? '默认添加可见水印' : '本次添加可见水印'}</b><small>{defaultSetting ? '保存后用于新的 Seedream 封面和关键帧，可在生成时临时调整。' : '仅影响这次 Seedream 请求，不修改默认设置。'}</small></span></label><p>新设置默认不请求可见水印，工作站不叠加水印。此开关不能去除服务商强制标识或已出现在画面内的文字，生成后仍需人工检查。</p></div>;
 }
 
 const normalized = (value: number) => Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;

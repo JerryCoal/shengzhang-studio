@@ -10,14 +10,14 @@ export const SEEDREAM_MODELS = {
 };
 export const SEEDREAM_SIZE = '1440x2560';
 export const SEEDREAM_COVER_SIZE = '1728x2304';
-export const defaultSeedream = { family: '5.0-lite', model: SEEDREAM_MODELS['5.0-lite'].model, reservationUsd: 0.1, imagePriceUsd: 0, watermark: true };
+export const defaultSeedream = { family: '5.0-lite', model: SEEDREAM_MODELS['5.0-lite'].model, reservationUsd: 0.1, imagePriceUsd: 0, watermark: false };
 export const seedreamSettingsSchema = z.object({
   family: z.enum(['5.0-lite', '5.0-pro', '4.5', '4.0']),
   model: z.string().trim().min(3).max(120).regex(/^[a-zA-Z0-9_-]+$/),
   reservationUsd: z.number().min(.01).max(100),
   imagePriceUsd: z.number().min(0).max(100),
-  // Preserve the previous behaviour when loading settings saved before v1.17.
-  watermark: z.boolean().default(true),
+  // Missing preferences default off; explicit saved true/false remain unchanged.
+  watermark: z.boolean().default(false),
 }).strict().superRefine((value, context) => {
   // Endpoint IDs hide the family, so users explicitly choose it. Known model IDs
   // cannot be paired with an incompatible family (Pro does not accept group mode).

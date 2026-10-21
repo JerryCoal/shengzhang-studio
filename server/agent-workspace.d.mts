@@ -1,8 +1,8 @@
 import type { State, Project, Asset, ContentRule, Platform } from '../src/types';
 export type AgentIdea = { title: string; core: string; direction: string; prompt: string };
 export type AgentInput = { platform?: Platform; accountId?: string; model?: string; knowledgeIds?: string[]; experienceIds?: string[]; referenceIds?: string[]; skillIds?: string[]; publishingNotes?: string; idea?: AgentIdea };
-export type AgentDraft = AgentInput & { requirement: string; kind: 'image' | 'video'; updatedAt?: string };
-export type AgentWorkspaceState = { revision: number; drafts: Record<string, AgentDraft> };
+export type AgentDraft = AgentInput & { requirement: string; kind: 'image' | 'video'; updatedAt?: string; conversation?: import('./inspiration-conversation.mjs').InspirationConversation };
+export type AgentWorkspaceState = { revision: number; drafts: Record<string, AgentDraft>; inspirationReceipts?: Record<string, import('./inspiration-conversation.mjs').InspirationReceipt> };
 export type AgentPacket = AgentInput & { fromAgent: string; projectId: string; createdAt: string; context?: unknown };
 export const AGENT_IDS: string[];
 export function agentWorkspace(state: State): AgentWorkspaceState;
