@@ -7,10 +7,10 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { readWorkspaceRoute, writeWorkspaceRoute } from '../src/workspace-route.mjs';
 const require = createRequire(import.meta.url);
 const { build } = createRequire(require.resolve('vite'))('esbuild');
-const compiled = await build({ stdin: { contents: "export { PlanReview, PlanningAction, WorkStatusBadge, ArtifactEditor, ExperienceCapture, ControllerPage } from './src/pages/WorkControl'; export { Context } from './src/context'; export { statusLabel, activeWork, attentionWork, refinementAccountIds, deliverWorkNotification } from './src/work-control';", resolveDir: process.cwd(), loader: 'tsx' }, bundle: true, platform: 'node', format: 'cjs', write: false, packages: 'external', loader: { '.css': 'empty' }, define: { 'import.meta.env.MODE': '"test"', 'import.meta.env.VITE_API_BASE_URL': '""' }, logLevel: 'silent' });
+const compiled = await build({ stdin: { contents: "export { PlanReview, PlanningAction, WorkStatusBadge, ArtifactEditor, ExperienceCapture, ControllerPage, PlanningNextStep, DeleteWorkTaskButton } from './src/pages/WorkControl'; export { WorkDispatch } from './src/components/WorkDispatch'; export { Context } from './src/context'; export { statusLabel, activeWork, attentionWork, refinementAccountIds, deliverWorkNotification, prepareWorkMedia } from './src/work-control';", resolveDir: process.cwd(), loader: 'tsx' }, bundle: true, platform: 'node', format: 'cjs', write: false, packages: 'external', loader: { '.css': 'empty' }, define: { 'import.meta.env.MODE': '"test"', 'import.meta.env.VITE_API_BASE_URL': '""' }, logLevel: 'silent' });
 const module = { exports: {} };
 new Function('module', 'exports', 'require', compiled.outputFiles[0].text)(module, module.exports, require);
-const { PlanReview, PlanningAction, WorkStatusBadge, ArtifactEditor, ExperienceCapture, ControllerPage, Context, statusLabel, activeWork, attentionWork, refinementAccountIds, deliverWorkNotification } = module.exports;
+const { PlanReview, PlanningAction, WorkStatusBadge, ArtifactEditor, ExperienceCapture, ControllerPage, PlanningNextStep, DeleteWorkTaskButton, WorkDispatch, Context, statusLabel, activeWork, attentionWork, refinementAccountIds, deliverWorkNotification, prepareWorkMedia } = module.exports;
 globalThis.sessionStorage = { getItem() { return 'SYNTHETIC_SESSION'; } };
 const context = { state: { accounts: [{ id: 'a', name: '校园 A', platform: 'xiaohongshu' }, { id: 'b', name: '品牌 B', platform: 'douyin' }], projects: [] }, project: { id: 'p' }, settings: { routes: { strategy: 'test-model' }, models: { 'test-model': { label: '合成模型' } } }, target: {}, go() { throw new Error('SSR cannot navigate'); }, notify() {}, scope: { projectIds: ['p'], accountIds: [] } };
 const render = (Component, props) => renderToStaticMarkup(createElement(Context.Provider, { value: context }, createElement(Component, props)));
@@ -19,22 +19,37 @@ const plan = { id: 'plan', projectId: 'p', version: 1, status: 'draft', goal: '�
 test('new deep links preserve exact task/run/artifact/event while dropping private text', () => {
   const target = { taskId: 'task/一', runId: 'run?x', artifactId: 'artifact&a', artifactVersion: '3', eventId: 'event#5', planId: 'plan-1', goal: 'PRIVATE_GOAL', token: 'PRIVATE_TOKEN' };
   const hash = writeWorkspaceRoute('tasks', '项目 p', target), route = readWorkspaceRoute(hash);
-  assert.equal(route.page, 'tasks'); assert.equal(route.target.artifactVersion, '3'); assert.equal(route.target.taskId, 'task/一'); assert.doesNotMatch(hash, /PRIVATE|goal|token/);
-  for (const page of ['controller', 'tasks', 'accounts', 'materials', 'studio', 'publish', 'inspiration']) assert.equal(readWorkspaceRoute(writeWorkspaceRoute(page)).page, page);
+  assert.equal(route.page, 'controller'); assert.equal(route.target.artifactVersion, '3'); assert.equal(route.target.taskId, 'task/一'); assert.doesNotMatch(hash, /PRIVATE|goal|token/);
+  for (const page of ['controller', 'tasks', 'accounts', 'materials', 'studio', 'publish', 'inspiration']) assert.equal(readWorkspaceRoute(writeWorkspaceRoute(page)).page, page === 'tasks' ? 'controller' : page);
 });
 test('states distinguish waiting, unknown and saved results without inventing progress', () => {
   assert.equal(statusLabel('waiting_dependencies'), '等待前置成果'); assert.equal(statusLabel('needs_reconciliation'), '结果待核对'); assert.equal(activeWork('waiting_dependencies'), true); assert.equal(attentionWork('needs_reconciliation'), true); assert.equal(activeWork('succeeded'), false);
   assert.match(render(WorkStatusBadge, { status: 'needs_reconciliation' }), /结果待核对/);
   assert.doesNotMatch(render(WorkStatusBadge, { status: 'queued' }), /思考|\d+%|已完成/);
 });
-test('plan review exposes account boundaries, dependencies and explicit unchecked approval', () => {
+test('plan confirmation prepares tasks without implying paid dispatch approval', () => {
   const html = render(PlanReview, { plan, onChanged() {} });
-  assert.match(html, /校园 A/); assert.match(html, /品牌 B/); assert.match(html, /项目共享研究/); assert.match(html, /等待：同话题研究/); assert.match(html, /只生成草稿，不发布/); assert.match(html, /仅填写，不批准/);
-  assert.match(html, /<button class="button primary" disabled=""/); assert.doesNotMatch(html, /checked=""/);
+  assert.match(html, /校园 A/); assert.match(html, /品牌 B/); assert.match(html, /项目共享研究/); assert.match(html, /等待：同话题研究/); assert.match(html, /只生成草稿，不发布/); assert.match(html, /确认计划只建立待批准任务，不发送模型请求/);
+  assert.match(html, /确认计划，准备逐项派工/); assert.doesNotMatch(html, /确认计划并排队|本次批准总额度/);
 });
 test('approved plan is immutable until an explicit new-version edit', () => {
   const html = render(PlanReview, { plan: { ...plan, status: 'approved' }, onChanged() {} });
   assert.match(html, /运行中的任务仍使用原输入/); assert.doesNotMatch(html, /确认计划并排队/);
+});
+
+test('dispatch starts without implicit Skills consent and keeps payment disabled until inputs restore and quote is checked', () => {
+  const html = render(WorkDispatch, {
+    task: { id: 'task', title: '校园文案', role: 'xiaohongshu-copy', projectId: 'p', accountId: 'a', accountName: '校园 A' },
+    run: { id: 'run', taskId: 'task', projectId: 'p', status: 'pending_approval', revision: 1, node: plan.nodes[0], dispatch: { ready: true, workflowId: 'copy-xiaohongshu' } },
+    onClose() {}, onApproved() {},
+  });
+  assert.match(html, /总控下发的指令 · 可直接修改/);
+  assert.match(html, /本次只用默认规则，不使用额外 Skill/);
+  assert.match(html, /校园 A/);
+  assert.doesNotMatch(html, /checked=""/);
+  const approve = html.match(/<button\b[^>]*>[\s\S]*?<\/button>/g).find(item => item.includes('批准本次派工'));
+  assert.match(approve, /disabled=""/);
+  assert.match(html, /后续 Agent 会再次请你确认/);
 });
 test('AI planning starts with free estimate and does not imply execution approval', () => {
   const html = render(PlanningAction, { goal: '未来课堂', accountIds: ['a'] });
@@ -46,8 +61,8 @@ test('artifact content is escaped; candidate adoption is explicit and history re
 });
 test('main navigation preserves legacy entry points and static mode degrades honestly', async () => {
   const app = await readFile('src/App.tsx', 'utf8'), view = await readFile('src/pages/WorkControl.tsx', 'utf8'), helpers = await readFile('src/work-control.ts', 'utf8');
-  for (const label of ['总控', '任务', '账号', '资料']) assert.ok(app.includes(`label: '${label}'`));
-  assert.match(app, /原有工作区与交付入口/); assert.match(app, /case 'publish'/); assert.match(app, /case 'analysis-agent'/); assert.match(view, /此版本不运行后台任务引擎/); assert.match(view, /if \(LOCAL_DATA\) return <LocalWorkNotice/);
+  for (const label of ['总控', '账号', '资料']) assert.ok(app.includes(`label: '${label}'`));
+  assert.match(app, /历史与交付/); assert.match(app, /case 'publish'/); assert.match(app, /case 'analysis-agent'/); assert.match(view, /此版本不运行后台任务引擎/); assert.match(view, /if \(LOCAL_DATA\) return <LocalWorkNotice/);
   assert.match(helpers, /session\.current !== workSession\(\)/); assert.match(helpers, /registerWorkspaceSaver/);
 });
 test('controller waits for owner-scoped restoration and offers durable conversation history', async () => {
@@ -90,4 +105,55 @@ test('desktop retry rechecks identity and notification ID and never calls a real
     assert.deepEqual(await deliverWorkNotification(args, () => true, { ...services, notify: async () => ({ delivered: true }) }), { delivered: true }); assert.deepEqual(failures, ['notice']);
   } finally { globalThis.sessionStorage = { getItem() { return 'SYNTHETIC_SESSION'; } }; }
   const view = await readFile('src/pages/WorkControl.tsx', 'utf8'); assert.match(view, /重试桌面提醒/); assert.match(view, /!item\.deliveryAttemptedAt/); assert.match(view, /window\.studioDesktop\?\.notifyWork && !item\.readAt && !item\.deliveredAt/);
+});
+
+test('finished planning has a durable next step and unknown plans never get execution links', () => {
+  const run = { id: 'planning-run', projectId: 'p', status: 'succeeded', planningPlanId: 'saved-plan', planningPlanVersion: 2 };
+  assert.match(render(PlanningNextStep, { run }), /核对本轮计划/);
+  assert.match(render(PlanningNextStep, { run: { ...run, planningPlanId: '', planningQuestion: '请选择目标账号' } }), /返回总控补充需求/);
+  assert.equal(render(PlanningNextStep, { run: { ...run, planningPlanId: '', status: 'running' } }), '');
+  const html = render(PlanReview, { plan, onChanged() {} });
+  assert.match(html, /图片 Agent 需要单独批准/);
+  assert.match(html, /每次派工都要选择 Skills/);
+  assert.doesNotMatch(html, /确认计划并排队/);
+  assert.match(render(PlanReview, { plan: { ...plan, status: 'approved' }, onChanged() {} }), /本轮协作/);
+});
+
+test('task deletion follows server eligibility and media continuation works for historical broken links', () => {
+  assert.match(render(DeleteWorkTaskButton, { task: { id: 'task', removable: true }, onDeleted() {} }), /删除任务/);
+  assert.equal(render(DeleteWorkTaskButton, { task: { id: 'task', removable: false }, onDeleted() {} }), '');
+  const artifact = { id: 'task', taskId: 'task', runId: 'run', version: 2, title: '旧文案', body: '正文', kind: 'copy', legacy: {} };
+  assert.match(render(ArtifactEditor, { artifact, projectId: 'p', headVersion: 2, onSaved() {} }), /图片 Agent/);
+  assert.match(render(ArtifactEditor, { artifact: { ...artifact, kind: 'script' }, projectId: 'p', headVersion: 2, onSaved() {} }), /图片 Agent/);
+  assert.doesNotMatch(render(ArtifactEditor, { artifact: { ...artifact, candidate: true }, projectId: 'p', headVersion: 2, onSaved() {} }), /图片 Agent/);
+});
+
+test('media handoff repairs the selected version then refreshes, without a paid request or stale-owner navigation', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const artifact = { id: 'task/一', version: 3, kind: 'copy', legacy: {} };
+  let owner = 'SYNTHETIC_SESSION', afterRead, afterRefresh, response = { projectId: 'p', assetId: 'exact-asset' };
+  globalThis.sessionStorage = { getItem() { return owner; } };
+  globalThis.fetch = async (url, options) => { calls.push({ url, method: options.method }); afterRead?.(); return new Response(JSON.stringify(response), { status: 200, headers: { 'Content-Type': 'application/json' } }); };
+  const refresh = async () => { calls.push('refresh'); afterRefresh?.(); };
+  try {
+    assert.deepEqual(await prepareWorkMedia(artifact, 'p', refresh), response);
+    assert.equal(calls[0].method, 'POST');
+    assert.match(calls[0].url, /artifacts\/task%2F%E4%B8%80\/versions\/3\/media-draft$/);
+    assert.equal(calls[1], 'refresh');
+    calls.length = 0;
+    await assert.rejects(prepareWorkMedia({ ...artifact, candidate: true }, 'p', refresh), /先采用/);
+    assert.equal(calls.length, 0);
+    response = { projectId: 'other-project', assetId: 'wrong-asset' };
+    await assert.rejects(prepareWorkMedia(artifact, 'p', refresh), /归属/);
+    assert.equal(calls.includes('refresh'), false);
+    response = { projectId: 'p', assetId: 'exact-asset' }; calls.length = 0;
+    afterRead = () => { owner = 'CHANGED_SESSION'; };
+    await assert.rejects(prepareWorkMedia(artifact, 'p', refresh), /工作区已切换/);
+    assert.equal(calls.includes('refresh'), false);
+    owner = 'SYNTHETIC_SESSION'; afterRead = null; afterRefresh = () => { owner = 'CHANGED_SESSION'; };
+    await assert.rejects(prepareWorkMedia(artifact, 'p', refresh), /工作区已切换/);
+    owner = 'SYNTHETIC_SESSION'; afterRefresh = null;
+    await assert.rejects(prepareWorkMedia(artifact, 'p', async () => { throw Error('刷新失败'); }), /刷新失败/);
+  } finally { globalThis.fetch = originalFetch; globalThis.sessionStorage = { getItem() { return 'SYNTHETIC_SESSION'; } }; }
 });

@@ -80,7 +80,7 @@ export async function createTeamApp(options) {
     next();
   });
   app.use(express.json({ limit: '32mb' }));
-  app.get('/api/health', (_req, res) => res.json({ ok: true, authRequired: true, authMode: 'profiles', teamMode: true, localOnly: false, workspaceName, setupRequired: !usersCount(), version: '2.1.0' }));
+  app.get('/api/health', (_req, res) => res.json({ ok: true, authRequired: true, authMode: 'profiles', teamMode: true, localOnly: false, workspaceName, setupRequired: !usersCount(), version: '2.2.0' }));
   app.use('/api', (req, res, next) => req.get('X-Studio-Client') === 'studio-v1' ? next() : res.status(403).json({ error: '请从团队工作站访问' }));
   const keyOf = req => tokenHash((req.get('Authorization') || '').replace(/^Bearer /, ''));
   const sessionIdentity = req => {

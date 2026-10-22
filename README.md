@@ -1,14 +1,19 @@
-# Shengzhang Studio 自媒体运营工作站 · v2.1.0
+# Shengzhang Studio 自媒体运营工作站 · v2.2.0
 
-本轮在现有工作站上增加“总控 → 任务”的工作入口：在总控描述运营目标，先生成并核对计划、账号、依赖和费用额度，再明确批准执行；在任务中查看真实活动、成果版本、补充对话及需要人工核对的结果。AI 规划费用与实际业务执行分别确认，发送消息不会自行授权收费或发布。
+在总控一个页面提出需求、核对计划、批准各 Agent 派工、查看文案与配图。每次派工都可修改指令、显式选择本次 Skills 或默认规则，并单独确认费用。前置任务完成后会准备下一项，仍等待用户批准。
 
-[升级说明](docs/UPGRADE-2.1.0.md) · [本轮改动](docs/RELEASE-2.1.0.md) · [验证范围](docs/VALIDATION-2.1.0.md) · [开发交接](docs/DEVELOPMENT-HANDOFF-2.1.0.md) · [本地 Qwen 接口](docs/LOCAL-QWEN-SETUP.md)
+[Windows x64 下载](https://github.com/JerryCoal/shengzhang-studio/releases/download/v2.2.0/Shengzhang-Studio-2.2.0-windows-x64.zip) · [SHA-256 校验](https://github.com/JerryCoal/shengzhang-studio/releases/download/v2.2.0/Shengzhang-Studio-2.2.0-windows-x64.zip.sha256) · [v2.2.0 发布页](https://github.com/JerryCoal/shengzhang-studio/releases/tag/v2.2.0)
 
-保留原有灵感、各平台创作、发布与复盘流程，以及项目、账号、素材、发布记录和费用记录。迁移只接入实际存在的旧检查点，不补造历史，不把未知结果重新发送；旧流程仍可继续使用。升级前停止旧程序并备份，不能让旧程序写入已经升级的新数据库。含任务历史的业务备份不含密钥，但含私有内容，不能公开上传。
+[升级说明](docs/UPGRADE-2.2.0.md) · [本轮改动](docs/RELEASE-2.2.0.md) · [验证范围](docs/VALIDATION-2.2.0.md) · [开发交接](docs/DEVELOPMENT-HANDOFF-2.2.0.md) · [本地 Qwen 接口](docs/LOCAL-QWEN-SETUP.md)
 
-当前源码版本为 v2.1.0；可下载版本与发布状态以 [GitHub Releases](https://github.com/JerryCoal/shengzhang-studio/releases) 为准。下方旧版直链用于历史回退，不表示 v2.1.0 已完成发布。
+- 文案和脚本可在原页面接续一至四张图片；各张单独保存、采用和重做，失败项不会带着已完成图片重复生成。
+- 派工和图片设置自动保存；刷新恢复草稿，执行仍须重新核对批准。
+- 自装 Skills 可修改；已完成、失败及取消任务可移除，成果和费用记录保留。
+- 旧任务链接仍定位到对应项目、任务、运行和成果版本；历史创作与发布入口保留。
 
-v2.1.0 按预发行候选交付：自动回归与真实界面验收分开记录，尚未完成的实机、原生通知及跨设备检查见本版验证范围；不宣称整份开发计划全部验收通过。
+本版沿用 v2.1.0 的预发行标记，提供 Windows 个人版与源码，不包含新版团队部署压缩包。完整回归 1303 项通过、2 项跳过，最终界面检查、Windows 隔离启动和压缩包校验通过。文案和图片使用模拟服务验收，未调用真实收费生成或平台发布；详细范围见验证记录。
+
+解压完整 Windows 包后启动 ShengzhangStudio.exe。源码工作区 Start-App.cmd 按项目版本选择对应包。既有本地项目、账号和素材继续保留；升级前退出旧版并备份，避免新旧程序同时写入数据库。
 
 JCoal 开发。从灵感、平台创作、确认发布，到结果分析与经验复用，在同一工作站完成账号矩阵运营。
 
@@ -23,7 +28,7 @@ v2.0.0 基于已有架构增量升级：独立灵感/小红书/抖音/Instagram/
 
 ## 历史迭代记录
 
-以下说明保留各版本当时状态，不代表当前发布状态。当前功能与测试边界以 v2.1.0 及其验证记录为准。
+以下说明保留各版本当时状态，不代表当前发布状态。当前功能与测试边界以 v2.2.0 及其验证记录为准。
 
 ### v1.26.0 · Redfox 本地测试版
 
@@ -276,7 +281,7 @@ node scripts/package-windows-release.mjs
 node scripts/package-windows-release.mjs --verify
 ```
 
-v2.1.0 个人版目标为 `outputs/Shengzhang-Studio-2.1.0-windows-x64.zip`，团队版目标为 `outputs/Shengzhang-Studio-Team-2.1.0-windows-x64.zip`；团队版通过 `pnpm run build:team` 构建，包含 Node 与 Caddy。Windows 收尾脚本仅接受当前版本的受控 `outputs/windows/` 目录，生成 ZIP、SHA-256 和文件清单，拒绝覆盖同名产物；`--verify` 只校验既有产物。旧版本包保留，构建完成不等于已上传 GitHub。仓库不包含第三方运行组件压缩包、用户数据、测试产物或个人密钥。原生工程构建前需执行 `pnpm native:sync`，再使用 Android Studio 或 macOS/Xcode。
+v2.2.0 Windows 个人版目标为 `outputs/Shengzhang-Studio-2.2.0-windows-x64.zip`。团队版仍可通过 `pnpm run build:team` 单独构建，但本次 Release 未附新版团队部署包。Windows 收尾脚本仅接受当前版本的受控 `outputs/windows/` 目录，生成 ZIP、SHA-256 和文件清单，拒绝覆盖同名产物；`--verify` 只校验既有产物。旧版本包保留，构建完成不等于已上传 GitHub。仓库不包含第三方运行组件压缩包、用户数据、测试产物或个人密钥。原生工程构建前需执行 `pnpm native:sync`，再使用 Android Studio 或 macOS/Xcode。
 
 ```text
 src/          页面、输入辅助、浏览器工作区、图文与视频制作
@@ -290,4 +295,4 @@ android/      安卓工程（待签名与真机验证）
 ios/          iOS 工程（待签名与真机验证）
 ```
 
-更多文档：[提示词与输入辅助](docs/PROMPT-WORKFLOW.md) · [生成与平台连接](docs/GENERATION-AND-PLATFORMS.md) · [团队部署说明](docs/TEAM-DEPLOYMENT-1.25.0.md)。历史文档描述对应版本，当前功能与验证边界以 [v2.1.0 发布说明](docs/RELEASE-2.1.0.md) 和 [验证记录](docs/VALIDATION-2.1.0.md) 为准。运行前置、模块索引和下一步见 [开发交接文档](docs/DEVELOPMENT-HANDOFF-2.1.0.md)。
+更多文档：[提示词与输入辅助](docs/PROMPT-WORKFLOW.md) · [生成与平台连接](docs/GENERATION-AND-PLATFORMS.md) · [团队部署说明](docs/TEAM-DEPLOYMENT-1.25.0.md)。历史文档描述对应版本，当前功能与验证边界以 [v2.2.0 发布说明](docs/RELEASE-2.2.0.md) 和 [验证记录](docs/VALIDATION-2.2.0.md) 为准。运行前置、模块索引和下一步见 [开发交接文档](docs/DEVELOPMENT-HANDOFF-2.2.0.md)。

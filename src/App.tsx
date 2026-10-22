@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Bell, BookOpen, CircleHelp, Clapperboard, FolderOpen, Instagram, LayoutDashboard, Leaf, Lightbulb, ListTodo, Loader2, Menu, Search, Settings2, Sparkles, Sprout, Upload, UsersRound, Video, X, Youtube } from 'lucide-react';
+import { Bell, BookOpen, CircleHelp, FolderOpen, LayoutDashboard, Leaf, Lightbulb, Loader2, Menu, Search, Settings2, Sparkles, Sprout, Upload, UsersRound, Video, X } from 'lucide-react';
 import { api, IS_STATIC, IS_WEB, LOCAL_DATA, type Mutation } from './api';
 import { Context, type WorkspaceTarget } from './context';
-import { readWorkspaceRoute, writeWorkspaceRoute } from './workspace-route.mjs';
+import { readWorkspaceRoute, resolveWorkspacePage, writeWorkspaceRoute } from './workspace-route.mjs';
 import type { AppearancePreferences, Page, Settings, State } from './types';
 import { DashboardPage, ProjectsPage, StrategyPage, ProjectEditor } from './pages/Workspace';
 import { GuidePage, PageHelp, PracticeCoach } from './pages/Guide';
@@ -25,33 +25,23 @@ import { WorkspaceScopePicker, WorkspaceScopeSummary } from './components/Worksp
 import { normalizeWorkspaceScope, scopeWithPrimary, type WorkspaceScope } from './workspace-scope.mjs';
 import './publish-layout.css';
 import { flushWorkspaceSavers } from './workspace-save';
-import { AccountsPage, ControllerPage, MaterialsPage, TasksPage, WorkNotificationCenter } from './pages/WorkControl';
+import { AccountsPage, ControllerPage, MaterialsPage, WorkNotificationCenter } from './pages/WorkControl';
 
 const primaryNavigation = [
   { page: 'controller', label: '总控', icon: Sparkles },
-  { page: 'tasks', label: '任务', icon: ListTodo },
   { page: 'accounts', label: '账号', icon: UsersRound },
   { page: 'materials', label: '资料', icon: BookOpen },
 ] as const;
 
 const navigation = [
-  { page: 'inspiration', label: '灵感 Agent', icon: Sparkles },
   { page: 'dashboard', label: '工作概览', icon: LayoutDashboard },
-  { page: 'xiaohongshu-agent', label: '小红书 Agent', icon: BookOpen },
-  { page: 'douyin-agent', label: '抖音 Agent', icon: Clapperboard },
-  { page: 'instagram-agent', label: 'Instagram Agent', icon: Instagram },
-  { page: 'youtube-agent', label: 'YouTube Agent', icon: Youtube },
-  { page: 'publish', label: '发布中心', icon: Upload },
-  { page: 'analysis-agent', label: '结果分析 Agent', icon: Lightbulb },
-  { page: 'trends', label: '资料与经验', icon: Search },
-  { page: 'studio', label: '全部内容', icon: Video },
+  { page: 'studio', label: '历史内容', icon: Video },
+  { page: 'publish', label: '发布与交付', icon: Upload },
+  { page: 'analysis-agent', label: '结果复盘', icon: Lightbulb },
 ] as const;
-const navigationGroups = [
-  { label: '工作站', pages: ['inspiration', 'dashboard'] },
-  { label: '创作 AGENTS', pages: ['xiaohongshu-agent', 'douyin-agent', 'instagram-agent', 'youtube-agent'] },
-  { label: '交付与复盘', pages: ['publish', 'analysis-agent'] },
-  { label: '工作资产', pages: ['trends', 'studio'] },
-];
+export function WorkspaceNavigation({ page, upcoming, onNavigate }: { page: Page; upcoming: number; onNavigate: (page: Page) => void }) {
+  return <nav className="workspace-navigation" aria-label="主导航"><div className="work-primary-navigation">{primaryNavigation.map(({ page: destination, label, icon: Icon }) => <button className={`nav-item ${page === destination ? 'active' : ''}`} key={destination} aria-current={page === destination ? 'page' : undefined} onClick={() => onNavigate(destination)}><Icon size={19}/><span>{label}</span></button>)}</div><details className="work-legacy-navigation" open={navigation.some(item => item.page === page)}><summary>历史与交付</summary><div className="navigation-group">{navigation.map(({ page: destination, label, icon: Icon }) => <button key={destination} className={`nav-item ${page === destination ? 'active' : ''}`} onClick={() => onNavigate(destination)} aria-current={page === destination ? 'page' : undefined}><Icon size={19}/><span>{label}</span>{destination === 'publish' && upcoming > 0 && <span className="nav-count">{upcoming}</span>}</button>)}</div></details></nav>;
+}
 function LocalUserLogout({ user, disabled, running, onLogout }: { user?: string; disabled: boolean; running: boolean; onLogout?: () => void | Promise<void> }) {
   const appearance = useAppearance();
   const saving = appearance?.saving;
@@ -61,7 +51,7 @@ function initialPage(): Page { return location.hash ? readWorkspaceRoute(locatio
 function WorkspacePage({ page, search }: { page: Page; search: string }) {
   switch (page) {
     case 'controller': return <ControllerPage/>;
-    case 'tasks': return <TasksPage/>;
+    case 'tasks': return <ControllerPage/>;
     case 'accounts': return <AccountsPage/>;
     case 'materials': return <MaterialsPage/>;
     case 'inspiration': return <InspirationAgent/>;
@@ -131,6 +121,7 @@ export default function App({ localUser, onLocalLogout }: { localUser?: string; 
     return result;
   };
   const go = (target: Page, projectId?: string, detail: WorkspaceTarget = {}) => {
+    target = resolveWorkspacePage(target);
     const destination = projectId || selectedId || state?.projects[0]?.id || '';
     if (detail.assetId || detail.publicationId) setAccountScope('');
     if (projectId) { setSelectedId(projectId); setSelectedScope(current => scopeWithPrimary(current, projectId)); if (!LOCAL_DATA) localStorage.setItem('studio-project', projectId); }
@@ -189,7 +180,7 @@ export default function App({ localUser, onLocalLogout }: { localUser?: string; 
   }, [settings?.team, state?.teamRevision, progressVersion, page, anyRunning, newProject, login, refresh]);
   if (login) return <div className="boot-screen login-screen"><div className="brand-mark"><Sprout size={30}/></div><h1>欢迎回到生长</h1><p>登录你的运营工作区</p><form onSubmit={e => { e.preventDefault(); void run(async () => { const result = await api<{ token: string }>('/login', 'POST', { password }); sessionStorage.setItem('studio-session', result.token); setPassword(''); setLogin(false); await refresh(); }); }}><label className="field"><span>工作区密码</span><input type="password" autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)}/></label><button className="button primary" disabled={busy}>登录工作区</button></form>{toast && <p className="error-text" role="alert">{toast.message}</p>}</div>;
   if (!state || !settings) return <div className="boot-screen"><div className="brand-mark"><Sprout size={32}/></div><h2>{bootError ? '暂时连接不上工作区' : '让好想法，慢慢生长'}</h2><p>{bootError || '正在打开你的运营工作台…'}</p>{bootError ? <button className="button primary" onClick={() => void refresh().catch(e => setBootError(e.message))}>重新连接</button> : <Loader2 className="spin"/>}</div>;
-  const pageLabel = ({ controller: '总控', tasks: '任务', accounts: '账号', materials: '资料', projects: '项目与账号', corpus: '项目文档', strategy: '内容计划', comments: '结果与复盘', analytics: '结果与复盘', planning: '运营经验', help: '使用指南' } as Record<string, string>)[page] || navigation.find(n => n.page === page)?.label || '连接与设置';
+  const pageLabel = ({ controller: '总控', tasks: '总控', accounts: '账号', materials: '资料', projects: '项目与账号', corpus: '项目文档', strategy: '内容计划', comments: '结果与复盘', analytics: '结果与复盘', planning: '运营经验', help: '使用指南', inspiration: '历史灵感工作区', 'xiaohongshu-agent': '小红书历史工作区', 'douyin-agent': '抖音历史工作区', 'instagram-agent': 'Instagram 历史工作区', 'youtube-agent': 'YouTube 历史工作区', trends: '资料与经验' } as Record<string, string>)[page] || navigation.find(n => n.page === page)?.label || '连接与设置';
   const upcoming = state.projects.flatMap(p => p.publications).filter(p => ['scheduled', 'exported'].includes(p.status)).length;
   const taskOrigin = (taskPage: Page, taskProjectId: string, taskProjectName: string, detail: WorkspaceTarget) => {
     const source = state.projects.find(item => item.id === taskProjectId)?.assets.find(item => item.id === detail.assetId);
@@ -206,7 +197,7 @@ export default function App({ localUser, onLocalLogout }: { localUser?: string; 
         <button className="brand" onClick={() => go('controller')}><span className="brand-mark"><Sprout size={27}/></span><span><strong>生长<span className="brand-dot">.</span></strong><small>SHENGZHANG STUDIO · v2</small></span></button>
         <div className="workspace-switch"><span className="workspace-avatar">{settings.team ? '团' : localUser?.slice(0, 1) || '我'}</span><div><b>{settings.team?.workspaceName || (localUser ? `${localUser}的工作区` : '我的工作空间')}</b><small>{settings.team ? `${localUser} · ${TEAM_ROLES[settings.team.role]}` : LOCAL_DATA ? '独立用户 · 浏览器本地保存' : localUser ? '独立用户 · 电脑本地加密' : '个人创作 · MVP'}</small></div></div>
         <WorkspaceScopePicker projects={state.projects} accounts={state.accounts} primaryProjectId={viewId} scope={scope} onChange={setScope} onEditProject={id => go(page, id)} onManage={() => go('projects')}/>
-        <nav className="workspace-navigation" aria-label="主导航"><div className="work-primary-navigation">{primaryNavigation.map(({ page: destination, label, icon: Icon }) => <button className={`nav-item ${page === destination ? 'active' : ''}`} key={destination} aria-current={page === destination ? 'page' : undefined} onClick={() => { setSearch(''); go(destination); }}><Icon size={19}/><span>{label}</span></button>)}</div><details className="work-legacy-navigation" open={!primaryNavigation.some(item => item.page === page) && page !== 'settings'}><summary>原有工作区与交付入口</summary>{navigationGroups.map(group => <div className="navigation-group" key={group.label}><div className="nav-caption">{group.label}</div>{navigation.filter(item => group.pages.includes(item.page)).map(({ page: destination, label, icon: Icon }) => <button key={destination} className={`nav-item ${page === destination ? 'active' : ''}`} onClick={() => { setSearch(''); go(destination); }} aria-current={page === destination ? 'page' : undefined}><Icon size={19}/><span>{label}</span>{destination === 'publish' && upcoming > 0 && <span className="nav-count">{upcoming}</span>}</button>)}</div>)}</details></nav>
+        <WorkspaceNavigation page={page} upcoming={upcoming} onNavigate={destination => { setSearch(''); go(destination); }}/>
         <div className="sidebar-bottom"><button className={`nav-item ${page === 'projects' ? 'active' : ''}`} onClick={() => go('projects')}><FolderOpen size={19}/><span>项目与账号</span></button><button className="nav-item platform-accounts-entry" onClick={() => { setSearch(''); openPublishingSettings(go); }}><UsersRound size={19}/><span>账号连接与身份</span><span className="nav-count">{state.accounts.length}</span></button><button className={`nav-item ${page === 'help' ? 'active' : ''}`} onClick={() => go('help')} aria-current={page === 'help' ? 'page' : undefined}><CircleHelp size={19}/><span>使用指南</span><span className="nav-ai">F1</span></button><button className={`nav-item ${page === 'settings' ? 'active' : ''}`} onClick={() => go('settings')}><Settings2 size={19}/><span>连接与设置</span></button><div className="sidebar-footer"><span className="dot"/>{settings.team ? '团队工作区' : '本地工作区'}<span>v{settings.version}</span></div></div>
       </aside>
       <div className="main-shell">

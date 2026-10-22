@@ -15,6 +15,7 @@ import { workflowSkillTrace } from './creative-skill-catalog.mjs';
 import { resolveBuiltinSkills } from './builtin-skills.mjs';
 import { validateSceneReference } from './nurture.mjs';
 import { currentActor, runWithActor } from './request-actor.mjs';
+import { coverRequest, rememberCoverRequest } from './cover-request.mjs';
 
 const IMAGE_MODEL = 'Seedream 5.0 Pro', VIDEO_MODEL = 'Seedance 2.0';
 const working = ['generating-frame', 'submitting-video', 'generating-video'];
@@ -88,8 +89,9 @@ export function createRedfoxMedia(store, config, helpers, preferences) {
         d.assert(!['generating', 'uncertain'].includes(a.aiCover?.phase), '已有封面任务，请查询结果或核对后解除锁定', 409);
         if (brief.type === 'nurture' && p.imageData) validateSceneReference(p.imageData);
         const references = p.imageData ? [p.imageData] : []; validateSeedreamReferences(references);
-        const recipe = recipeOf(state, p, a, 'cover', input), id = d.id();
+        const { recipe } = coverRequest(state, p, a, input, config, preferences), id = d.id();
         const watermark = input.watermark ?? preferences.get().seedream?.watermark ?? false;
+        rememberCoverRequest(a, input, id);
         a.aiCover = { id, provider: 'redfox', phase: 'generating', assetRevision: a.revision, model: IMAGE_MODEL, size: SEEDREAM_COVER_SIZE, watermarkRequested: watermark, input, ...recipe, initiatedBy: actor(), createdAt: d.now(), error: '', failures: 0 };
         return { id, references, prompt: recipe.prompt, watermark };
       });

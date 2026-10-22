@@ -35,14 +35,28 @@ function fixture(t, options = {}) {
   };
   const runtime = createWorkControl({ store, executors, config: { authorizeWorkActor: actor => allowed.has(actor.userId) }, ...options.runtime });
   const plan = (nodes = [copyNode()], actor = alpha, key = `create-${crypto.randomUUID()}`) => as(actor, () => runtime.createPlan(projectId, { goal: '合成多账号计划', nodes, idempotencyKey: key }).plan);
-  const approve = (value, actor = alpha, key = `approve-${crypto.randomUUID()}`) => as(actor, () => runtime.approvePlan(value.id, { version: value.version, budgetUSD: 0, idempotencyKey: key }));
+  const dispatching = new Map();
+  const dispatch = (runId, member = alpha, budgetUSD) => {
+    if (dispatching.has(runId)) return dispatching.get(runId);
+    const promise = as(member, async () => {
+      const run = store.work.get('run', runId); if (run.status !== 'pending_approval') return { run };
+      const quote = runtime.estimateDispatch(runId, { expectedRevision: run.revision, requirement: run.node.requirement, model: run.node.model, skillMode: 'default', skillIds: [] });
+      return runtime.approveDispatch(runId, { expectedRevision: run.revision, quoteId: quote.quoteId, budgetUSD: budgetUSD ?? run.node.budgetUSD ?? quote.estimateUSD, idempotencyKey: 'dispatch-' + runId });
+    });
+    dispatching.set(runId, promise); return promise.finally(() => dispatching.delete(runId));
+  };
+  const approve = async (value, member = alpha, key = 'approve-' + crypto.randomUUID()) => {
+    const result = await as(member, () => runtime.approvePlan(value.id, { version: value.version, idempotencyKey: key }));
+    for (const run of result.runs) if (!run.node.dependsOn.length) await dispatch(run.id, member);
+    return { ...result, runs: result.runs.map(run => store.work.get('run', run.id)) };
+  };
   const settle = (runId, body) => { const item = pending.get(runId); assert(item, `run ${runId} was not dispatched`); pending.delete(runId); item.resolve(resultFor(item.context.run, body)); };
   t.after(async () => {
     const closing = runtime.close();
     for (const [runId, item] of pending) { pending.delete(runId); item.resolve(resultFor(item.context.run)); }
     await closing; store.close();
   });
-  return { store, projectId, calls, pending, allowed, runtime, executors, plan, approve, settle, run: id => store.work.get('run', id) };
+  return { store, projectId, calls, pending, allowed, runtime, executors, plan, approve, dispatch, settle, run: id => store.work.get('run', id) };
 }
 
 test('three approved tasks run independent work in parallel and bind the dependent script to one saved research version', async t => {
@@ -50,8 +64,8 @@ test('three approved tasks run independent work in parallel and bind the depende
   assert.equal(f.calls.length, 0); assert.equal(f.store.work.all('run').length, 0);
   const approval = await f.approve(draft), byNode = Object.fromEntries(approval.runs.map(run => [run.node.id, run.id]));
   await until(() => f.calls.length === 2); assert.deepEqual(new Set(f.calls.map(call => call.run.node.id)), new Set(['copy', 'research']));
-  assert.equal(f.run(byNode.script).status, 'waiting_dependencies');
-  f.settle(byNode.research, '研究版本一：三条有来源的观察');
+  assert.equal(f.run(byNode.script).status, 'pending_approval');
+  f.settle(byNode.research, '研究版本一：三条有来源的观察'); await until(() => f.run(byNode.research).status === 'succeeded'); await f.dispatch(byNode.script);
   await until(() => f.calls.length === 3);
   const script = f.calls.find(call => call.run.node.id === 'script'); assert.equal(script.dependencies.length, 1);
   assert.equal(script.dependencies[0].version, 1); assert.equal(script.dependencies[0].body, '研究版本一：三条有来源的观察');
@@ -115,48 +129,45 @@ test('explicit retry advances the task head and a fresh key cannot retry the sam
   const retried = as(alpha, () => f.runtime.commands(originalId, body)); assert.notEqual(retried.run.id, originalId);
   assert.equal(as(alpha, () => f.runtime.commands(originalId, body)).run.id, retried.run.id);
   assert.throws(() => as(alpha, () => f.runtime.commands(originalId, { ...body, idempotencyKey: 'retry-original-again' })), /后继|最新|旧记录/);
+  assert.equal(f.run(retried.run.id).status, 'pending_approval'); assert.equal(f.calls.length, 1); await f.dispatch(retried.run.id);
   await until(() => f.run(retried.run.id).status === 'succeeded');
   assert.equal(f.calls.length, 2); assert.equal(f.store.work.all('run').length, 2);
   assert.equal(f.store.work.get('task', approved.tasks[0].id).latestRunId, retried.run.id);
 });
 
-test('real executor retry cannot spend beyond its original plan after an unknown billed attempt', async t => {
+test('real executor retry requires a new task approval after an unknown billed attempt', async t => {
   const f = fixture(t); let requests = 0;
   const config = { apiKey: 'synthetic-budget-only-key', modelStore: createModelStore(), authorizeWorkActor: actor => actor.userId === alpha.userId,
     workFetcher: async url => { assert.equal(String(url), 'https://api.openai.com/v1/responses'); requests++; throw Error('synthetic response lost after send'); } };
   Object.assign(f.executors, createWorkExecutors({ store: f.store, config }));
   const node = copyNode({ model: 'gpt-5.4-mini', budgetUSD: 1 }), state = f.store.get();
   const estimate = f.executors.prepare({ state, project: state.projects[0], node }).estimateUSD; assert(estimate > 0);
-  node.budgetUSD = estimate; const draft = f.plan([node]);
-  const approved = await as(alpha, () => f.runtime.approvePlan(draft.id, { version: draft.version, budgetUSD: estimate, idempotencyKey: 'budget-initial-approval' }));
+  node.budgetUSD = estimate; const approved = await f.approve(f.plan([node]));
   const originalId = approved.runs[0].id; await until(() => f.run(originalId).status === 'needs_reconciliation');
   assert.equal(requests, 1); assert.equal(f.store.get().projects[0].usage.at(-1).status, 'uncertain');
   const reconciled = as(alpha, () => f.runtime.commands(originalId, { command: 'reconcile', resolution: 'confirmed_failed', expectedRevision: f.run(originalId).revision, idempotencyKey: 'budget-confirm-original-failed' })).run;
   const retry = as(alpha, () => f.runtime.commands(originalId, { command: 'retry', expectedRevision: reconciled.revision, idempotencyKey: 'budget-explicit-retry' })).run;
-  await until(() => f.run(retry.id).status === 'failed', () => JSON.stringify(f.run(retry.id)));
-  const stopped = f.run(retry.id); assert.match(stopped.error, /累计批准额度/); assert.equal(stopped.sent, false); assert.equal(stopped.attempts[0].sentAt, undefined);
-  assert.equal(requests, 1, 'the real provider transport must not be called for the over-budget retry');
+  await f.runtime.tick(); assert.equal(f.run(retry.id).status, 'pending_approval'); assert.equal(requests, 1); assert.equal(f.run(retry.id).approval, null);
+  await f.dispatch(retry.id); await until(() => f.run(retry.id).status === 'needs_reconciliation'); assert.equal(requests, 2);
   const usage = f.store.get().projects[0].usage.filter(row => [originalId, retry.id].includes(row.runId));
-  assert.equal(usage.length, 2); assert.equal(usage[0].status, 'uncertain'); assert.equal(usage[0].amountUsd, estimate);
-  assert.equal(usage[1].status, 'failed'); assert.equal(usage[1].amountUsd, 0, 'only the definitely unsent retry reservation is released');
-  assert.equal(usage.reduce((sum, row) => sum + row.amountUsd, 0), estimate);
+  assert.equal(usage.length, 2); assert(usage.every(row => row.status === 'uncertain')); assert(usage.every(row => row.amountUsd > 0));
 });
 
-for (const priorStatus of ['running', 'completed', 'uncertain', 'failed']) test(`plan cumulative guard includes ${priorStatus} ledger cost before dispatch`, async t => {
+for (const priorStatus of ['running', 'completed', 'uncertain', 'failed']) test(`task-only guard includes ${priorStatus} costs from this approved attempt before dispatch`, async t => {
   let sends = 0;
   const f = fixture(t, { execute: async ({ run, markSent }) => {
-    const previousId = `historical-${priorStatus}`;
-    f.store.work.put('run', { ...run, id: previousId, status: 'failed' });
+    const previousId = run.id;
     f.store.mutate(state => { state.projects[0].usage.push({ id: `${previousId}-usage`, runId: previousId, status: priorStatus, amountUsd: 0.6 }, { id: 'new-reservation', runId: run.id, status: 'running', amountUsd: 0.6 }); });
     try { markSent({ provider: 'fake', usageId: 'new-reservation' }); sends++; return resultFor(run); }
     catch (error) { assert.equal(error.noCharge, true); f.store.mutate(state => { Object.assign(state.projects[0].usage.find(row => row.id === 'new-reservation'), { amountUsd: 0, status: 'failed' }); }); throw error; }
   } });
   const draft = f.plan([copyNode({ budgetUSD: 1 })]), approval = await as(alpha, () => f.runtime.approvePlan(draft.id, { version: draft.version, budgetUSD: 1, idempotencyKey: `budget-${priorStatus}-approval` })), runId = approval.runs[0].id;
-  await until(() => f.run(runId).status === 'failed'); assert.match(f.run(runId).error, /累计批准额度/); assert.equal(f.run(runId).sent, undefined);
+  await f.dispatch(runId, alpha, 1);
+  await until(() => f.run(runId).status === 'failed'); assert.match(f.run(runId).error, /批准额度/); assert.equal(f.run(runId).sent, undefined);
   assert.equal(sends, 0); assert.equal(f.store.work.events(runId).filter(row => row.type === 'invocation.sent').length, 0);
 });
 
-test('plan cumulative guard excludes other owners, plans, versions and separately approved planning cost', async t => {
+test('task-only guard excludes other runs, plans, versions and separately approved planning cost', async t => {
   let sends = 0;
   const f = fixture(t, { execute: async ({ run, markSent }) => {
     const others = [
@@ -169,6 +180,7 @@ test('plan cumulative guard excludes other owners, plans, versions and separatel
     f.store.mutate(state => { state.projects[0].usage.find(row => row.id === 'own-reservation').status = 'completed'; }); return resultFor(run);
   } });
   const draft = f.plan([copyNode({ budgetUSD: 1 })]), approval = await as(alpha, () => f.runtime.approvePlan(draft.id, { version: draft.version, budgetUSD: 1, idempotencyKey: 'budget-scoped-approval' })), runId = approval.runs[0].id;
+  await f.dispatch(runId, alpha, 1);
   await until(() => f.run(runId).status === 'succeeded', () => JSON.stringify(f.run(runId))); assert.equal(sends, 1);
 });
 
@@ -187,15 +199,15 @@ test('a disabled provider persists a bounded wait and moves to pause instead of 
 
 test('pre-dispatch provider waiting never skips the dependency gate after the provider opens', async t => {
   const config = { authorizeWorkActor: actor => actor.userId === alpha.userId, workProviderLimits: { 'fake-provider': 0 } };
-  const f = fixture(t, { runtime: { config } }), approved = await f.approve(f.plan([copyNode(), scriptNode({ dependsOn: ['copy'] })]));
+  const f = fixture(t, { runtime: { config } }), approved = await f.approve(f.plan([researchNode({ id: 'copy' }), scriptNode({ dependsOn: ['copy'] })]));
   const ids = Object.fromEntries(approved.runs.map(run => [run.node.id, run.id]));
   await until(() => !!f.run(ids.copy).wait);
-  assert.equal(f.run(ids.script).status, 'waiting_dependencies');
+  assert.equal(f.run(ids.script).status, 'pending_approval');
   config.workProviderLimits['fake-provider'] = 2;
   for (const row of approved.runs) { const run = f.run(row.id); if (run.wait) { run.wait.firstWaitAt -= 1000; run.wait.nextEligibleAt = Date.now() - 1; f.store.work.put('run', run); } }
   await f.runtime.tick(); await until(() => f.calls.length === 1);
-  assert.equal(f.calls[0].run.node.id, 'copy'); assert.equal(f.run(ids.script).status, 'waiting_dependencies');
-  f.settle(ids.copy, '上游交付的固定正文'); await until(() => f.calls.length === 2);
+  assert.equal(f.calls[0].run.node.id, 'copy'); assert.equal(f.run(ids.script).status, 'pending_approval');
+  f.settle(ids.copy, '上游交付的固定正文'); await until(() => f.run(ids.copy).status === 'succeeded'); await f.dispatch(ids.script); await until(() => f.calls.length === 2);
   assert.equal(f.calls[1].dependencies[0].body, '上游交付的固定正文'); f.settle(ids.script);
   await until(() => f.run(ids.script).status === 'succeeded');
 });
@@ -216,11 +228,13 @@ test('events redact secrets and private reasoning while preserving ordered factu
 test('changed plan versions reuse unrelated completed runs and rerun only the changed dependency chain', async t => {
   const f = fixture(t, { execute: async ({ run }) => resultFor(run) });
   const draft = f.plan([copyNode(), researchNode(), scriptNode()]), first = await f.approve(draft);
+  await until(() => f.run(first.runs.find(run => run.node.id === 'research').id).status === 'succeeded'); await f.dispatch(first.runs.find(run => run.node.id === 'script').id);
   await until(() => first.runs.every(run => f.run(run.id).status === 'succeeded'));
   const next = as(alpha, () => f.runtime.updatePlan(draft.id, { expectedVersion: 1, goal: '只调整研究问题', nodes: [copyNode(), researchNode({ requirement: '新增研究问题' }), scriptNode()] }).plan);
   assert.equal(next.version, 2); assert.equal(next.status, 'draft'); assert.equal(f.calls.length, 3);
   assert.equal(next.versions[0].status, 'approved');
   const second = await f.approve(next);
+  await until(() => f.run(second.runs.find(run => run.node.id === 'research').id).status === 'succeeded'); await f.dispatch(second.runs.find(run => run.node.id === 'script').id);
   await until(() => second.runs.every(run => f.run(run.id).status === 'succeeded'));
   const old = Object.fromEntries(first.runs.map(run => [run.node.id, run.id])), current = Object.fromEntries(second.runs.map(run => [run.node.id, run.id]));
   assert.equal(current.copy, old.copy); assert.notEqual(current.research, old.research); assert.notEqual(current.script, old.script); assert.equal(f.calls.length, 5);

@@ -96,16 +96,32 @@ async function fixture(t, options = {}) {
     assert.equal(result.status, 201, JSON.stringify(result.data)); return result.data.plan;
   };
   const approve = async (plan, key = randomUUID()) => { const result = await request(`/api/work-plans/${plan.id}/approvals`, { version: plan.version, budgetUSD: plan.nodes.reduce((sum, node) => sum + node.budgetUSD, 0), idempotencyKey: key }); assert.equal(result.status, 200, JSON.stringify(result.data)); return result.data; };
+  const dispatch = async (runId, changes = {}) => {
+    const run = store.work.get('run', runId);
+    assert.equal(run.status, 'pending_approval');
+    const quote = await request(`/api/task-runs/${runId}/approval-estimate`, { expectedRevision: run.revision, requirement: run.node.requirement, model: run.node.model, skillMode: 'default', skillIds: [], ...changes });
+    assert.equal(quote.status, 200, JSON.stringify(quote.data));
+    const result = await request(`/api/task-runs/${runId}/approvals`, { expectedRevision: run.revision, quoteId: quote.data.quoteId, budgetUSD: quote.data.estimateUSD, idempotencyKey: randomUUID() });
+    assert.equal(result.status, 200, JSON.stringify(result.data)); return result.data;
+  };
   const run = id => store.work.get('run', id);
-  return { store, app, projectId, initialAssetCount, request, create, approve, run, modelCalls, mcpCalls, chronology, releaseCopy: () => released.forEach(resolve => resolve()), revoke: () => { allow = false; } };
+  return { store, app, projectId, initialAssetCount, request, create, approve, dispatch, run, modelCalls, mcpCalls, chronology, releaseCopy: () => released.forEach(resolve => resolve()), revoke: () => { allow = false; } };
 }
 
-test('real HTTP approval executes three bounded services, parallel copy and research then version-bound script, and maps legacy assets', { timeout: 15000 }, async t => {
+test('real HTTP per-task approvals execute three bounded services, parallel copy and research then version-bound script, and maps legacy assets', { timeout: 15000 }, async t => {
   const f = await fixture(t, { holdCopy: true }), plan = await f.create();
   assert.equal(f.modelCalls.length, 0); assert.equal(f.mcpCalls.length, 0); assert.equal(f.store.work.all('run').length, 0);
   const approvalKey = randomUUID(), approval = await f.approve(plan, approvalKey);
   assert.equal(approval.tasks.length, 3);
   const byNode = Object.fromEntries(approval.runs.map(run => [run.node.id, run.id]));
+  assert(approval.runs.every(run => run.status === 'pending_approval'));
+  await f.app.locals.workControl.tick();
+  assert.equal(f.modelCalls.length, 0); assert.equal(f.mcpCalls.length, 0);
+  await Promise.all([f.dispatch(byNode['campus-copy']), f.dispatch(byNode['douyin-research'])]);
+  await until(() => f.run(byNode['douyin-research']).status === 'succeeded');
+  assert.equal(f.run(byNode['brand-script']).status, 'pending_approval');
+  assert(!f.modelCalls.some(call => call.kind === 'script'), 'upstream completion never grants downstream permission');
+  await f.dispatch(byNode['brand-script']);
   await until(() => f.modelCalls.some(call => call.kind === 'script'), () => JSON.stringify(approval.runs.map(item => ({ status: f.run(item.id).status, error: f.run(item.id).error }))));
   assert.equal(f.run(byNode['campus-copy']).status, 'running', 'copy remains active while the independent research and downstream script make progress');
   assert.equal(f.run(byNode['douyin-research']).status, 'succeeded');
@@ -155,6 +171,7 @@ test('real HTTP approval executes three bounded services, parallel copy and rese
 test('approval, run, task, event and pause-command HTTP responses expose only public task summaries', { timeout: 15000 }, async t => {
   const f = await fixture(t, { holdCopy: true }), plan = await f.create([nodes()[0]]), approval = await f.approve(plan);
   const runId = approval.runs[0].id;
+  await f.dispatch(runId);
   await until(() => f.modelCalls.length === 1);
   const detail = (await f.request(`/api/task-runs/${runId}`)).data;
   assert.equal(detail.run.input.modelRoute.model, 'glm-4.7-flash'); assert.equal(detail.run.input.accountId, 'campus-a');
@@ -169,6 +186,7 @@ test('approval, run, task, event and pause-command HTTP responses expose only pu
 
 test('a real executor network uncertainty persists through HTTP and does not auto repeat', { timeout: 15000 }, async t => {
   const f = await fixture(t, { networkFailure: true }), plan = await f.create([nodes()[0]]), approval = await f.approve(plan), runId = approval.runs[0].id;
+  await f.dispatch(runId);
   await until(() => f.run(runId).status === 'needs_reconciliation');
   await f.app.locals.workControl.tick(); await f.app.locals.workControl.tick();
   assert.equal(f.modelCalls.length, 1);

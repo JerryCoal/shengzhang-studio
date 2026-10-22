@@ -12,25 +12,39 @@ import { resolveBuiltinSkills } from './builtin-skills.mjs';
 import { validateSceneReference } from './nurture.mjs';
 import { currentActor } from './request-actor.mjs';
 import { contentProjectForAsset, contentKnowledge } from './content-workflow.mjs';
+import { coverModelOptions, coverRequest, replayCoverRequest, rememberCoverRequest } from './cover-request.mjs';
+import { mountWorkImageDrafts } from './work-media.mjs';
 
-export const coverInput = z.object({ expectedRevision: z.number().int().positive(), prompt: z.string().trim().max(1200).default(''), query: z.string().trim().max(500).default(''), style: z.enum(['natural', 'clean', 'editorial']).default('natural'), layout: z.enum(['top', 'left', 'center']).default('top'), textMode: z.enum(['title', 'none']).default('title'), watermark: z.boolean().optional(), confirmed: z.literal(true) }).strict();
+export const coverInput = z.object({ expectedRevision: z.number().int().positive(), prompt: z.string().trim().max(1200).default(''), query: z.string().trim().max(500).default(''), style: z.enum(['natural', 'clean', 'editorial']).default('natural'), layout: z.enum(['top', 'left', 'center']).default('top'), textMode: z.enum(['title', 'none']).default('title'), watermark: z.boolean().optional(), provider: z.enum(['seedream', 'redfox']).optional(), model: z.string().min(1).max(120).optional(), skillId: z.string().max(100).optional(), approvalFingerprint: z.string().regex(/^[a-f0-9]{64}$/).optional(), requestId: z.string().uuid().optional(), confirmed: z.literal(true) }).strict();
 
 export function mountCoverGeneration(app, store, config, helpers, preferences) {
   const { project, activeJobs, local, background, respond, reserve, settle } = helpers;
+  mountWorkImageDrafts(app, store, config, local);
   const assetIn = (p, id) => { const a = p.assets.find(a => a.id === id); const brief = p.strategies.find(s => s.id === a?.strategyId)?.briefSnapshot || p.brief; d.assert(a?.kind === 'image' && (a.channel === 'xiaohongshu' || ((brief.type === 'nurture' || a.contentBrief) && ['douyin', 'tiktok', 'instagram'].includes(a.channel))), '请选择支持的图文任务', 404); return a; };
   const update = (pid, aid, work) => store.mutate(state => { const p = project(state, pid), a = assetIn(p, aid); const result = work(p, a, state); d.touch(p); return result; });
+  app.get('/api/cover-models', (req, res) => { local(req); res.json({ models: coverModelOptions(config, preferences) }); });
+  app.post('/api/projects/:id/assets/:assetId/cover-estimate', (req, res) => {
+    local(req);
+    const input = coverInput.omit({ confirmed: true, approvalFingerprint: true, requestId: true }).extend({ provider: z.enum(['seedream', 'redfox']), model: z.string().min(1).max(120), skillId: z.string().max(100) }).strict().parse(req.body);
+    const state = store.get(), p = project(state, req.params.id), a = assetIn(p, req.params.assetId);
+    d.assert(!['generating', 'uncertain'].includes(a.aiCover?.phase), '已有图片任务，请先查询结果或核对旧请求', 409);
+    const request = coverRequest(state, p, a, input, config, preferences);
+    d.assert(request.option, '所选图片模型尚未连接，请先在设置中配置', 409);
+    res.json({ ...request.option, fingerprint: request.fingerprint, prompt: request.recipe.prompt, skillTrace: request.recipe.skillTrace, accountContext: request.recipe.accountContext, expectedRevision: a.revision, watermark: request.settings.watermark });
+  });
   app.post('/api/projects/:id/assets/:assetId/cover', async (req, res) => {
     local(req);
-    if (config.redfox?.enabled('media')) return helpers.redfox.cover(req, res);
     const input = coverInput.parse(req.body);
+    if (input.provider !== undefined || input.model !== undefined || input.skillId !== undefined) d.assert(input.approvalFingerprint && input.requestId, '请先核对图片模型、Skills 与费用，再明确同意本次请求', 400);
+    if (replayCoverRequest(assetIn(project(store.get(), req.params.id), req.params.assetId), input)) return respond(res);
+    d.assert(input.provider !== 'redfox' || config.redfox?.enabled('media'), '当前 Redfox 图片连接未启用', 409);
+    if (input.provider === 'redfox' || !input.provider && config.redfox?.enabled('media')) return helpers.redfox.cover(req, res);
     const settings = seedreamSettingsSchema.parse({ ...preferences.get().seedream, ...(input.watermark === undefined ? {} : { watermark: input.watermark }) });
     const releaseTask = acquireTaskResource(activeJobs, req.params.id, `asset:${req.params.assetId}`);
     let key, job;
     try {
       const initialState = store.get(), initialProject = project(initialState, req.params.id), initialAsset = assetIn(initialProject, req.params.assetId);
-      const { creativeSkill, accountContext } = resolveAccountCreation(initialState, contentProjectForAsset(initialProject, initialAsset), initialAsset.channel, 'cover');
-      const knowledgeContext = contentKnowledge(initialProject, initialAsset, accountContext, input.query || input.prompt);
-      const builtinSkills = resolveBuiltinSkills(initialState, 'cover');
+      coverRequest(initialState, initialProject, initialAsset, input, config, preferences);
       key = await config.seedreamVault?.getKey(); d.assert(key, '请先在连接与设置保存 Seedream API Key');
       job = update(req.params.id, req.params.assetId, (p, a, state) => {
         d.assert(a.revision === input.expectedRevision, '内容已更新，请重新打开封面生成窗口', 409);
@@ -39,12 +53,11 @@ export function mountCoverGeneration(app, store, config, helpers, preferences) {
         const brief = p.strategies.find(s => s.id === a.strategyId)?.briefSnapshot || p.brief;
         if (brief.type === 'nurture' && p.imageData) validateSceneReference(p.imageData);
         const references = p.imageData ? [p.imageData] : []; validateSeedreamReferences(references);
-        assertAssetCreationAccount(a, accountContext);
-        const recipe = mediaPrompt(p, a, { ...input, purpose: 'cover', hasProductReference: !!p.imageData, creativeSkill, builtinSkills, accountContext, knowledgeContext }, rulesOf(state));
-        recipe.skillTrace = workflowSkillTrace('cover', { creativeSkill, builtinSkills, accountContext }, d.now());
+        const { recipe } = coverRequest(state, p, a, input, config, preferences);
         const usageId = reserve(p, settings.model, Math.max(settings.reservationUsd, settings.imagePriceUsd), 'cover', recipe);
         const id = d.id();
         // A new request keeps the adopted asset and its history untouched.
+        rememberCoverRequest(a, input, id);
         a.aiCover = { id, phase: 'generating', assetRevision: a.revision, model: settings.model, size: SEEDREAM_COVER_SIZE, watermarkRequested: settings.watermark, usageId, input, ...recipe, ...(currentActor() ? { initiatedBy: { ...currentActor() } } : {}), createdAt: d.now(), error: '' };
         return { pid: p.id, aid: a.id, id, usageId, references, prompt: recipe.prompt };
       });

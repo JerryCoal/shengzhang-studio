@@ -12,6 +12,7 @@ export type BackgroundTask = {
   accountId?: string;
   accountName?: string;
   externallyManaged?: boolean;
+  dismissed?: boolean;
   page: Page;
   target?: WorkspaceTarget;
   label: string;
@@ -120,7 +121,7 @@ export function BackgroundTasks({ tasks, onOpen, onDismiss, onPause, onContinue,
             }}>{actionLabels[task.status]}<ArrowUpRight size={14} aria-hidden="true"/></button>
             {task.status === 'running' && onPause && !task.externallyManaged && <button type="button" className="background-task-open" onClick={() => onPause(task.id)}><Pause size={13}/>检查点暂停</button>}
             {['pausing', 'paused'].includes(task.status) && onContinue && <button type="button" className="background-task-open" onClick={() => onContinue(task.id)}><Play size={13}/>{task.status === 'pausing' ? '撤回暂停' : '继续'}</button>}
-            {!active(task) && !task.retained && <button type="button" className="background-task-dismiss" aria-label={`移除记录：${task.label}`} onClick={() => onDismiss(task.id)}>移除记录</button>}
+            {!active(task) && (!task.retained || ['completed', 'failed'].includes(task.status)) && <button type="button" className="background-task-dismiss" aria-label={`移除记录：${task.label}`} onClick={() => onDismiss(task.id)}>移除记录</button>}
           </div>
         </li>)}
       </ul> : <div className="background-tasks-empty"><ListTodo size={25} aria-hidden="true"/><p>还没有 Agent 任务</p><span>实时进度、待查看结果和恢复记录都会显示在这里。</span></div>}

@@ -1,7 +1,7 @@
 import { applyRuleClassification, correctComment } from '../server/comment-analysis.mjs';
 import { saveMetricSnapshot } from '../server/operating-data.mjs';
 import { z } from 'zod';
-import { previewCreativeSkill, installCreativeSkill, setCreativeSkillEnabled, removeCreativeSkill, setWorkflowSkill } from '../server/creative-skills.mjs';
+import { previewCreativeSkill, installCreativeSkill, updateCreativeSkill, setCreativeSkillEnabled, removeCreativeSkill, setWorkflowSkill } from '../server/creative-skills.mjs';
 import { creativeSkillCatalog } from '../server/creative-skill-catalog.mjs';
 import { setBuiltinSkill, resetBuiltinSkill } from '../server/builtin-skills.mjs';
 import { saveAccountCreationProfile, saveProjectCreationSelection } from '../server/account-creation.mjs';
@@ -22,7 +22,7 @@ import { readContentEditDraft, saveContentEditDraft, removeContentEditDraft } fr
 
 const unavailable = '静态体验版未连接在线服务。请在本地完整版中配置 AI 或平台授权；此处不会发出请求或收取费用。';
 const unavailableCredential: Settings['credential'] = { local: false, editable: false, supported: false, configured: false, source: 'none', suffix: '', protection: '', problem: '静态版不接收 API 密钥或本机模型连接。请在本地完整版中配置 AI 服务。' };
-const settings: Settings = { ...modelSettings, openaiConfigured: false, authEnabled: true, version: '2.1.0 · 本地静态版', verification: null,
+const settings: Settings = { ...modelSettings, openaiConfigured: false, authEnabled: true, version: '2.2.0 · 本地静态版', verification: null,
   providers: Object.fromEntries(['openai', 'deepseek', 'qwen', 'glm', 'local-qwen'].map(provider => [provider, { configured: false, verification: null, credential: { ...unavailableCredential } }])) as Settings['providers'],
   credential: unavailableCredential } as Settings;
 const integrations: Integrations = { local: false, imageProvider: 'seedream', seedream: { ...defaultSeedream, configured: false, supported: false, suffix: '', problem: unavailable }, seedance: { watermark: false, region: 'volcengine', model: '', reservationUsd: 2, outputPriceUsd: 0, configured: false, supported: false, suffix: '', problem: unavailable }, douyin: { configured: false, supported: false, redirectUri: '', accounts: [] } };
@@ -89,6 +89,7 @@ export async function localAPI<T>(path: string, method: string, input: unknown):
       if (path === '/creative-skills' && method === 'POST') return installCreativeSkill(state, body as Parameters<typeof installCreativeSkill>[1]);
       if (/^\/creative-skills\/[^/]+$/.test(path)) {
         const id = path.split('/')[2];
+        if (method === 'PUT') return updateCreativeSkill(state, id, body as Parameters<typeof updateCreativeSkill>[2]);
         if (method === 'PATCH') return setCreativeSkillEnabled(state, id, body as Parameters<typeof setCreativeSkillEnabled>[2]);
         if (method === 'DELETE') return removeCreativeSkill(state, id, body as Parameters<typeof removeCreativeSkill>[2]);
       }

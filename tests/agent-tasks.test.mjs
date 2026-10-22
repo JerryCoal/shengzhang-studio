@@ -32,6 +32,32 @@ test('journal preserves private progress and rejects identity changes and oversi
   removeTaskJournal(state, task.id); assert.deepEqual(taskJournal(state), []);
 });
 
+test('completed and failed unread journal records can be removed directly', () => {
+  const state = { projects: [{ id: 'p' }] };
+  for (const status of ['completed', 'failed']) {
+    const task = { ...draft('p', status), status, retained: true };
+    saveTaskJournal(state, task.id, task); removeTaskJournal(state, task.id);
+    assert.equal(taskJournal(state).length, 0);
+  }
+});
+
+test('media dismissal survives ordinary history pruning and remains private to its owner', () => {
+  const base = createStore(':memory:'), store = createTeamStore(base), pid = base.get().projects[0].id;
+  const owner = { userId: 'media-owner' }, other = { userId: 'media-other' }, mediaId = `media:cover:${pid}:cover-dismissed`;
+  try {
+    base.mutate(state => { const project = state.projects[0]; confirmStrategy(project, project.strategies[0].id); project.assets[0].aiCover = { id: 'cover-dismissed', phase: 'failed' }; });
+    runWithActor(owner, () => store.mutate(state => {
+      saveTaskJournal(state, mediaId, { ...draft(pid, mediaId), status: 'failed', retained: false, externallyManaged: true, dismissed: true });
+      for (let index = 0; index < 45; index++) saveTaskJournal(state, `new-history-${index}`, { ...draft(pid, `new-history-${index}`), status: 'completed', updatedAt: index + 10 });
+    }));
+    const rows = runWithActor(owner, () => taskJournal(store.get()));
+    assert.equal(rows.filter(row => row.dismissed).length, 1); assert.equal(rows.filter(row => !row.dismissed).length, 40);
+    assert.deepEqual(runWithActor(other, () => taskJournal(store.get())), []);
+    runWithActor(owner, () => store.mutate(state => removeTaskJournal(state, mediaId)));
+    assert.equal(runWithActor(owner, () => taskJournal(store.get())).some(row => row.id === mediaId), false);
+  } finally { base.close(); }
+});
+
 test('team journal is projected per member and encrypted at the store boundary', () => {
   const base = createStore(':memory:', { key: Buffer.alloc(32, 7), scope: 'test-workspace' }), store = createTeamStore(base), pid = base.get().projects[0].id;
   const alice = { userId: 'alice' }, bob = { userId: 'bob' };

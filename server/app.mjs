@@ -7,7 +7,7 @@ import { mountTaskJournalRoutes } from './task-journal.mjs';
 import { mountContentEditDraftRoutes } from './content-edit-drafts.mjs';
 import { updatePlatformDelivery } from './platform-delivery.mjs';
 import express from 'express';
-import { previewCreativeSkill, installCreativeSkill, setCreativeSkillEnabled, removeCreativeSkill, setWorkflowSkill } from './creative-skills.mjs';
+import { previewCreativeSkill, installCreativeSkill, updateCreativeSkill, setCreativeSkillEnabled, removeCreativeSkill, setWorkflowSkill } from './creative-skills.mjs';
 import { creativeSkillCatalog } from './creative-skill-catalog.mjs';
 import { setBuiltinSkill, resetBuiltinSkill } from './builtin-skills.mjs';
 import { canEditSharedSettings } from './workspace-access.mjs';
@@ -138,6 +138,7 @@ export function createApp(store, options = {}) {
   app.delete('/api/creative-skills/default', (req, res) => changeBuiltinSkills(req, res, true));
   app.put('/api/creative-skills/selection', (req, res) => changeCreativeSkills(res, state => setWorkflowSkill(state, req.body)));
   app.post('/api/creative-skills', (req, res) => changeCreativeSkills(res, state => installCreativeSkill(state, req.body)));
+  app.put('/api/creative-skills/:skillId', (req, res) => changeCreativeSkills(res, state => updateCreativeSkill(state, req.params.skillId, req.body)));
   app.patch('/api/creative-skills/:skillId', (req, res) => changeCreativeSkills(res, state => setCreativeSkillEnabled(state, req.params.skillId, req.body)));
   app.delete('/api/creative-skills/:skillId', (req, res) => changeCreativeSkills(res, state => removeCreativeSkill(state, req.params.skillId, req.body)));
   app.put('/api/guide', (req, res) => { const result = store.mutate(state => updateGuide(state, req.body)); res.json({ result, state: store.get() }); });

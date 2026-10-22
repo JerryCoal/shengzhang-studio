@@ -5,6 +5,7 @@ import { createApp } from '../server/app.mjs';
 import { createStore } from '../server/store.mjs';
 import { createModelStore } from '../server/models.mjs';
 import { COPY_SKILLS, COPY_SKILL_VERSIONS } from '../server/copy-skills.generated.mjs';
+import { updateCreativeSkill } from '../server/creative-skills.mjs';
 
 const selectedText = 'SELECTED_STYLE_SENTINEL：先描述真实校园场景，再说明服务边界。';
 const otherText = 'UNSELECTED_PRIVATE_STYLE_SENTINEL：这条未选择的规则不得发送。';
@@ -131,9 +132,24 @@ test('deleting a Skill retains generated snapshots and the next default generati
   assert.equal((await f.copy({ skillId: selected.id })).status, 409); assert.equal(f.project().usage.length, usageCount); assert.equal(f.calls.length, 2);
 });
 
-test('changing an installed Skill during a request cannot overwrite the current asset with stale preferences', async t => {
+test('editing an installed Skill keeps selections and saved traces, and new requests use its updated content', async t => {
+  const f = await fixture(t), selected = await f.install();
+  assert.equal((await f.req('/creative-skills/selection', 'PUT', { workflowId: 'copy-xiaohongshu', skillId: selected.id, expectedRevision: 1 })).status, 200);
+  assert.equal((await f.copy()).status, 200);
+  const originalTrace = structuredClone(f.asset().skillTrace), text = markdown('campus-updated', 'UPDATED_STYLE_SENTINEL：重点写已核实的适用条件。');
+  const edited = await f.req(`/creative-skills/${selected.id}`, 'PUT', { fileName: selected.sourceFile, text, expectedRevision: 2 });
+  assert.equal(edited.status, 200, JSON.stringify(edited.data)); assert.equal(edited.data.result.id, selected.id);
+  assert.equal(edited.data.state.skillSelections['copy-xiaohongshu'], selected.id);
+  assert.equal(edited.data.state.skillsRevision, 3); assert.deepEqual(f.asset().skillTrace, originalTrace);
+  const stale = await f.req(`/creative-skills/${selected.id}`, 'PUT', { fileName: selected.sourceFile, text: markdown(), expectedRevision: 2 });
+  assert.equal(stale.status, 409); assert.equal(f.store.get().installedSkills[0].sourceText, text);
+  assert.equal((await f.copy()).status, 200); assert.match(f.calls[1].input.creativeSkill.instructions, /UPDATED_STYLE_SENTINEL/);
+  assert.equal(f.asset().skillTrace.user.id, selected.id); assert.equal(originalTrace.user.instructions, selected.instructions);
+});
+
+test('editing an installed Skill during a request cannot overwrite the current asset with stale preferences', async t => {
   let id;
-  const f = await fixture(t, 'openai', ({ store }) => store.mutate(state => { state.installedSkills.find(value => value.id === id).enabled = false; state.skillsRevision++; }));
+  const f = await fixture(t, 'openai', ({ store }) => store.mutate(state => updateCreativeSkill(state, id, { fileName: 'SKILL.md', text: markdown('campus-copy', '生成期间保存的新规则。'), expectedRevision: state.skillsRevision })));
   id = (await f.install()).id;
   const before = f.asset(), result = await f.copy({ skillId: id });
   assert.equal(result.status, 409); assert.match(result.data.error, /生成期间/); assert.deepEqual(f.asset(), before);

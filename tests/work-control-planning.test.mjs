@@ -76,13 +76,22 @@ async function fixture(t, options = {}) {
   const run = id => store.work.get('run', id);
   const finished = id => until(() => ['succeeded', 'failed', 'paused', 'needs_reconciliation'].includes(run(id)?.status) && run(id), () => JSON.stringify(run(id)));
   const seedPlan = async () => {
-    const nodes = initial().nodes.map((node, index) => ({ ...node, model: 'glm-4.7-flash', budgetUSD: index ? 0.27 : 0.42, ...(index ? {} : { knowledgeIds: [knowledgeId], experienceIds: ['selected-exp'], skillIds: [skillId] }) }));
+    const nodes = initial().nodes.map((node, index) => ({ ...node, dependsOn: [], model: 'glm-4.7-flash', budgetUSD: index ? 0.27 : 0.42, ...(index ? {} : { knowledgeIds: [knowledgeId], experienceIds: ['selected-exp'], skillIds: [skillId] }) }));
     const created = await request(`/api/projects/${projectId}/work-plans`, { goal: '已确认的初始任务', nodes, idempotencyKey: randomUUID() });
     assert.equal(created.status, 201, JSON.stringify(created.data));
     const plan = created.data.plan;
     const approved = await request(`/api/work-plans/${plan.id}/approvals`, { version: plan.version, budgetUSD: 1, idempotencyKey: randomUUID() });
     assert.equal(approved.status, 200, JSON.stringify(approved.data));
-    await Promise.all(approved.data.runs.map(row => finished(row.id)));
+    assert(approved.data.runs.every(row => row.status === 'pending_approval'));
+    for (const row of approved.data.runs) {
+      const originalNode = nodes.find(node => node.id === row.node.id);
+      const skillIds = originalNode.skillIds || [];
+      const quote = await request(`/api/task-runs/${row.id}/approval-estimate`, { expectedRevision: row.revision, requirement: row.node.requirement, model: row.node.model, skillMode: skillIds.length ? 'selected' : 'default', skillIds });
+      assert.equal(quote.status, 200, JSON.stringify(quote.data));
+      const dispatch = await request(`/api/task-runs/${row.id}/approvals`, { expectedRevision: row.revision, quoteId: quote.data.quoteId, budgetUSD: originalNode.budgetUSD, idempotencyKey: randomUUID() });
+      assert.equal(dispatch.status, 200, JSON.stringify(dispatch.data));
+      await finished(row.id);
+    }
     assert(approved.data.runs.every(row => run(row.id).status === 'succeeded'));
     return { plan: (await request(`/api/work-plans/${plan.id}`)).data.plan, task: approved.data.tasks.find(row => row.nodeId === 'copy') || approved.data.tasks[0], runs: approved.data.runs };
   };
@@ -108,6 +117,13 @@ test('real planning estimate, independent approval and concurrent replay produce
   const task = (await f.request(`/api/tasks/${running.taskId}`)).data; assert.equal(task.artifacts[0].kind, 'plan'); assert.equal(task.artifacts[0].candidate, false);
   const usage = f.store.get().projects[0].usage; assert.equal(usage.length, 1); assert.equal(usage[0].planningRunId, runId); assert.equal(usage[0].runId, undefined); assert(usage[0].amountUsd > 0);
   assert.equal(detail.data.run.usage.settledUSD, usage[0].amountUsd);
+  assert.equal(task.task.removable, true);
+  const removed = await f.request(`/api/tasks/${running.taskId}`, { expectedRunId: runId }, 'DELETE'); assert.equal(removed.status, 200);
+  assert.equal((await f.request('/api/tasks')).data.items.length, 0);
+  assert.deepEqual(f.store.get().projects[0].usage, usage);
+  assert.equal((await f.request(`/api/work-plans/${detail.data.plan.id}`)).data.plan.status, 'draft');
+  assert.equal(f.store.work.get('artifact', `${running.taskId}:1`).kind, 'plan');
+  assert.equal(f.modelCalls.length, 1); assert.equal(f.businessCalls.length, 0);
 });
 
 test('planning quote is owner/project bound, expires once, and revoked members cannot start it', { timeout: 15000 }, async t => {

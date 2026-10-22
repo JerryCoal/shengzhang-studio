@@ -47,7 +47,8 @@ export function useBackgroundTasks(notify: (message: string, error?: boolean) =>
     records.current = []; mediaRecords.current = []; mediaDismissed.current.clear(); setMediaTasks([]); setTasks([]); setMinimized([]); setLoading(true); controls.current.clear();
     readTasks().then(saved => {
       if (!active || generation !== epoch.current) return;
-      const recovered = saved.map(task => isActiveTask(task.status) ? { ...task, status: 'interrupted' as const, retained: true, updatedAt: Date.now(), error: '应用上次关闭时任务尚未结束。已保留最后检查点；请查看原项目及服务商记录，确认结果后再决定下一步。不会自动重复请求。' } : task);
+      mediaDismissed.current = new Set(saved.filter(task => task.dismissed).map(task => task.id));
+      const recovered = saved.filter(task => !task.dismissed).map(task => isActiveTask(task.status) ? { ...task, status: 'interrupted' as const, retained: true, updatedAt: Date.now(), error: '应用上次关闭时任务尚未结束。已保留最后检查点；请查看原项目及服务商记录，确认结果后再决定下一步。不会自动重复请求。' } : task);
       update(() => recovered);
       for (const task of recovered.filter(task => task.status === 'interrupted')) void persist(task, generation).catch(() => {});
     }).catch(error => { if (active) notify(`任务记录暂时无法读取：${error instanceof Error ? error.message : '请重新打开工作区'}`, true); })
@@ -73,15 +74,21 @@ export function useBackgroundTasks(notify: (message: string, error?: boolean) =>
     }
   };
   useEffect(() => {
+    if (loading) return;
     const candidates = projectMediaTasks(projects || []);
-    for (const task of candidates) if (task.status === 'running') mediaDismissed.current.delete(task.id);
+    for (const task of candidates) if (task.status === 'running' && mediaDismissed.current.delete(task.id)) {
+      const generation = epoch.current;
+      const pending = writes.current.catch(() => {}).then(async () => { if (alive.current && generation === epoch.current) await removeTask(task.id); });
+      writes.current = pending;
+      void pending.catch(() => { if (alive.current && generation === epoch.current) notify('新媒体任务的显示状态暂未保存，请稍后重试。', true); });
+    }
     const merged = mergeMediaTasks(mediaRecords.current, candidates.filter(task => !mediaDismissed.current.has(task.id)));
     mediaRecords.current = merged.tasks; setMediaTasks(merged.tasks);
     if (merged.completed.length) {
       notify(merged.completed.length === 1 ? `${merged.completed[0].projectName} · ${merged.completed[0].label}已完成，请检查结果。` : `${merged.completed.length} 项媒体任务已完成，可从任务中心查看。`);
       try { chime(); } catch { /* Optional audio cannot change a completed task. */ }
     }
-  }, [projects, scope]);
+  }, [projects, scope, loading]);
   useEffect(() => {
     const guard = (event: BeforeUnloadEvent) => { if ([...records.current, ...mediaRecords.current].some(task => isActiveTask(task.status))) { event.preventDefault(); event.returnValue = ''; } };
     window.addEventListener('beforeunload', guard); return () => window.removeEventListener('beforeunload', guard);
@@ -152,6 +159,21 @@ export function useBackgroundTasks(notify: (message: string, error?: boolean) =>
   return { tasks: [...tasks, ...mediaTasks], minimized, locked, run, resume, restoreDialogs, pause, continueTask, loading, muted, active: isActiveTask,
     toggleMuted: () => setMuted(value => { const next = !value; try { localStorage.setItem('studio-task-sound-muted', next ? '1' : '0'); } catch { /* Preference only. */ } return next; }),
     minimize: (key: string) => setMinimized(keys => keys.includes(key) ? keys : [...keys, key]),
-    dismiss: (id: string) => { const external = mediaRecords.current.find(row => row.id === id); if (external && !isActiveTask(external.status) && !external.retained) { mediaDismissed.current.add(id); mediaRecords.current = mediaRecords.current.filter(row => row.id !== id); setMediaTasks(mediaRecords.current); return; } const task = records.current.find(row => row.id === id); if (!task || isActiveTask(task.status) || task.retained) return; void removeTask(id).then(() => update(rows => rows.filter(row => row.id !== id))).catch(() => notify('任务记录暂未移除，请稍后重试。', true)); },
+    dismiss: (id: string) => {
+      const external = mediaRecords.current.find(row => row.id === id), task = external || records.current.find(row => row.id === id), generation = epoch.current;
+      if (!task || isActiveTask(task.status) || task.retained && !['completed', 'failed'].includes(task.status)) return;
+      const pending = writes.current.catch(() => {}).then(async () => {
+        if (!alive.current || generation !== epoch.current) return;
+        const current = (external ? mediaRecords.current : records.current).find(row => row.id === id);
+        if (!current || isActiveTask(current.status)) return;
+        if (external) await saveTask({ ...current, retained: false, dismissed: true });
+        else await removeTask(id);
+        if (!alive.current || generation !== epoch.current) return;
+        if (external) { mediaDismissed.current.add(id); mediaRecords.current = mediaRecords.current.filter(row => row.id !== id); setMediaTasks(mediaRecords.current); }
+        else update(rows => rows.filter(row => row.id !== id));
+      });
+      writes.current = pending;
+      void pending.catch(() => { if (alive.current && generation === epoch.current) notify('任务记录暂未移除，请稍后重试。', true); });
+    },
   };
 }

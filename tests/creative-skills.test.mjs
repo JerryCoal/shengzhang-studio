@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { normalizeCreativeSkills, previewCreativeSkill, installCreativeSkill, setCreativeSkillEnabled, removeCreativeSkill, resolveCreativeSkill, CREATIVE_SKILL_MAX_BYTES, CREATIVE_SKILL_MAX_COUNT } from '../server/creative-skills.mjs';
+import { normalizeCreativeSkills, previewCreativeSkill, installCreativeSkill, updateCreativeSkill, setCreativeSkillEnabled, removeCreativeSkill, resolveCreativeSkill, setWorkflowSkill, resolveWorkflowSkill, CREATIVE_SKILL_MAX_BYTES, CREATIVE_SKILL_MAX_COUNT } from '../server/creative-skills.mjs';
 
 const source = (extra = '', body = '# 校园招募\n围绕真实校园场景，用清晰短句介绍服务。保留价格和限制。') => `---\nname: campus-copy\ndescription: 校园招募宣传文案\nversion: 1.0.0\n${extra}---\n\n${body}`;
 const install = (state, text = source(), options = {}) => installCreativeSkill(state, { fileName: 'SKILL.md', text, expectedRevision: state.skillsRevision || 0, confirmed: true, ...options });
@@ -62,6 +62,42 @@ test('selection respects enabled state and platform, returns independent snapsho
   removeCreativeSkill(state, skill.id, { expectedRevision: 3 });
   assert.equal(state.installedSkills.length, 0); assert.equal(state.skillsRevision, 4); assert.match(snapshot.sourceText, /校园招募/);
   assert.throws(() => resolve(state, skill.id), /删除或不存在/);
+});
+
+test('editing an installed Skill preserves identity, selections, enablement and existing task snapshots', () => {
+  const state = {}, skill = install(state, source(), { workflowId: 'copy-xiaohongshu' });
+  setWorkflowSkill(state, { workflowId: 'copy-xiaohongshu', skillId: skill.id, expectedRevision: 1 });
+  state.accounts = [{ id: 'account-a', creationProfile: { revision: 3, presets: [{ id: 'preset-a', skillSelections: { 'copy-xiaohongshu': skill.id } }] } }];
+  const accounts = structuredClone(state.accounts), snapshot = resolveWorkflowSkill(state, 'copy-xiaohongshu');
+  const text = source('', '# 修改后的规则\n先写实际场景，再介绍产品边界。').replace('campus-copy', 'campus-edited').replace('1.0.0', '1.0.1');
+  const updated = updateCreativeSkill(state, skill.id, { fileName: skill.sourceFile, text, expectedRevision: 2 });
+  assert.equal(updated.id, skill.id); assert.equal(updated.installedAt, skill.installedAt); assert.equal(updated.enabled, true);
+  assert.equal(updated.name, 'campus-edited'); assert.equal(updated.version, '1.0.1'); assert.equal(state.skillsRevision, 3);
+  assert.deepEqual(state.skillSelections, { 'copy-xiaohongshu': skill.id }); assert.deepEqual(state.accounts, accounts);
+  assert.equal(resolveWorkflowSkill(state, 'copy-xiaohongshu').instructions, updated.instructions);
+  assert.equal(snapshot.instructions, skill.instructions); assert.notEqual(snapshot.instructions, updated.instructions);
+  updateCreativeSkill(state, skill.id, { fileName: skill.sourceFile, text, expectedRevision: 3 });
+  assert.equal(state.skillsRevision, 3, 'saving identical content does not invalidate running tasks');
+  setCreativeSkillEnabled(state, skill.id, { enabled: false, expectedRevision: 3 });
+  const disabled = updateCreativeSkill(state, skill.id, { fileName: skill.sourceFile, text: text + '\n保持简洁。', expectedRevision: 4 });
+  assert.equal(disabled.enabled, false); assert.equal(state.skillsRevision, 5);
+  assert.deepEqual(state.skillSelections, {});
+});
+
+test('editing rejects stale, invalid, conflicting and scope-changing drafts without changing saved content', () => {
+  const state = {}, skill = install(state, source('platforms: xiaohongshu\n'));
+  const other = install(state, source('platforms: xiaohongshu\n').replace('campus-copy', 'another-skill'));
+  const before = structuredClone(state);
+  const update = (text, options = {}) => updateCreativeSkill(state, skill.id, { fileName: 'SKILL.md', text, expectedRevision: 2, ...options });
+  assert.throws(() => update(source(), { expectedRevision: 1 }), /另一处更新/);
+  assert.throws(() => update('---\nname: missing-close'), /结束/);
+  assert.throws(() => update('汉'.repeat(CREATIVE_SKILL_MAX_BYTES / 3 + 1)), /24 KB/);
+  assert.throws(() => update(source('platforms: douyin\n')), /适用平台或工作步骤/);
+  assert.throws(() => update(other.sourceText), /相同内容/);
+  assert.throws(() => update(other.sourceText + '\n不同正文。'), /同名同版本/);
+  assert.throws(() => update(source(), { workflowId: 'copy-douyin' }));
+  assert.throws(() => updateCreativeSkill(state, 'missing', { fileName: 'SKILL.md', text: source(), expectedRevision: 2 }), /不存在/);
+  assert.deepEqual(state, before);
 });
 
 test('workspace users stay isolated and malformed or tampered stored records cannot enter a prompt', () => {

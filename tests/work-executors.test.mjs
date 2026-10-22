@@ -178,3 +178,20 @@ test('internal MCP adapter binds approved connection, rejects changed service an
   config.authorizeWorkActor = () => false;
   await assert.rejects(adapter.workResearchSearch(request), /撤销/); assert.equal(urls.length, previousCount);
 });
+
+test('explicit task skills bypass inherited custom defaults and validate selected workflow', async t => {
+  const { installCreativeSkill } = await import('../server/creative-skills.mjs');
+  const f = fixture(t); let copySkill, researchSkill;
+  const source = name => '---\nname: ' + name + '\ndescription: 合成派工规则\nversion: 1.0.0\n---\n\n# 内容规则\n围绕真实场景撰写，保留事实与限制。';
+  f.store.mutate(state => {
+    copySkill = installCreativeSkill(state, { fileName: 'SKILL.md', text: source('selected-copy'), workflowId: 'copy-xiaohongshu', expectedRevision: state.skillsRevision || 0, confirmed: true });
+    researchSkill = installCreativeSkill(state, { fileName: 'SKILL.md', text: source('selected-research'), workflowId: 'research-analysis', expectedRevision: state.skillsRevision, confirmed: true });
+    state.skillSelections = { ...state.skillSelections, 'copy-xiaohongshu': copySkill.id };
+  });
+  const prepare = patch => { const state = f.store.get(); return f.executor.prepare({ state, project: state.projects[0], node: { ...f.node, ...patch } }); };
+  assert(prepare({}).skills.some(skill => skill.id === copySkill.id));
+  const defaults = prepare({ skillMode: 'default', skillIds: [] }); assert(defaults.skills.length > 0); assert(!defaults.skills.some(skill => skill.id === copySkill.id)); assert(!defaults.payload.creativeSkill);
+  const selected = prepare({ skillMode: 'selected', skillIds: [copySkill.id] }); assert.equal(selected.skills.filter(skill => skill.id === copySkill.id).length, 1); assert.equal(selected.payload.agentContext.skills[0].version, '1.0.0');
+  assert.throws(() => prepare({ skillMode: 'selected', skillIds: [researchSkill.id] }), /不适用/);
+  assert.throws(() => prepare({ skillMode: 'selected', skillIds: [] }), /请选择/);
+});

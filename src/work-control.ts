@@ -3,13 +3,15 @@ import { api, LOCAL_DATA } from './api';
 import { registerWorkspaceSaver } from './workspace-save';
 export type WorkRole = 'xiaohongshu-copy' | 'douyin-research' | 'douyin-script';
 export type WorkStatus = 'pending-approval' | 'waiting-dependencies' | 'queued' | 'running' | 'waiting-user' | 'paused' | 'succeeded' | 'failed' | 'cancelled' | 'needs-reconciliation';
-export type PlanNode = { id: string; title: string; role: WorkRole; accountId: string; connectionAccountId?: string; requirement: string; dependsOn: string[]; model: string; budgetUSD: number; estimateUSD?: number; knowledgeIds?: string[]; experienceIds?: string[]; skillIds?: string[] };
+export type PlanNode = { id: string; title: string; role: WorkRole; accountId: string; connectionAccountId?: string; requirement: string; dependsOn: string[]; model: string; budgetUSD: number; estimateUSD?: number; knowledgeIds?: string[]; experienceIds?: string[]; skillIds?: string[]; skillMode?: 'default' | 'selected' };
 export type WorkPlan = { id: string; projectId: string; version: number; goal: string; status: 'draft' | 'approved'; nodes: PlanNode[]; estimateUSD: number; versions?: { version: number; status?: string; goal?: string }[] };
-export type WorkTask = { id: string; title: string; projectId: string; accountId?: string; accountName?: string; role: WorkRole | 'controller-planning'; status: WorkStatus; latestRunId: string; createdAt: string };
-export type WorkRun = { id: string; taskId: string; projectId: string; status: WorkStatus; waitReason?: string; revision: number; error?: string; createdAt: string; finishedAt?: string; planId?: string; planVersion?: number; node?: Pick<PlanNode, 'id' | 'role' | 'accountId' | 'connectionAccountId'>; input?: Record<string, unknown>; receiptAvailable?: boolean; usage?: { estimatedUSD?: number; reservedUSD?: number; settledUSD?: number; unknownUSD?: number } };
+export type WorkTask = { id: string; title: string; projectId: string; planId?: string; nodeId?: string; accountId?: string; accountName?: string; role: WorkRole | 'controller-planning'; status: WorkStatus; latestRunId: string; createdAt: string; deletedAt?: string; removable?: boolean; deletionBlockedReason?: string };
+export type WorkRun = { id: string; taskId: string; projectId: string; status: WorkStatus; waitReason?: string; revision: number; error?: string; createdAt: string; finishedAt?: string; planId?: string; planVersion?: number; planningPlanId?: string; planningPlanVersion?: number; planningQuestion?: string; node?: Pick<PlanNode, 'id' | 'role' | 'accountId' | 'connectionAccountId'> & Partial<Omit<PlanNode, 'id' | 'role' | 'accountId' | 'connectionAccountId'>>; dispatch?: { ready: boolean; reason?: string; workflowId?: string }; input?: Record<string, unknown>; receiptAvailable?: boolean; usage?: { estimatedUSD?: number; reservedUSD?: number; settledUSD?: number; unknownUSD?: number } };
 export type WorkArtifact = { id: string; version: number; headVersion?: number; title: string; body: string; kind: string; taskId: string; runId: string; legacy?: { assetId?: string; projectId?: string }; candidate?: boolean };
 export type WorkEvent = { id: string; sequence: number; runId: string; type: string; summary: string; detail?: string | Record<string, unknown>; at: string };
-export type WorkView = { cursor: number; expandedIds: string[]; draft: string; scrollTop?: number; runId?: string; artifactDrafts?: Record<string, {title: string; body: string; baseVersion: number} | null> };
+export type DispatchDraft = { runId: string; baseRevision: number; requirement: string; model: string; skillMode: '' | 'default' | 'selected'; skillIds: string[]; budgetUSD: number };
+export type MediaDraft = { count: number; modelKey: string; skillId: string | null; prompts: Record<number, string>; textMode: 'title' | 'none'; watermark: boolean };
+export type WorkView = { cursor: number; expandedIds: string[]; draft: string; scrollTop?: number; runId?: string; dispatchDraft?: DispatchDraft | null; mediaDrafts?: Record<string, MediaDraft | null>; artifactDrafts?: Record<string, {title: string; body: string; baseVersion: number} | null> };
 export type ControllerView = { goal: string; accountIds: string[]; model: string; planId: string; planningMode: 'ai' | 'rules' };
 export type WorkMessage = { id: string; text: string; role?: string; at?: string; createdAt?: string };
 export type WorkNotification = { id: string; title?: string; summary?: string; message?: string; projectId: string; taskId: string; runId?: string; artifactId?: string; artifactVersion?: number; readAt?: string | null; deliveryAttemptedAt?: string; deliveredAt?: string; createdAt?: string; target?: { projectId?: string; taskId?: string; runId?: string; artifactId?: string; artifactVersion?: number } };
@@ -22,6 +24,18 @@ export const attentionWork = (value: string) => ['pending-approval', 'waiting-us
 export const workError = (error: unknown) => error instanceof Error ? error.message : '操作未完成，请重试';
 export const workSession = () => sessionStorage.getItem('studio-session') || '';
 export const workId = () => crypto.randomUUID();
+/** Repair historical media links and refresh shared state before opening the exact draft. */
+export async function prepareWorkMedia(artifact: WorkArtifact, projectId: string, refresh: () => Promise<void>, isCurrent = () => true) {
+  const session = workSession(), valid = () => session === workSession() && isCurrent();
+  if (!valid()) throw Error('工作区已切换，未继续制作');
+  if (artifact.candidate || !['copy', 'script'].includes(artifact.kind)) throw Error('请先采用文案或脚本成果，再继续制作');
+  const target = await api<{ assetId: string; projectId: string }>(`/artifacts/${encodeURIComponent(artifact.id)}/versions/${artifact.version}/media-draft`, 'POST');
+  if (!valid()) throw Error('工作区已切换，未继续制作');
+  if (!target.assetId || target.projectId !== projectId) throw Error('成果归属无法核对，请刷新任务后重试');
+  await refresh();
+  if (!valid()) throw Error('工作区已切换，未继续制作');
+  return target;
+}
 export function refinementAccountIds(task: WorkTask, latestRun?: WorkRun): string[] {
   if (task.role !== 'douyin-research') return task.accountId ? [task.accountId] : [];
   if (!latestRun || latestRun.id !== task.latestRunId || latestRun.taskId !== task.id || latestRun.projectId !== task.projectId || latestRun.node?.role !== 'douyin-research') return [];
@@ -151,8 +165,8 @@ export function useWorkView(taskId: string) {
   useEffect(() => { if (!ready) return; const timer = setTimeout(() => void save().catch(() => {}), 600); return () => clearTimeout(timer); }, [revision, ready, save]);
   const update = useCallback((patch: Partial<WorkView>) => {
     if (!enabled.current || session.current !== workSession()) return;
-    fields.current = { ...fields.current, ...patch, ...(patch.artifactDrafts ? { artifactDrafts: { ...fields.current.artifactDrafts, ...patch.artifactDrafts } } : {}) };
-    setValue(current => ({ ...current, ...patch, ...(patch.artifactDrafts ? { artifactDrafts: { ...current.artifactDrafts, ...patch.artifactDrafts } } : {}) }));
+    fields.current = { ...fields.current, ...patch, ...(patch.mediaDrafts ? { mediaDrafts: { ...fields.current.mediaDrafts, ...patch.mediaDrafts } } : {}), ...(patch.artifactDrafts ? { artifactDrafts: { ...fields.current.artifactDrafts, ...patch.artifactDrafts } } : {}) };
+    setValue(current => ({ ...current, ...patch, ...(patch.mediaDrafts ? { mediaDrafts: { ...current.mediaDrafts, ...patch.mediaDrafts } } : {}), ...(patch.artifactDrafts ? { artifactDrafts: { ...current.artifactDrafts, ...patch.artifactDrafts } } : {}) }));
     setRevision(current => current + 1);
   }, []);
   return { value, ready, error, update, save };

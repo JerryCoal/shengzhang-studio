@@ -28,6 +28,10 @@ type DefaultSkillDraft = {
   instructions: string; originalInstructions: string; defaultInstructions: string;
   version: string; baseVersion: string; customized: boolean; expectedRevision: number;
 };
+type InstalledSkillDraft = {
+  skillId: string; skillName: string; workflowLabel: string; sourceFile: string;
+  sourceText: string; originalText: string; expectedRevision: number;
+};
 const MAX_FILE_BYTES = 24 * 1024;
 const template = `---
 name: 我的工作步骤规则
@@ -108,12 +112,17 @@ export function CreativeSkillsSettings() {
   const [defaultDraft, setDefaultDraft] = useState<DefaultSkillDraft | null>(null);
   const [defaultError, setDefaultError] = useState(''), [defaultStale, setDefaultStale] = useState(false);
   const [restoreDefault, setRestoreDefault] = useState(false), [discardDefault, setDiscardDefault] = useState(false);
+  const [installedDraft, setInstalledDraft] = useState<InstalledSkillDraft | null>(null);
+  const [installedError, setInstalledError] = useState(''), [installedStale, setInstalledStale] = useState(false);
+  const [discardInstalled, setDiscardInstalled] = useState(false);
   const [filter, setFilter] = useState('全部步骤');
   const importRef = useRef<HTMLSelectElement>(null);
   const prefix = useId(), locked = busy || pending || loading || !catalog;
   const defaultEditable = !IS_WEB && catalog?.defaultEditable !== false && (!settings.team || settings.team.role === 'admin');
   const defaultBytes = new TextEncoder().encode(defaultDraft?.instructions || '').byteLength;
   const defaultDirty = !!defaultDraft && defaultDraft.instructions !== defaultDraft.originalInstructions;
+  const installedBytes = new TextEncoder().encode(installedDraft?.sourceText || '').byteLength;
+  const installedDirty = !!installedDraft && installedDraft.sourceText !== installedDraft.originalText;
   const target = catalog?.workflows?.find(workflow => workflow.id === workflowId);
   const otherWorkflowIds = (catalog?.workflows || []).filter(workflow => !groups.some(group => group.ids.includes(workflow.id))).map(workflow => workflow.id);
   const workflowGroups = otherWorkflowIds.length ? [...groups, { label: '其他步骤', ids: otherWorkflowIds }] : groups;
@@ -127,6 +136,9 @@ export function CreativeSkillsSettings() {
   useEffect(() => {
     if (defaultDraft && catalog && catalog.revision !== defaultDraft.expectedRevision) setDefaultStale(true);
   }, [catalog?.revision, defaultDraft?.expectedRevision]);
+  useEffect(() => {
+    if (installedDraft && catalog && catalog.revision !== installedDraft.expectedRevision) setInstalledStale(true);
+  }, [catalog?.revision, installedDraft?.expectedRevision]);
   async function reload() {
     setLoading(true); setError('');
     try { setCatalog(await api<CreativeSkillsCatalog>('/creative-skills')); }
@@ -173,6 +185,48 @@ export function CreativeSkillsSettings() {
           const latest = await api<CreativeSkillsCatalog>('/creative-skills'); setCatalog(latest);
           if (latest.revision !== draft.expectedRevision) setDefaultStale(true);
         } catch { /* Keep the original draft and its revision until the user can refresh. */ }
+      }
+    } finally { setPending(false); }
+  }
+  function editInstalled(skill: InstalledCreativeSkill) {
+    if (locked || !catalog) return;
+    setInstalledDraft({ skillId: skill.id, skillName: skill.name, workflowLabel: skillTarget(skill), sourceFile: skill.sourceFile,
+      sourceText: skill.sourceText, originalText: skill.sourceText, expectedRevision: catalog.revision });
+    setInstalledError(''); setInstalledStale(false); setDiscardInstalled(false);
+  }
+  function closeInstalledEditor() {
+    if (pending) return;
+    if (installedDirty) setDiscardInstalled(true);
+    else setInstalledDraft(null);
+  }
+  async function saveInstalled() {
+    const draft = installedDraft;
+    if (!draft || locked || installedStale || !catalog) return;
+    if (catalog.revision !== draft.expectedRevision) { setInstalledStale(true); return; }
+    if (!draft.sourceText.trim() || installedBytes > MAX_FILE_BYTES) {
+      setInstalledError('Skills 内容不能为空，UTF-8 大小不能超过 24 KB。'); return;
+    }
+    setPending(true); setInstalledError(''); setError(''); setStatus('');
+    let saved = false;
+    try {
+      await mutate('/creative-skills/' + encodeURIComponent(draft.skillId), 'PUT', {
+        fileName: draft.sourceFile, text: draft.sourceText, expectedRevision: draft.expectedRevision,
+      });
+      saved = true; setInstalledDraft(null); setDiscardInstalled(false);
+      setCatalog(await api<CreativeSkillsCatalog>('/creative-skills'));
+      const success = 'Skills 已保存，选用它的步骤和账号会在之后的新请求中使用修改后的规则。';
+      setStatus(success); notify(success);
+    } catch (failure) {
+      const message = errorText(failure);
+      if (saved) {
+        setCatalog(null); setError('Skills 已保存，但列表刷新失败：' + message + '。请重新读取列表，不必重复提交。');
+        notify('Skills 已保存，请重新读取列表确认。', true);
+      } else {
+        setInstalledError(message); notify(message, true);
+        try {
+          const latest = await api<CreativeSkillsCatalog>('/creative-skills'); setCatalog(latest);
+          if (latest.revision !== draft.expectedRevision || !latest.skills.some(skill => skill.id === draft.skillId)) setInstalledStale(true);
+        } catch { /* Preserve the unsaved draft and original revision for a later refresh. */ }
       }
     } finally { setPending(false); }
   }
@@ -262,10 +316,23 @@ export function CreativeSkillsSettings() {
       <div className="creative-skill-list">{catalog.skills.map(skill => <article className={'creative-skill-card ' + (skill.enabled ? '' : 'is-disabled')} key={skill.id}>
         <div className="creative-skill-heading"><div><b>{skill.name}</b><small>v{skill.version}</small></div><label className="creative-skill-toggle"><input type="checkbox" aria-label={(skill.enabled ? '停用 ' : '启用 ') + skill.name} checked={skill.enabled} disabled={locked} onChange={event => void change('/creative-skills/' + encodeURIComponent(skill.id), 'PATCH', { enabled: event.target.checked }, event.target.checked ? 'Skills 已启用，可在对应步骤下拉列表中选用' : 'Skills 已停用，使用它的步骤已恢复默认规则')}/>{skill.enabled ? '已启用' : '已停用'}</label></div>
         <p>{skill.description}</p><p className="small-note">工作步骤：{skillTarget(skill)}</p>
-        <div className="creative-skill-card-footer"><details className="creative-skill-details"><summary>查看规则与原文</summary><p className="small-note">来源文件：{skill.sourceFile}</p><pre>{skill.sourceText}</pre></details><button type="button" className="icon-button" aria-label={'删除 Skills ' + skill.name} disabled={locked} onClick={() => setDeleting(skill.id)}><Trash2 size={16}/></button></div>
+        <div className="creative-skill-card-footer"><details className="creative-skill-details"><summary>查看规则与原文</summary><p className="small-note">来源文件：{skill.sourceFile}</p><pre>{skill.sourceText}</pre></details><button type="button" className="button small" aria-label={'编辑 Skills ' + skill.name} disabled={locked} onClick={() => editInstalled(skill)}><Pencil size={15}/>编辑</button><button type="button" className="icon-button" aria-label={'删除 Skills ' + skill.name} disabled={locked} onClick={() => setDeleting(skill.id)}><Trash2 size={16}/></button></div>
         {deleting === skill.id && <div className="creative-skill-delete"><p>删除“{skill.name}”？使用它的步骤会恢复默认规则，已生成的内容不会改变。</p><button type="button" className="button small" disabled={locked} onClick={() => setDeleting('')}>保留</button><button type="button" className="button small" disabled={locked} onClick={() => void change('/creative-skills/' + encodeURIComponent(skill.id), 'DELETE', {}, 'Skills 已删除，使用它的步骤已恢复默认规则')}>确认删除</button></div>}
       </article>)}</div>
     </>}
+    {installedDraft && <Modal wide title={`编辑导入 Skills · ${installedDraft.skillName}`} description={`适用步骤：${installedDraft.workflowLabel}。保存后用于选用它的步骤和账号的新请求。`} onClose={closeInstalledEditor}>
+      <div className="creative-default-editor">
+        <p className="small-note">可修改名称、描述、版本和规则正文。来源文件：{installedDraft.sourceFile}。适用范围及现有选择保持不变；已生成内容保留原规则记录。</p>
+        {installedError && <p className="creative-skill-error" role="alert">{installedError}</p>}
+        {installedStale && <div className="creative-default-conflict" role="alert"><b>规则列表已更新，本次草稿尚未保存。</b><p>请先下载或复制草稿，关闭后重新打开这份 Skills，核对最新内容再编辑。</p></div>}
+        {(installedError || installedStale) && <div className="creative-default-actions"><button type="button" className="button small" disabled={pending || loading} onClick={() => void reload()}><RefreshCw size={14}/>重新读取列表版本</button><span className="small-note">重新读取会保留当前草稿。</span></div>}
+        <Field label="导入 Skills 原文" hint={`包括顶部元信息和规则正文。UTF-8 已用 ${installedBytes.toLocaleString('zh-CN')} / ${MAX_FILE_BYTES.toLocaleString('zh-CN')} 字节，最多 24 KB。`}><textarea aria-label="导入 Skills 原文" rows={16} value={installedDraft.sourceText} maxLength={MAX_FILE_BYTES} disabled={pending} onChange={event => { setInstalledDraft({ ...installedDraft, sourceText: event.target.value }); setInstalledError(''); setDiscardInstalled(false); }}/></Field>
+        {installedBytes > MAX_FILE_BYTES && <p className="error-text" role="alert">内容超过 24 KB，请缩短后再保存。</p>}
+        <div className="creative-default-actions"><button type="button" className="text-button" disabled={pending} onClick={() => download(new Blob([installedDraft.sourceText], { type: 'text/markdown;charset=utf-8' }), installedDraft.sourceFile.replace(/\.md$/i, '-草稿.md'))}><Download size={14}/>下载当前草稿</button></div>
+        {discardInstalled && <div className="creative-default-conflict"><p>本次修改尚未保存。关闭会放弃这份草稿。</p><div className="creative-default-actions"><button type="button" className="button small" disabled={pending} onClick={() => setDiscardInstalled(false)}>继续编辑</button><button type="button" className="button small" disabled={pending} onClick={() => setInstalledDraft(null)}>放弃草稿并关闭</button></div></div>}
+        <div className="modal-actions"><button type="button" className="button" disabled={pending} onClick={closeInstalledEditor}>取消</button><button type="button" className="button primary" disabled={locked || installedStale || !installedDirty || !installedDraft.sourceText.trim() || installedBytes > MAX_FILE_BYTES} onClick={() => void saveInstalled()}><Save size={15}/>{pending ? '正在保存…' : '保存 Skills'}</button></div>
+      </div>
+    </Modal>}
     {defaultDraft && <Modal wide title={`编辑默认规则 · ${defaultDraft.workflowLabel}`} description={`当前规则：${defaultDraft.skillName}。只修改这个工作步骤，保存后用于新请求。`} onClose={closeDefaultEditor}>
       <div className="creative-default-editor">
         <div className="creative-skill-heading"><span>当前版本 v{defaultDraft.version}</span><Pill color={defaultDraft.customized ? 'blue' : 'gray'}>{defaultDraft.customized ? '已自定义' : '出厂规则'}</Pill></div>

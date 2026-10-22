@@ -20,6 +20,7 @@ export const CREATIVE_SKILL_MAX_COUNT: number;
 export function normalizeCreativeSkills<T extends CreativeSkillState>(state: T): T & { installedSkills: InstalledCreativeSkill[]; skillsRevision: number; builtinSkillOverrides: import('./builtin-skills.mjs').BuiltinSkillOverrides; skillSelections: Partial<Record<import('./skill-workflows.mjs').SkillWorkflowId, string>> };
 export function previewCreativeSkill(input: { fileName: string; text: string; workflowId?: import('./skill-workflows.mjs').SkillWorkflowId }): CreativeSkillPreview;
 export function installCreativeSkill(state: CreativeSkillState, input: { fileName: string; text: string; workflowId?: import('./skill-workflows.mjs').SkillWorkflowId; expectedRevision: number; confirmed: true }): InstalledCreativeSkill;
+export function updateCreativeSkill(state: CreativeSkillState, id: string, input: { fileName: string; text: string; expectedRevision: number }): InstalledCreativeSkill;
 export function setCreativeSkillEnabled(state: CreativeSkillState, id: string, input: { enabled: boolean; expectedRevision: number }): InstalledCreativeSkill;
 export function removeCreativeSkill(state: CreativeSkillState, id: string, input: { expectedRevision: number }): { ok: true };
 export function resolveCreativeSkill(state: CreativeSkillState, input: { skillId?: string; stage: string; platform: CreativeSkillPlatform }): CreativeSkillSnapshot | null;

@@ -186,6 +186,25 @@ export function installCreativeSkill(state, input) {
   return structuredClone(skill);
 }
 
+export function updateCreativeSkill(state, id, input) {
+  const data = inputSchema.omit({ workflowId: true }).extend({ expectedRevision: revision }).strict().parse(input);
+  matchingRevision(state, data.expectedRevision);
+  const skill = locate(state, id);
+  const preview = previewCreativeSkill({ fileName: data.fileName, text: data.text, ...(skill.workflowId ? { workflowId: skill.workflowId } : {}) });
+  const scopes = creativeSkillWorkflowIds(skill), nextScopes = creativeSkillWorkflowIds(preview);
+  if (JSON.stringify(scopes) !== JSON.stringify(nextScopes)) fail('编辑不能改变已安装 Skill 的适用平台或工作步骤；需要其他范围时请另行导入');
+  const others = state.installedSkills.filter(item => item.id !== id && creativeSkillWorkflowIds(item).some(workflowId => scopes.includes(workflowId)));
+  if (others.some(item => item.sourceText === preview.sourceText)) fail('该步骤已安装相同内容的 Skill，请勿重复保存', 409);
+  if (others.some(item => normalized(item.name) === normalized(preview.name) && normalized(item.version) === normalized(preview.version))) fail('该步骤的同名同版本 Skill 已存在，请修改名称或版本号', 409);
+  if (skill.sourceText !== preview.sourceText || skill.sourceFile !== preview.sourceFile) {
+    // Keep the installed identity, enablement and account/workflow selections.
+    // Existing task traces are independent snapshots; new requests resolve this content.
+    Object.assign(skill, preview);
+    state.skillsRevision++;
+  }
+  return structuredClone(skill);
+}
+
 function clearAccountSkill(state, id) {
   for (const account of state.accounts || []) {
     const profile = account.creationProfile; if (!profile) continue;

@@ -21,7 +21,7 @@ export function controllerHistory(db, ownerId, projectId, accountIds) {
     if (scoped && scopeKey(accounts) !== key) continue;
     const shared = { planId: plan.id, planVersion: first.version };
     turns.push({ id: `${plan.id}:request`, role: 'user', text: first.goal, createdAt: first.createdAt || plan.createdAt, ...shared });
-    turns.push({ id: `${plan.id}:reply`, role: 'assistant', text: `免费规则草案，不是模型推理：\n${first.nodes.map(node => `• ${node.title}：${node.requirement}`).join('\n')}\n需核对并批准当前版本后才执行。`, createdAt: first.createdAt || plan.createdAt, ...shared });
+    turns.push({ id: `${plan.id}:reply`, role: 'assistant', text: `免费规则草案，不是模型推理：\n${first.nodes.map(node => `• ${node.title}：${node.requirement}`).join('\n')}\n保存计划后，仍需逐项核对指令、Skills 和费用并批准派工。`, createdAt: first.createdAt || plan.createdAt, ...shared });
   }
   return turns.sort((a, b) => a.createdAt.localeCompare(b.createdAt)).slice(-40);
 }

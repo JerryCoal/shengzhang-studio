@@ -7,9 +7,10 @@ const taskSchema = z.object({
   target: z.object({ assetId: identifier.optional(), publicationId: identifier.optional(), accountId: identifier.optional(), requirement: z.string().max(20000).optional(), knowledgeIds: z.array(identifier).max(200).optional(), newContent: z.boolean().optional(), tab: z.string().max(100).optional(), agentId: z.string().max(100).optional(), skillIds: z.array(identifier).max(100).optional(), model: z.string().max(100).optional(), publishingNotes: z.string().max(5000).optional() }).optional(),
   label: z.string().min(1).max(300), status: z.enum(['running', 'pausing', 'paused', 'completed', 'failed', 'interrupted']),
   stage: z.string().max(500).optional(), error: z.string().max(4000).optional(), retained: z.boolean(),
+  externallyManaged: z.boolean().optional(), dismissed: z.boolean().optional(),
   startedAt: z.number().finite().nonnegative(), updatedAt: z.number().finite().nonnegative(), finishedAt: z.number().finite().nonnegative().optional(),
   checkpoint: z.unknown().optional(),
-}).strict();
+}).strict().refine(task => !task.dismissed || task.externallyManaged && ['completed', 'failed', 'interrupted'].includes(task.status), '只有已结束的媒体任务可保存移除标记');
 const fail = message => { const error = new Error(message); error.status = 400; throw error; };
 
 export function taskJournal(state) { return structuredClone(Array.isArray(state.taskJournal) ? state.taskJournal : []); }
@@ -23,10 +24,14 @@ export function saveTaskJournal(state, id, input) {
   const next = rows.filter(row => row.id !== id);
   next.push(task);
   // Never prune an unfinished job to make space for routine completed history.
-  const unfinished = next.filter(row => ['running', 'pausing', 'paused', 'interrupted'].includes(row.status));
-  const completed = next.filter(row => !unfinished.includes(row)).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 40);
+  const unfinished = next.filter(row => !row.dismissed && ['running', 'pausing', 'paused', 'interrupted'].includes(row.status));
+  // Media jobs are projected from assets rather than this journal. Their small
+  // dismissal records must survive reloads and ordinary history pruning.
+  const mediaIds = new Set((state.projects || []).flatMap(project => (project.assets || []).flatMap(asset => [asset.aiCover?.id && `media:cover:${project.id}:${asset.aiCover.id}`, asset.aiProduction?.id && `media:frames:${project.id}:${asset.aiProduction.id}`, asset.aiProduction?.id && `media:video:${project.id}:${asset.aiProduction.id}`].filter(Boolean))));
+  const dismissed = next.filter(row => row.dismissed && mediaIds.has(row.id));
+  const completed = next.filter(row => !row.dismissed && !unfinished.includes(row)).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 40);
   if (unfinished.length > 100) fail('未完成任务过多，请先核对任务中心中的恢复记录。');
-  state.taskJournal = [...unfinished, ...completed];
+  state.taskJournal = [...unfinished.filter(row => !row.dismissed), ...completed, ...dismissed];
   return structuredClone(task);
 }
 export function removeTaskJournal(state, id) {

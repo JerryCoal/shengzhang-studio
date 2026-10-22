@@ -82,6 +82,7 @@ test('owner backup excludes other personal histories and credentials while retai
 
 test('portable backup restores into a distinct empty store with original IDs, archived sequences and unchanged unknown charges', async t => {
   const source = memory(t); source.mutate(history); const runtime = controller(source); as(() => runtime.control.migrateLegacy()); const approved = await approvedRecords(source, runtime), run = source.work.get('run', approved.runs[0].id);
+  run.approval = { version: 1, budgetUSD: 0, at: '2026-10-20T00:00:00Z', by: actor.userId }; // Synthetic pre-upgrade approval is historical evidence only.
   run.status = 'running'; run.sent = true; run.lease = { token: 'old-fence', workerId: 'old-worker', expiresAt: Date.now() + 50000 }; run.attempts = [{ id: 'attempt-original', sentAt: '2026-10-20T00:00:00Z', externalRequestId: 'original-external-id' }]; source.work.put('run', run);
   for (let index = 0; index < 5; index++) source.work.append({ id: `migrate-event-${index}`, runId: run.id, taskId: run.taskId, type: 'synthetic.fact', summary: `原活动${index}` });
   source.work.archiveEvents(run.id, 3);

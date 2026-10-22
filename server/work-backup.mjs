@@ -84,7 +84,7 @@ export function validateWorkBackup(input) {
   for (const run of runs.values()) {
     const task = tasks.get(run.taskId);
     if (!task || task.projectId !== run.projectId || !isObject(run.node) || !Array.isArray(run.attempts)) fail('运行与所属任务关系不完整');
-    if (!['waiting_dependencies', 'queued', 'running', 'waiting_user', 'paused', 'succeeded', 'failed', 'cancelled', 'needs_reconciliation'].includes(run.status)) fail('运行状态不受支持');
+    if (!['pending_approval', 'waiting_dependencies', 'queued', 'running', 'waiting_user', 'paused', 'succeeded', 'failed', 'cancelled', 'needs_reconciliation'].includes(run.status)) fail('运行状态不受支持');
     if ((run.dependencyRuns || []).some(key => !runs.has(key))) fail('运行依赖不在当前成员备份中');
   }
   for (const task of tasks.values()) if (task.latestRunId && runs.get(task.latestRunId)?.taskId !== task.id) fail('任务最新运行关系不完整');
@@ -139,10 +139,10 @@ export function createWorkBackup(store, options = {}) {
           // Restored approval/commands are historical evidence, never execution
           // authority. Existing legacy-checkpoint command guards block resends.
           row.source = 'legacy-checkpoint'; row.restoredApproval = row.approval; delete row.approval; delete row.lease; delete row.requestedAction;
-          if (['queued', 'waiting_dependencies', 'running'].includes(row.status)) row.status = row.sent || row.checkpoint?.type === 'result_ready' ? 'needs_reconciliation' : 'paused';
+          if (['pending_approval', 'queued', 'waiting_dependencies', 'running'].includes(row.status)) row.status = row.sent || row.checkpoint?.type === 'result_ready' ? 'needs_reconciliation' : 'paused';
           row.waitReason = ['succeeded', 'failed', 'cancelled'].includes(row.status) ? row.waitReason || '' : '从备份恢复的只读检查点；请核对回执、费用和输入，并建立新计划重新批准。';
         }
-        if (kind === 'task') { row.restore = { at: restoredAt, backupSha256: backup.sha256, previousSource: row.source || '' }; row.source = 'restored-backup'; const run = backup.records.find(item => item.kind === 'run' && item.value.id === row.latestRunId)?.value; if (run) row.status = ['queued', 'waiting_dependencies', 'running'].includes(run.status) ? run.sent || run.checkpoint?.type === 'result_ready' ? 'needs_reconciliation' : 'paused' : run.status; }
+        if (kind === 'task') { row.restore = { at: restoredAt, backupSha256: backup.sha256, previousSource: row.source || '' }; row.source = 'restored-backup'; const run = backup.records.find(item => item.kind === 'run' && item.value.id === row.latestRunId)?.value; if (run) row.status = ['pending_approval', 'queued', 'waiting_dependencies', 'running'].includes(run.status) ? run.sent || run.checkpoint?.type === 'result_ready' ? 'needs_reconciliation' : 'paused' : run.status; }
         if (kind === 'plan') for (const version of row.versions || []) { version.restoredStatus = version.status; version.status = 'restored'; }
         if (kind === 'command') { kind = 'backup-command'; row.originalId = row.id; row.originalKind = 'command'; row.id = `${backup.sha256}:${row.id}`; }
         store.work.put(kind, row);

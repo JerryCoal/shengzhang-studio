@@ -36,7 +36,7 @@ test('edited defaults persist across browser unlocks, stay isolated and are expl
   lockLocalWorkspace();
 });
 
-test('Skills preview, install, stale revision, disable and delete persist in isolated browser users', async () => {
+test('Skills preview, install, edit, stale revision, disable and delete persist in isolated browser users', async () => {
   const text = '---\nname: 校园写作\ndescription: 清楚介绍真实用途\nmetadata:\n  version: "1.0"\nplatforms: [xiaohongshu]\n---\n先写大学生自习场景。保留 Emoji ✨ 和 [赞R]。';
   await registerLocal('Skills甲', 'local-skills-password-123');
   const initial = await api('/creative-skills', 'GET');
@@ -46,17 +46,22 @@ test('Skills preview, install, stale revision, disable and delete persist in iso
   const installed = await api('/creative-skills', 'POST', { fileName: 'SKILL.md', text, expectedRevision: 0, confirmed: true });
   const id = installed.result.id;
   assert.equal(installed.state.installedSkills.length, 1); assert.equal(installed.result.enabled, true);
+  const editedText = text.replace('先写大学生自习场景。', '先写大学生真实使用需求。');
+  const edited = await api(`/creative-skills/${id}`, 'PUT', { fileName: 'SKILL.md', text: editedText, expectedRevision: 1 });
+  assert.equal(edited.result.id, id); assert.equal(edited.result.sourceText, editedText); assert.equal(edited.state.skillsRevision, 2);
+  await assert.rejects(api(`/creative-skills/${id}`, 'PUT', { fileName: 'SKILL.md', text, expectedRevision: 1 }), /另一处更新/);
   await assert.rejects(api(`/creative-skills/${id}`, 'DELETE', { expectedRevision: 0 }), /另一处更新/);
   lockLocalWorkspace(); await registerLocal('Skills乙', 'local-skills-password-456');
   assert.equal((await api('/creative-skills', 'GET')).skills.length, 0);
+  await assert.rejects(api(`/creative-skills/${id}`, 'PUT', { fileName: 'SKILL.md', text, expectedRevision: 0 }), /不存在/);
   await assert.rejects(api(`/creative-skills/${id}`, 'DELETE', { expectedRevision: 0 }), /不存在/);
   lockLocalWorkspace(); await loginLocal('Skills甲', 'local-skills-password-123');
   let catalog = await api('/creative-skills', 'GET');
-  assert.equal(catalog.skills[0].sourceText, text); assert.equal(catalog.revision, 1);
-  const changed = await api(`/creative-skills/${id}`, 'PATCH', { expectedRevision: 1, enabled: false });
-  assert.equal(changed.state.skillsRevision, 2); assert.equal(changed.result.enabled, false);
-  const removed = await api(`/creative-skills/${id}`, 'DELETE', { expectedRevision: 2 });
-  assert.equal(removed.state.installedSkills.length, 0); assert.equal(removed.state.skillsRevision, 3);
+  assert.equal(catalog.skills[0].sourceText, editedText); assert.equal(catalog.revision, 2);
+  const changed = await api(`/creative-skills/${id}`, 'PATCH', { expectedRevision: 2, enabled: false });
+  assert.equal(changed.state.skillsRevision, 3); assert.equal(changed.result.enabled, false);
+  const removed = await api(`/creative-skills/${id}`, 'DELETE', { expectedRevision: 3 });
+  assert.equal(removed.state.installedSkills.length, 0); assert.equal(removed.state.skillsRevision, 4);
   assert.equal((await api('/creative-skills', 'GET')).builtin.instructions, initial.builtin.instructions);
   const originalFetch = globalThis.fetch; let sent = 0;
   globalThis.fetch = async () => { sent++; throw Error('Unapproved transmission'); };

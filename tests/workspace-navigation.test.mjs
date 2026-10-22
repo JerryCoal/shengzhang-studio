@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readWorkspaceRoute, writeWorkspaceRoute } from '../src/workspace-route.mjs';
+import { readWorkspaceRoute, writeWorkspaceRoute, resolveWorkspacePage } from '../src/workspace-route.mjs';
 import { assetAccountId, assetPublicationRecords, scopedPublications } from '../server/workspace-view.mjs';
 
 const freeze = value => { Object.freeze(value); for (const child of Object.values(value)) if (child && typeof child === 'object' && !Object.isFrozen(child)) freeze(child); return value; };
@@ -27,8 +27,8 @@ test('old bookmarks remain valid and unknown or unbounded route input cannot inv
   for (const page of ['dashboard', 'projects', 'corpus', 'trends', 'strategy', 'studio', 'publish', 'comments', 'analytics', 'planning', 'settings', 'help']) {
     assert.equal(readWorkspaceRoute('#' + page).page, page);
   }
-  assert.equal(readWorkspaceRoute('#not-a-page').page, 'dashboard');
-  assert.equal(writeWorkspaceRoute('not-a-page'), '#dashboard');
+  assert.equal(readWorkspaceRoute('#not-a-page').page, 'controller');
+  assert.equal(writeWorkspaceRoute('not-a-page'), '#controller');
   const route = readWorkspaceRoute('#studio?project=' + 'p'.repeat(500) + '&assetId=' + 'a'.repeat(500) + '&accountId=owner&requirement=INJECTED&newContent=true&__proto__=bad');
   assert.equal(route.projectId.length, 200);
   assert.equal(route.target.assetId.length, 200);
@@ -70,4 +70,16 @@ test('changing the account viewing scope does not reassign content, mutate publi
   assetPublicationRecords(project, original, 'account-b');
   assert.equal(JSON.stringify({ original, project }), before);
   assert.equal(assetAccountId(original), 'account-a');
+});
+
+test('task links select exact saved context inside controller', () => {
+ const target = {taskId:'task / 一',runId:'old-run',planId:'plan-two',artifactId:'saved-artifact',artifactVersion:'4',eventId:'activity-7',accountId:'account-a',tab:'activity'};
+ const canonical=writeWorkspaceRoute('tasks','project-b',target);
+ assert.match(canonical,/^#controller\?/);
+ assert.deepEqual(readWorkspaceRoute(canonical),{page:'controller',projectId:'project-b',target});
+ assert.deepEqual(readWorkspaceRoute(canonical.replace('#controller?','#tasks?')),{page:'controller',projectId:'project-b',target});
+ assert.equal(resolveWorkspacePage('tasks'),'controller');
+ assert.deepEqual(readWorkspaceRoute('#tasks'),{page:'controller',projectId:'',target:{}});
+ assert.deepEqual(readWorkspaceRoute(''),{page:'controller',projectId:'',target:{}});
+ for(const page of ['studio','xiaohongshu-agent','douyin-agent','instagram-agent','youtube-agent','publish','accounts','materials','settings']) assert.equal(resolveWorkspacePage(page),page);
 });
