@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { revisionReferenceSchema } from './work-revision.mjs';
 import { MODELS, DEFAULT_ROUTES, stageConfig } from './models.mjs';
 import { generateStage, generateStructured, estimateReservation, estimateStructuredReservation, tokenCost } from './ai.mjs';
 import { resolveAgentContext } from './agent-workspace.mjs';
@@ -30,7 +31,7 @@ const freeze = value => { if (value && typeof value === 'object') { Object.value
 const now = () => new Date().toISOString();
 const elapsed = started => Math.max(0, Math.round((performance.now() - started) * 1000) / 1000);
 const identifier = z.string().trim().min(1).max(160);
-const nodeSchema = z.object({ id: identifier, title: z.string().max(200).default(''), role: z.enum(['xiaohongshu-copy', 'douyin-research', 'douyin-script']), accountId: z.string().max(100).default(''), connectionAccountId: z.string().max(100).default(''), requirement: z.string().trim().min(1).max(4000), dependsOn: z.array(identifier).max(12).default([]), knowledgeIds: z.array(identifier).max(8).default([]), experienceIds: z.array(identifier).max(8).default([]), skillIds: z.array(identifier).max(8).default([]), skillMode: z.enum(['default', 'selected']).optional(), model: z.string().max(100).optional(), budgetUSD: z.number().finite().nonnegative().max(1000) });
+const nodeSchema = z.object({ revisionSource: revisionReferenceSchema.optional(), id: identifier, title: z.string().max(200).default(''), role: z.enum(['xiaohongshu-copy', 'douyin-research', 'douyin-script']), accountId: z.string().max(100).default(''), connectionAccountId: z.string().max(100).default(''), requirement: z.string().trim().min(1).max(4000), dependsOn: z.array(identifier).max(12).default([]), knowledgeIds: z.array(identifier).max(8).default([]), experienceIds: z.array(identifier).max(8).default([]), skillIds: z.array(identifier).max(8).default([]), skillMode: z.enum(['default', 'selected']).optional(), model: z.string().max(100).optional(), budgetUSD: z.number().finite().nonnegative().max(1000) });
 const routeFor = (node, config) => {
   const stage = node.role === 'douyin-research' ? 'analysis' : 'copy', routes = config.modelStore?.get() || { ...DEFAULT_ROUTES };
   if (node.model) { require_(Object.hasOwn(MODELS, node.model), '所选文字模型不受支持'); routes[stage] = node.model; }
@@ -56,7 +57,7 @@ export function createFrozenWorkTransport({ config, connections, beforeRequest, 
 // A worker consumes a server-approved immutable packet. It never accepts a
 // browser request or re-resolves the user's current account/Skill selections.
 export function createWorkExecutors({ store, config = {}, activeJobs = createActiveJobs(), integrations = {} }) {
-  function prepare({ state, project, node: raw }) {
+  function prepare({ state, project, node: raw, revisionSource = null }) {
     const node = nodeSchema.parse(raw), research = node.role === 'douyin-research', platform = node.role === 'xiaohongshu-copy' ? 'xiaohongshu' : 'douyin';
     require_(project?.id && state.projects?.some(row => row.id === project.id), '任务所属项目不存在', 404);
     const account = node.accountId ? state.accounts?.find(row => row.id === node.accountId) : null;
@@ -71,6 +72,12 @@ export function createWorkExecutors({ store, config = {}, activeJobs = createAct
     const brief = clone(project.brief); brief.channels = [platform];
     const payload = { brief, requirement: node.requirement, instruction: node.requirement, accountContext: creation.accountContext, creativeSkill: creation.creativeSkill, builtinSkills: resolveBuiltinSkills(state, workflowId), agentContext: context, knowledgeContext: context.knowledge, corpusReferences: searchCorpus(project, node.requirement, 8) };
     if (!research) Object.assign(payload, { strategy: { title: node.title || node.requirement.slice(0, 80), core: brief.product, direction: node.role === 'douyin-script' ? '为指定账号生成可审阅的视频脚本与三个分镜，不宣称已经制作或发布视频。' : '为指定账号生成图文标题、正文与封面构思；没有获得图像生成预算，不生成或声称已有图片。', prompt: node.requirement }, task: { channel: platform, kind: node.role === 'douyin-script' ? 'video' : 'image', title: node.title, body: '', prompt: node.requirement } });
+    if (node.revisionSource) {
+      require_(!research && revisionSource && revisionSource.projectId === project.id && revisionSource.nodeId === node.id && revisionSource.accountId === node.accountId && revisionSource.taskId === node.revisionSource.taskId && revisionSource.artifactId === node.revisionSource.artifactId && revisionSource.version === node.revisionSource.version, '修订任务缺少已核对的固定稿件', 409);
+      payload.revisionSource = clone(revisionSource);
+      payload.task = { ...payload.task, title: revisionSource.title, body: revisionSource.body, prompt: revisionSource.prompt };
+    }
+    require_(Buffer.byteLength(JSON.stringify(payload)) <= 110000, '任务输入过长，请减少资料或缩小修订范围');
     const definition = research ? researchDefinition('xhs-analysis') : null, instructions = research ? researchInstructions('xhs-analysis', payload) + customSkillInstructions(payload.creativeSkill) : '';
     const base = research ? estimateStructuredReservation(payload, modelRoute, definition, instructions) : estimateReservation(payload, modelRoute);
     // Dependencies and collected evidence do not exist at planning time. The

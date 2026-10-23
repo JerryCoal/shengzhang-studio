@@ -5,6 +5,8 @@ import { MODELS } from './models.mjs';
 import { createContentDraft } from './content-workflow.mjs';
 import { rulesOf } from './workflow.mjs';
 import { resolveAccountCreation } from './account-creation.mjs';
+import { revisionReferenceSchema, readWorkRevision } from './work-revision.mjs';
+import { createWorkChat } from './work-chat.mjs';
 import { createPlanningControl } from './work-planning-control.mjs';
 import { createDispatchControl } from './work-dispatch-control.mjs';
 import { controllerHistory } from './work-controller-history.mjs';
@@ -20,6 +22,7 @@ export const workNodeSchema = z.object({
   id: identifier, title: text(200).min(1), role: z.enum(WORK_ROLES), accountId: text(160).default(''),
   connectionAccountId: text(160).default(''), requirement: text(4000).min(1), dependsOn: z.array(identifier).max(12).default([]),
   knowledgeIds: z.array(identifier).max(8).default([]), experienceIds: z.array(identifier).max(8).default([]), skillIds: z.array(identifier).max(8).default([]), model: text(100).default(''),
+  revisionSource: revisionReferenceSchema.optional(),
   skillMode: z.enum(['default', 'selected']).optional(), budgetUSD: z.number().finite().min(0).max(1000).default(0), estimateUSD: z.number().finite().min(0).optional(),
 }).strict();
 const goalSchema = text(16000).min(1);
@@ -157,19 +160,22 @@ export function createWorkControl({ store, config = {}, executors, planner, acti
     if (old) { if (old.fingerprint !== fingerprint) fail('重复请求的内容发生变化，请重新确认', 409); return old.result; }
     return db.transaction(() => { const result = callback(); db.put('command', { id: recordId, ownerId: owner(), fingerprint, result, at: now() }); return result; });
   }
+  const readRevision = (projectId, node, taskId, reference, requireCurrent = true) => readWorkRevision({ db, owned, projectId, node, taskId, reference, requireCurrent });
   function prepareNodes(projectId, input) {
     const state = store.get(), p = project(projectId);
     const nodes = z.array(workNodeSchema).min(1).max(20).parse(input); validateDag(nodes);
     return nodes.map(node => {
       accountFor(state, node);
-      const snapshot = executors.prepare({ state, project: p, node });
+      const revisionSource = node.revisionSource ? readRevision(projectId, node, node.revisionSource.taskId, node.revisionSource, false) : null;
+      const snapshot = executors.prepare({ state, project: p, node, revisionSource });
       if (!Number.isFinite(snapshot.estimateUSD) || snapshot.estimateUSD < 0) fail('无法核算任务额度，请检查模型配置');
       return { ...node, model: snapshot.modelRoute?.model || node.model, estimateUSD: snapshot.estimateUSD };
     });
   }
-  function prepareSnapshot(projectId, node) {
+  function prepareSnapshot(projectId, node, taskId) {
     const state = store.get(), p = project(projectId), account = accountFor(state, node);
-    const snapshot = executors.prepare({ state, project: p, node });
+    const revisionSource = node.revisionSource ? readRevision(projectId, node, taskId, node.revisionSource) : null;
+    const snapshot = executors.prepare({ state, project: p, node, revisionSource });
     if (!Number.isFinite(snapshot.estimateUSD) || snapshot.estimateUSD < 0) fail('无法核算任务额度，请检查模型配置');
     const accountProject = account ? { ...p, creationSelections: { ...p.creationSelections, [account.platform]: { accountId: account.id, presetId: p.creationSelections?.[account.platform]?.accountId === account.id ? p.creationSelections[account.platform].presetId || '' : '' } } } : p;
     const creationTrace = account ? resolveAccountCreation(state, accountProject, account.platform).accountContext : null;
@@ -179,12 +185,14 @@ export function createWorkControl({ store, config = {}, executors, planner, acti
     const version = plan.versions.find(version => version.version === plan.version);
     return { ...plan, ...version, id: plan.id, projectId: plan.projectId, ownerId: plan.ownerId, createdAt: plan.createdAt, versions: plan.versions };
   }
-  const planning = createPlanningControl({ db, planner, owner, actor, owned, project, once, authorizeRun, saveRun, event, notification, tick, prepareNodes, assertLease, nodeSchema: workNodeSchema, roles: WORK_ROLES });
-  const dispatch = createDispatchControl({ db, store, executors, owner, actor, owned, project, once, authorizeRun, saveRun, event, tick, nodeSchema: workNodeSchema, prepareSnapshot });
+  const chat = createWorkChat({ db, owner, owned, project, once, state: () => store.get() });
+  const planning = createPlanningControl({ chat, readRevision, db, planner, owner, actor, owned, project, once, authorizeRun, saveRun, event, notification, tick, prepareNodes, assertLease, nodeSchema: workNodeSchema, roles: WORK_ROLES });
+  const dispatch = createDispatchControl({ readRevision, db, store, executors, owner, actor, owned, project, once, authorizeRun, saveRun, event, tick, nodeSchema: workNodeSchema, prepareSnapshot });
   const hasReceipt = run => ['result_ready', 'planning_result_ready'].includes(run.checkpoint?.type);
   const finishResult = (run, result, token, recovery = false) => run.kind === 'planning' ? planning.save(run.id, result, token, recovery) : saveResult(run.id, result, token, recovery);
   function createPlan(projectId, body) {
     const data = z.object({ goal: goalSchema, accountIds: ids, nodes: z.array(workNodeSchema).optional(), idempotencyKey: keySchema }).strict().parse(body);
+    if (data.nodes?.some(node => node.revisionSource)) fail('修订来源只能由总控根据当前任务生成');
     return once('create-plan', data.idempotencyKey, { projectId, ...data }, () => {
       const nodes = prepareNodes(projectId, data.nodes || proposeWorkNodes(store.get(), data.goal, data.accountIds));
       const version = { version: 1, goal: data.goal, nodes, estimateUSD: nodes.reduce((sum, node) => sum + node.estimateUSD, 0), status: 'draft', planningMode: 'rules', planningCostUSD: 0, createdAt: now(), diff: [] };
@@ -196,7 +204,14 @@ export function createWorkControl({ store, config = {}, executors, planner, acti
     const data = z.object({ expectedVersion: z.number().int().positive(), goal: goalSchema, nodes: z.array(workNodeSchema).min(1).max(20) }).strict().parse(body);
     return db.transaction(() => {
       const plan = owned('plan', planId); if (data.expectedVersion !== plan.version) fail('计划已修改，请刷新后再编辑', 409);
-      const old = plan.versions.at(-1), nodes = prepareNodes(plan.projectId, data.nodes);
+      const old = plan.versions.at(-1);
+      const protectedNodes = data.nodes.map(node => {
+        const reference = old.nodes.find(item => item.id === node.id)?.revisionSource;
+        if (node.revisionSource && digest(node.revisionSource) !== digest(reference)) fail('不能替换稿件修订来源，请从当前任务向总控提出修改', 409);
+        const { revisionSource: _submitted, ...fields } = node;
+        return { ...fields, ...(reference ? { revisionSource: reference } : {}) };
+      });
+      const nodes = prepareNodes(plan.projectId, protectedNodes);
       const diff = [...new Set([...old.nodes.map(node => node.id), ...nodes.map(node => node.id)])].filter(key => digest(old.nodes.find(node => node.id === key)) !== digest(nodes.find(node => node.id === key))).map(key => ({ nodeId: key, change: !old.nodes.some(node => node.id === key) ? 'added' : !nodes.some(node => node.id === key) ? 'removed' : 'changed' }));
       plan.version++;
       plan.versions.push({ version: plan.version, goal: data.goal, nodes, estimateUSD: nodes.reduce((sum, node) => sum + node.estimateUSD, 0), status: 'draft', planningMode: 'rules', planningCostUSD: 0, createdAt: now(), diff });
@@ -220,6 +235,8 @@ export function createWorkControl({ store, config = {}, executors, planner, acti
         const priorRun = latestPrior?.planId === savedPrior?.planId && latestPrior?.planVersion === savedPrior?.planVersion && latestPrior?.node?.id === node.id ? latestPrior : savedPrior;
         if (priorRun && !db.get('task', priorRun.taskId)?.deletedAt && !changed.has(node.id)) { runs.push(priorRun); tasks.push(db.get('task', priorRun.taskId)); nodeRuns.set(node.id, priorRun.id); continue; }
         const oldTask = db.all('task', owner()).find(task => !task.deletedAt && task.planId === planId && task.nodeId === node.id && task.accountId === node.accountId && task.role === node.role);
+        if (node.revisionSource && oldTask?.id !== node.revisionSource.taskId) fail('该修订草案的原计划已变化，请从原任务按最新计划重新提出修改；尚未创建或派发新任务', 409);
+        if (node.revisionSource) readRevision(plan.projectId, node, oldTask.id, node.revisionSource);
         const taskId = oldTask?.id || id(), runId = id();
         const run = { id: runId, ownerId: owner(), actor: actor(), taskId, projectId: plan.projectId, planId, planVersion: version.version, node: structuredClone(node), input: null, approval: null, dispatchMode: 'per-task', status: 'pending_approval', waitReason: node.dependsOn.length ? '等待前置成果后核对本次派工' : '请核对本次指令、Skills 与费用后确认派工', revision: 0, createdAt: now(), attempts: [], dependencyRuns: [], baseArtifactVersion: oldTask ? (db.get('artifact-head', oldTask.id)?.version || 0) : 0 };
         const account = state.accounts.find(account => account.id === node.accountId);
@@ -439,7 +456,7 @@ export function createWorkControl({ store, config = {}, executors, planner, acti
   function taskView(task, runs = db.all('run', owner()).filter(run => run.taskId === task.id)) {
     const legacyCompleted = run => run.source === 'legacy-checkpoint' && ['completed', 'failed'].includes(run.legacy?.status);
     const removable = !task.deletedAt && runs.length > 0 && runs.every(run => finalStates.has(run.status) || legacyCompleted(run));
-    return { ...task, removable, deletionBlockedReason: removable || task.deletedAt ? '' : '任务仍有未结束或待核对的运行，请先处理这些运行。' };
+    return { ...task, latestRunCreatedAt: runs.find(run => run.id === task.latestRunId)?.createdAt || task.createdAt, removable, deletionBlockedReason: removable || task.deletedAt ? '' : '任务仍有未结束或待核对的运行，请先处理这些运行。' };
   }
   function removeTask(taskId, body) {
     const data = z.object({ expectedRunId: identifier }).strict().parse(body);
@@ -554,10 +571,13 @@ export function createWorkControl({ store, config = {}, executors, planner, acti
       res.json(db.get('controller-view', `${owner()}:${req.params.id}`) || { goal: '', accountIds: [], model: '', planId: '', planningMode: 'ai' });
     });
     app.get('/api/projects/:id/controller-messages', (req, res) => { project(req.params.id); res.json({ items: controllerHistory(db, owner(), req.params.id) }); });
+    app.post('/api/projects/:id/controller-messages', (req, res) => res.status(201).json(chat.send(req.params.id, req.body)));
     app.put('/api/projects/:id/controller-view', (req, res) => {
       project(req.params.id);
-      const data = z.object({ goal: text(16000), accountIds: z.array(identifier).max(20), model: text(100), planId: text(160), planningMode: z.enum(['ai', 'rules']) }).partial().strict().parse(req.body);
+      const data = z.object({ goal: text(16000), accountIds: z.array(identifier).max(20), model: text(100), planId: text(160), planningMode: z.enum(['ai', 'rules']), replyTaskId: text(160), replyRunId: text(160), newConversation: z.boolean() }).partial().strict().parse(req.body);
       if (data.planId && owned('plan', data.planId).projectId !== req.params.id) fail('所选计划不属于当前项目', 409);
+      if (data.replyTaskId && owned('task', data.replyTaskId).projectId !== req.params.id) fail('回复目标不属于当前项目', 409);
+      if (data.replyRunId) { const run = owned('run', data.replyRunId); if (run.projectId !== req.params.id || run.kind !== 'planning') fail('追问来源不属于当前项目总控', 409); }
       const recordId = `${owner()}:${req.params.id}`;
       res.json(db.put('controller-view', { ...db.get('controller-view', recordId), ...data, id: recordId, ownerId: owner(), projectId: req.params.id, updatedAt: now() }));
     });

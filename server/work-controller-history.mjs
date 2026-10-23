@@ -1,14 +1,16 @@
+import { publicControllerMessage } from './work-chat.mjs';
 const scopeKey = ids => [...new Set(ids || [])].sort().join('\n');
 // The controller sees only its own planning conversation and public plan
 // summaries. Task-private messages, raw model packets and credentials never
 // participate in this projection or in follow-up planning context.
 export function controllerHistory(db, ownerId, projectId, accountIds) {
   const scoped = accountIds !== undefined, key = scopeKey(accountIds), turns = [];
+  for (const row of db.all('controller-message', ownerId)) { if (row.projectId === projectId && (!scoped || scopeKey(row.accountIds) === key)) turns.push(publicControllerMessage(row)); }
   for (const run of db.all('run', ownerId)) {
     if (run.projectId !== projectId || run.kind !== 'planning') continue;
     if (scoped && scopeKey(run.input?.accountIds) !== key) continue;
-    const shared = { runId: run.id, taskId: run.taskId, ...(run.planningPlanId ? { planId: run.planningPlanId, planVersion: run.planningPlanVersion } : {}) };
-    turns.push({ id: `${run.id}:request`, role: 'user', text: String(run.input?.goal || run.node?.requirement || '').slice(0, 16000), createdAt: run.createdAt, ...shared });
+    const shared = { runId: run.id, taskId: run.taskId, accountIds: [...(run.input?.accountIds || [])], ...(run.planningQuestion ? { question: run.planningQuestion } : {}), ...(run.controllerMessageId ? { controllerMessageId: run.controllerMessageId, rootMessageId: run.rootMessageId } : {}), ...(run.planningPlanId ? { planId: run.planningPlanId, planVersion: run.planningPlanVersion } : {}) };
+    if (!run.controllerMessageId) turns.push({ id: `${run.id}:request`, role: 'user', text: String(run.input?.goal || run.node?.requirement || '').slice(0, 16000), createdAt: run.createdAt, ...shared });
     const artifact = run.artifact && db.get('artifact', `${run.artifact.id}:${run.artifact.version}`);
     const text = artifact ? artifact.candidate ? `规划结果已保留为候选，尚未采用。\n${artifact.body}` : artifact.kind === 'plan' ? `${run.planningQuestion ? '' : '这是待确认计划，尚未批准执行。\n'}${artifact.body}` : '规划成果已保存。' : run.status === 'needs_reconciliation' ? '规划请求的外部结果未知，已保留费用记录；请先核对回执，不会自动重发。' : run.status === 'failed' ? `规划未完成：${run.error || '请查看任务活动'}` : ['cancelled', 'paused'].includes(run.status) ? '规划已停止或暂停；已提交请求仍需核对。' : '正在整理计划，进度以规划任务内的真实活动为准。';
     turns.push({ id: `${run.id}:reply`, role: 'assistant', text: text.slice(0, 16000), createdAt: run.finishedAt || run.updatedAt || run.createdAt, ...shared });
@@ -23,7 +25,8 @@ export function controllerHistory(db, ownerId, projectId, accountIds) {
     turns.push({ id: `${plan.id}:request`, role: 'user', text: first.goal, createdAt: first.createdAt || plan.createdAt, ...shared });
     turns.push({ id: `${plan.id}:reply`, role: 'assistant', text: `免费规则草案，不是模型推理：\n${first.nodes.map(node => `• ${node.title}：${node.requirement}`).join('\n')}\n保存计划后，仍需逐项核对指令、Skills 和费用并批准派工。`, createdAt: first.createdAt || plan.createdAt, ...shared });
   }
-  return turns.sort((a, b) => a.createdAt.localeCompare(b.createdAt)).slice(-40);
+  const timestamp = row => typeof row.createdAt === 'string' && Number.isFinite(Date.parse(row.createdAt)) ? row.createdAt : '';
+  return turns.sort((a, b) => timestamp(a).localeCompare(timestamp(b))).slice(-40);
 }
 
 export function planningConversation(db, ownerId, projectId, accountIds) {

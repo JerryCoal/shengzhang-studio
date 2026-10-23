@@ -10,7 +10,7 @@ import { normalizeWorkflow } from './workflow.mjs';
 // to a distinct, explicitly empty store and never opens files or starts workers.
 export const WORK_BACKUP_FORMAT = 'shengzhang.work-backup';
 export const WORK_BACKUP_VERSION = 1;
-const KINDS = ['plan', 'task', 'run', 'artifact', 'artifact-head', 'notification', 'view', 'controller-view', 'message', 'migration', 'command', 'backup-command', 'backup-restore'];
+const KINDS = ['plan', 'task', 'run', 'artifact', 'artifact-head', 'notification', 'view', 'controller-view', 'controller-message', 'message', 'migration', 'command', 'backup-command', 'backup-restore'];
 const SECRET_KEY = /password|cookie|authorization|api[_-]?key|secret|credential|(?:access|refresh|session|bearer)[_-]?token|^token$|master[_-]?key|protected[_-]?key/i;
 const MAX_BYTES = 64 * 1024 * 1024;
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
@@ -105,6 +105,22 @@ export function validateWorkBackup(input) {
     if (!row.target || runs.get(row.target.runId)?.taskId !== row.target.taskId || row.target.artifactId && !artifacts.has(`${row.target.artifactId}:${row.target.artifactVersion}`)) fail('通知目标不完整');
   }
   for (const row of tables.get('message').values()) if (!tasks.has(row.taskId) || runs.get(row.runId)?.taskId !== row.taskId) fail('任务对话归属不完整');
+  const controllerMessages = tables.get('controller-message'), projectIds = new Set(value.workspace.projects.map(row => row.id));
+  for (const row of controllerMessages.values()) {
+    if (!projectIds.has(row.projectId) || row.role !== 'user' || typeof row.createdAt !== 'string' || !Number.isFinite(Date.parse(row.createdAt)) || !['plan','images','publish'].includes(row.intent) || typeof row.text !== 'string' || !row.text.length || row.text.length > 16000 || !Array.isArray(row.accountIds) || row.accountIds.length > 20 || row.accountIds.some(accountId => !id(accountId))) fail('总控消息结构不完整');
+    const root = controllerMessages.get(row.rootMessageId);
+    if (!root || root.projectId !== row.projectId || root.rootMessageId !== root.id) fail('总控消息会话归属不完整');
+    if (row.taskId && tasks.get(row.taskId)?.projectId !== row.projectId) fail('总控消息目标任务归属不完整');
+    if (row.replyToRunId) { const reply=runs.get(row.replyToRunId); if (!reply || reply.kind !== 'planning' || reply.projectId !== row.projectId) fail('总控补充消息的原规划不存在'); }
+    if (row.planningRunId) { const run=runs.get(row.planningRunId); if (!run || run.projectId !== row.projectId || run.controllerMessageId !== row.id) fail('总控消息与规划运行关联不完整'); }
+  }
+  for (const view of tables.get('controller-view').values()) {
+    if (!projectIds.has(view.projectId)) fail('总控视图项目归属不完整');
+    if (view.newConversation !== undefined && typeof view.newConversation !== 'boolean') fail('总控视图会话状态不正确');
+    if (view.replyTaskId && tasks.get(view.replyTaskId)?.projectId !== view.projectId) fail('总控视图回复任务归属不完整');
+    if (view.replyRunId) { const run = runs.get(view.replyRunId); if (!run || run.projectId !== view.projectId || run.kind !== 'planning') fail('总控视图追问来源不完整'); }
+  }
+  for (const run of runs.values()) if (run.controllerMessageId && controllerMessages.get(run.controllerMessageId)?.projectId !== run.projectId) fail('规划运行缺少所属总控消息');
   return { backup: value, ownerId: value.ownerId, sha256, counts: { projects: value.workspace.projects.length, accounts: value.workspace.accounts.length, legacyCheckpoints: (value.workspace.taskJournal || []).length, records: value.records.length, liveEvents: value.events.length, allEvents: eventIds.size } };
 }
 

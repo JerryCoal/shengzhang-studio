@@ -22,7 +22,7 @@ import { readContentEditDraft, saveContentEditDraft, removeContentEditDraft } fr
 
 const unavailable = '静态体验版未连接在线服务。请在本地完整版中配置 AI 或平台授权；此处不会发出请求或收取费用。';
 const unavailableCredential: Settings['credential'] = { local: false, editable: false, supported: false, configured: false, source: 'none', suffix: '', protection: '', problem: '静态版不接收 API 密钥或本机模型连接。请在本地完整版中配置 AI 服务。' };
-const settings: Settings = { ...modelSettings, openaiConfigured: false, authEnabled: true, version: '2.2.0 · 本地静态版', verification: null,
+const settings: Settings = { ...modelSettings, openaiConfigured: false, authEnabled: true, version: '2.3.0 · 本地静态版', verification: null,
   providers: Object.fromEntries(['openai', 'deepseek', 'qwen', 'glm', 'local-qwen'].map(provider => [provider, { configured: false, verification: null, credential: { ...unavailableCredential } }])) as Settings['providers'],
   credential: unavailableCredential } as Settings;
 const integrations: Integrations = { local: false, imageProvider: 'seedream', seedream: { ...defaultSeedream, configured: false, supported: false, suffix: '', problem: unavailable }, seedance: { watermark: false, region: 'volcengine', model: '', reservationUsd: 2, outputPriceUsd: 0, configured: false, supported: false, suffix: '', problem: unavailable }, douyin: { configured: false, supported: false, redirectUri: '', accounts: [] } };

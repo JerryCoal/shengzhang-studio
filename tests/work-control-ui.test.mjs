@@ -7,12 +7,12 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { readWorkspaceRoute, writeWorkspaceRoute } from '../src/workspace-route.mjs';
 const require = createRequire(import.meta.url);
 const { build } = createRequire(require.resolve('vite'))('esbuild');
-const compiled = await build({ stdin: { contents: "export { PlanReview, PlanningAction, WorkStatusBadge, ArtifactEditor, ExperienceCapture, ControllerPage, PlanningNextStep, DeleteWorkTaskButton } from './src/pages/WorkControl'; export { WorkDispatch } from './src/components/WorkDispatch'; export { Context } from './src/context'; export { statusLabel, activeWork, attentionWork, refinementAccountIds, deliverWorkNotification, prepareWorkMedia } from './src/work-control';", resolveDir: process.cwd(), loader: 'tsx' }, bundle: true, platform: 'node', format: 'cjs', write: false, packages: 'external', loader: { '.css': 'empty' }, define: { 'import.meta.env.MODE': '"test"', 'import.meta.env.VITE_API_BASE_URL': '""' }, logLevel: 'silent' });
+const compiled = await build({ stdin: { contents: "export { PlanReview, PlanningAction, WorkStatusBadge, ArtifactEditor, ExperienceCapture, ControllerPage, PlanningNextStep, DeleteWorkTaskButton } from './src/pages/WorkControl'; export { ChatPlanningApproval, chatIntent } from './src/components/ControllerChat'; export { WorkDispatch } from './src/components/WorkDispatch'; export { Context } from './src/context'; export { statusLabel, activeWork, attentionWork, refinementAccountIds, deliverWorkNotification, prepareWorkMedia } from './src/work-control';", resolveDir: process.cwd(), loader: 'tsx' }, bundle: true, platform: 'node', format: 'cjs', write: false, packages: 'external', loader: { '.css': 'empty' }, define: { 'import.meta.env.MODE': '"test"', 'import.meta.env.VITE_API_BASE_URL': '""' }, logLevel: 'silent' });
 const module = { exports: {} };
 new Function('module', 'exports', 'require', compiled.outputFiles[0].text)(module, module.exports, require);
-const { PlanReview, PlanningAction, WorkStatusBadge, ArtifactEditor, ExperienceCapture, ControllerPage, PlanningNextStep, DeleteWorkTaskButton, WorkDispatch, Context, statusLabel, activeWork, attentionWork, refinementAccountIds, deliverWorkNotification, prepareWorkMedia } = module.exports;
+const { PlanReview, PlanningAction, WorkStatusBadge, ArtifactEditor, ExperienceCapture, ControllerPage, PlanningNextStep, DeleteWorkTaskButton, WorkDispatch, ChatPlanningApproval, chatIntent, Context, statusLabel, activeWork, attentionWork, refinementAccountIds, deliverWorkNotification, prepareWorkMedia } = module.exports;
 globalThis.sessionStorage = { getItem() { return 'SYNTHETIC_SESSION'; } };
-const context = { state: { accounts: [{ id: 'a', name: '校园 A', platform: 'xiaohongshu' }, { id: 'b', name: '品牌 B', platform: 'douyin' }], projects: [] }, project: { id: 'p' }, settings: { routes: { strategy: 'test-model' }, models: { 'test-model': { label: '合成模型' } } }, target: {}, go() { throw new Error('SSR cannot navigate'); }, notify() {}, scope: { projectIds: ['p'], accountIds: [] } };
+const context = { state: { accounts: [{ id: 'a', name: '校园 A', platform: 'xiaohongshu' }, { id: 'b', name: '品牌 B', platform: 'douyin' }], projects: [] }, project: { id: 'p', brief: { name: '校园项目' } }, settings: { routes: { strategy: 'test-model' }, models: { 'test-model': { label: '合成模型' } } }, target: {}, go() { throw new Error('SSR cannot navigate'); }, notify() {}, scope: { projectIds: ['p'], accountIds: [] } };
 const render = (Component, props) => renderToStaticMarkup(createElement(Context.Provider, { value: context }, createElement(Component, props)));
 const plan = { id: 'plan', projectId: 'p', version: 1, status: 'draft', goal: '研究后做脚本', estimateUSD: 0.03, nodes: [{ id: 'xhs', title: '校园图文', role: 'xiaohongshu-copy', accountId: 'a', requirement: '核对真实事实', dependsOn: [], model: 'test-model', budgetUSD: 0, estimateUSD: 0.01 }, { id: 'research', title: '同话题研究', role: 'douyin-research', accountId: '', connectionAccountId: 'b', requirement: '保留来源', dependsOn: [], model: 'test-model', budgetUSD: 0, estimateUSD: 0.01 }, { id: 'script', title: '品牌脚本', role: 'douyin-script', accountId: 'b', requirement: '依赖研究', dependsOn: ['research'], model: 'test-model', budgetUSD: 0, estimateUSD: 0.01 }] };
 
@@ -65,12 +65,20 @@ test('main navigation preserves legacy entry points and static mode degrades hon
   assert.match(app, /历史与交付/); assert.match(app, /case 'publish'/); assert.match(app, /case 'analysis-agent'/); assert.match(view, /此版本不运行后台任务引擎/); assert.match(view, /if \(LOCAL_DATA\) return <LocalWorkNotice/);
   assert.match(helpers, /session\.current !== workSession\(\)/); assert.match(helpers, /registerWorkspaceSaver/);
 });
-test('controller waits for owner-scoped restoration and offers durable conversation history', async () => {
-  const html = render(ControllerPage, {}), source = await readFile('src/pages/WorkControl.tsx', 'utf8'), helpers = await readFile('src/work-control.ts', 'utf8');
-  assert.match(html, /id="work-goal"[^>]*disabled=""/); assert.match(html, /正在恢复总控输入/); assert.match(html, /aria-label="总控对话历史"/);
-  assert.match(source, /controller-messages/); assert.match(source, /items\.slice\(-20\)/); assert.match(source, /model=\{saved\.value\.model/);
-  assert.match(helpers, /controller-view/); assert.match(helpers, /scope\.session !== workSession\(\)/); assert.match(helpers, /scope\.epoch === epoch/); assert.match(helpers, /pendingVersions/); assert.match(helpers, /registerWorkspaceSaver\(save\)/);
+test('controller restores a single composer and retains contextual approval history', async () => {
+  const html = render(ControllerPage, {}), source = await readFile('src/components/ControllerChat.tsx', 'utf8'), helpers = await readFile('src/work-control.ts', 'utf8');
+  assert.match(html, /aria-label="给总控发消息"[^>]*disabled=""/); assert.equal((html.match(/<textarea/g) || []).length, 1); assert.match(html, /aria-label="总控对话历史"/);
+  assert.match(source, /controller-messages/); assert.match(source, /继续核对/); assert.match(source, /replyTaskId/); assert.match(source, /newConversation/);
+  for (const pattern of [/controller-view/, /scope\.session !== workSession\(\)/, /scope\.epoch === epoch/, /pendingVersions/, /registerWorkspaceSaver\(save\)/]) assert.match(helpers, pattern);
 });
+test('chat action shortcuts open review only and do not interpret negative or compound goals as approval', () => {
+  for (const input of ['配图', '帮我生成两张图片', '制作三张配图']) assert.equal(chatIntent(input), 'images');
+  for (const input of ['发布', '这篇可以发布了', '帮我发出去']) assert.equal(chatIntent(input), 'publish');
+  for (const input of ['不要发布', '先不生成图片', '写一篇校园文案配图后发布', '请帮我修改第二段']) assert.equal(chatIntent(input), 'plan');
+  const html = render(ChatPlanningApproval, { projectId: 'p', message: { id: 'm', text: '做一篇图文', accountIds: ['a'] }, initialModel: 'test-model', onClose() {}, onStarted() {} });
+  assert.match(html, /校园 A/); assert.doesNotMatch(html, /品牌 B|checked=""/); assert.match(html, /disabled=""[^>]*>批准规划/);
+});
+
 test('experience capture is initially collapsed, requires source selection and never claims validation', async () => {
   const html = render(ExperienceCapture, { artifact: { id: 'artifact', version: 3, kind: 'research', taskId: 'task', runId: 'run', title: '合成研究', body: '' } });
   assert.match(html, /提炼并选择保留经验/); assert.match(html, /建议不是已验证的规律/); assert.match(html, /已保存的 V3/); assert.doesNotMatch(html, /<details[^>]* open|确认保存选中经验|checked=""/);

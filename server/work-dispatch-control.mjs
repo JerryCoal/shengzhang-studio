@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { revisionMetadata } from './work-revision.mjs';
 
 const identifier = z.string().trim().min(1).max(160);
 const revision = z.number().int().positive();
@@ -13,7 +14,8 @@ const dependencyIdentity = rows => JSON.stringify(rows.map(({ taskId, runId, art
 
 // Quotes capture the exact task, selected rules and adopted upstream versions.
 // A plan confirmation never grants this service's task-only spending authority.
-export function createDispatchControl({ db, store, executors, owner, actor, owned, project, once, authorizeRun, saveRun, event, tick, nodeSchema, prepareSnapshot }) {
+export function createDispatchControl({ db, store, executors, owner, actor, owned, project, once, authorizeRun, saveRun, event, tick, nodeSchema, prepareSnapshot, readRevision }) {
+  const revisionSource = (run, node = run.node) => node.revisionSource ? readRevision(run.projectId, node, run.taskId, node.revisionSource) : null;
   function pending(runId, expectedRevision) {
     const run = owned('run', runId), task = owned('task', run.taskId);
     if (run.kind === 'planning' || run.source === 'legacy-checkpoint') fail('此任务使用独立的确认流程');
@@ -43,17 +45,17 @@ export function createDispatchControl({ db, store, executors, owner, actor, owne
     if (run.kind === 'planning' || run.source === 'legacy-checkpoint') return { ready: false, reason: '使用独立确认流程' };
     const workflowId = workflowFor(run);
     if (run.status !== 'pending_approval') return { ready: false, reason: run.approval ? '本次派工已经确认' : '当前状态不能派工', workflowId };
-    try { pending(run.id); const rows = dependencies(run); return { ready: true, reason: '请核对指令与 Skills，估算后确认本次派工', workflowId, dependencies: rows.map(({ body, ...metadata }) => metadata) }; }
+    try { pending(run.id); revisionSource(run); const rows = dependencies(run); return { ready: true, reason: '请核对指令与 Skills，估算后确认本次派工', workflowId, dependencies: rows.map(({ body, ...metadata }) => metadata) }; }
     catch (error) { return { ready: false, reason: error.message, workflowId }; }
   }
   function estimate(runId, body) {
     const data = choices.parse(body), run = pending(runId, data.expectedRevision);
     if (data.skillMode === 'default' && data.skillIds.length || data.skillMode === 'selected' && !data.skillIds.length) fail('请选择至少一个 Skill，或明确使用默认规则', 400);
     const { expectedRevision, ...fields } = data, node = nodeSchema.parse({ ...run.node, ...fields });
-    const bound = dependencies(run), snapshot = prepareSnapshot(run.projectId, node);
-    const quote = { id: randomUUID(), ownerId: owner(), runId, taskId: run.taskId, projectId: run.projectId, revision: run.revision, node: { ...node, model: snapshot.modelRoute?.model || node.model, estimateUSD: snapshot.estimateUSD }, input: structuredClone(snapshot), dependencies: bound, createdAt: now(), expiresAt: new Date(Date.now() + 15 * 60000).toISOString() };
+    const source = revisionSource(run, node), bound = dependencies(run), snapshot = prepareSnapshot(run.projectId, node, run.taskId);
+    const quote = { id: randomUUID(), ownerId: owner(), runId, taskId: run.taskId, projectId: run.projectId, revision: run.revision, node: { ...node, model: snapshot.modelRoute?.model || node.model, estimateUSD: snapshot.estimateUSD }, input: structuredClone(snapshot), dependencies: bound, revisionSource: revisionMetadata(source), createdAt: now(), expiresAt: new Date(Date.now() + 15 * 60000).toISOString() };
     db.put('dispatch-quote', quote);
-    return { quoteId: quote.id, runId, revision: run.revision, estimateUSD: snapshot.estimateUSD, expiresAt: quote.expiresAt, skills: snapshot.skills || [], dependencies: bound.map(({ body, ...metadata }) => metadata), accountName: snapshot.accountName || owned('task', run.taskId).accountName || '', model: snapshot.modelRoute?.model || node.model, workflowId: workflowFor(run), scope: 'task-only' };
+    return { revisionSource: revisionMetadata(source), quoteId: quote.id, runId, revision: run.revision, estimateUSD: snapshot.estimateUSD, expiresAt: quote.expiresAt, skills: snapshot.skills || [], dependencies: bound.map(({ body, ...metadata }) => metadata), accountName: snapshot.accountName || owned('task', run.taskId).accountName || '', model: snapshot.modelRoute?.model || node.model, workflowId: workflowFor(run), scope: 'task-only' };
   }
   async function approve(runId, body) {
     const data = approval.parse(body), scope = `dispatch:${runId}`;
@@ -68,6 +70,7 @@ export function createDispatchControl({ db, store, executors, owner, actor, owne
     if (Date.parse(quote.expiresAt) < Date.now()) fail('派工估算已过期，请重新估算');
     if (data.budgetUSD + 1e-9 < quote.input.estimateUSD) fail('本次派工额度低于预估，请调整后确认', 400);
     if (dependencyIdentity(dependencies(before)) !== dependencyIdentity(quote.dependencies)) fail('前置成果已变化，请重新估算并核对版本');
+    revisionSource(before, quote.node);
     const connection = executors.prepareConnection ? await executors.prepareConnection({ actor: actor(), node: quote.node }) : {};
     if (quote.input.connectionAccountId && connection.connectionAccountId && connection.connectionAccountId !== quote.input.connectionAccountId) fail('研究读取账号已变化，请重新估算并确认');
     if (connection.credentialProvider && connection.credentialProvider !== quote.input.modelRoute?.provider) fail('模型服务已变化，请重新估算并确认');
@@ -77,9 +80,11 @@ export function createDispatchControl({ db, store, executors, owner, actor, owne
       const run = pending(runId, data.expectedRevision);
       if (Date.parse(currentQuote.expiresAt) < Date.now()) fail('派工估算已过期，请重新估算');
       if (dependencyIdentity(dependencies(run)) !== dependencyIdentity(currentQuote.dependencies)) fail('前置成果已变化，请重新估算并核对版本');
+      revisionSource(run, currentQuote.node);
       project(run.projectId);
       run.node = { ...structuredClone(currentQuote.node), budgetUSD: data.budgetUSD };
       run.input = { ...structuredClone(currentQuote.input), ...connection, budgetUSD: data.budgetUSD };
+      if (run.node.revisionSource) run.baseArtifactVersion = run.node.revisionSource.version;
       run.actor = actor(); run.dispatchMode = 'per-task';
       run.approval = { scope: 'task-only', quoteId: quote.id, budgetUSD: data.budgetUSD, permissions: run.input.permissions || [], skillMode: run.node.skillMode, skillIds: [...run.node.skillIds], at: now(), by: owner() };
       run.dependencies = structuredClone(currentQuote.dependencies);

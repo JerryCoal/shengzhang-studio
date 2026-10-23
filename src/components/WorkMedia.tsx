@@ -7,6 +7,7 @@ import { prepareWorkMedia, workError, workSession, useWorkView, type WorkArtifac
 import type { Asset, CoverInput, State } from '../types';
 import type { CreativeSkillsCatalog } from '../pages/CreativeSkills';
 import { ImageWatermarkReview } from './ImageWatermarkReview';
+import { WorkPublish } from './WorkPublish';
 import './work-media.css';
 type Model = { provider: 'seedream' | 'redfox'; model: string; label: string; reservation: number; currency: 'USD' | 'CNY' };
 type RequestInput = CoverInput & { provider: Model['provider']; model: string; skillId: string; expectedRevision: number };
@@ -14,7 +15,7 @@ type Estimate = Model & { fingerprint: string; prompt: string; expectedRevision:
 type ImageOrigin = { taskId: string; runId: string; artifactId: string; artifactVersion: number; sourceAssetId: string; index: number };
 type ImageAsset = Asset & { workImageOrigin: ImageOrigin };
 type ItemQuote = { assetId: string; index: number; input: RequestInput; estimate: Estimate; requestId: string };
-export type WorkMediaProps = { artifact: WorkArtifact; projectId: string; disabled?: boolean; onUpdated?: () => void | Promise<void> };
+export type WorkMediaProps = { artifact: WorkArtifact; projectId: string; disabled?: boolean; onUpdated?: () => void | Promise<void>; compact?: boolean; request?: { text?: string; taskId: string; kind: 'images' | 'publish'; nonce: number } };
 const phases = { generating: '生成中', ready: '已完成，待采用', applied: '已采用', failed: '生成失败', uncertain: '旧请求待核对', stale: '内容版本已变化' };
 export function workImageAssets(state: State, projectId: string, sourceId: string, artifact: WorkArtifact, expectedAccount = ''): ImageAsset[] {
   const project = state.projects.find(item => item.id === projectId);
@@ -26,13 +27,21 @@ export function workImageAssets(state: State, projectId: string, sourceId: strin
   return assets;
 }
 export function WorkMedia(props: WorkMediaProps) { return <WorkMediaEditor key={`${workSession()}:${props.projectId}:${props.artifact.id}:${props.artifact.version}`} {...props}/>; }
-export function WorkMediaEditor({ artifact, projectId, disabled = false, onUpdated }: WorkMediaProps) {
+export function WorkMediaEditor({ artifact, projectId, disabled = false, onUpdated, compact = false, request }: WorkMediaProps) {
   const { refresh } = useStudio(), savedView = useWorkView(artifact.taskId), draftKey = `${artifact.id}:${artifact.version}`;
   const [assets, setAssets] = useState<ImageAsset[]>([]), [models, setModels] = useState<Model[]>([]), [catalog, setCatalog] = useState<CreativeSkillsCatalog | null>(null);
   const [count, setCount] = useState(2), [modelKey, setModelKey] = useState(''), [skillId, setSkillId] = useState<string | null>(null);
   const [prompts, setPrompts] = useState<Record<number, string>>({}), [textMode, setTextMode] = useState<'title' | 'none'>('title'), [watermark, setWatermark] = useState(false);
   const [quote, setQuote] = useState<ItemQuote[] | null>(null), [approved, setApproved] = useState(false), [imageApproval, setImageApproval] = useState<Record<string, boolean>>({}), [resetApproval, setResetApproval] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true), [pending, setPending] = useState(false), [error, setError] = useState(''), [draftReady, setDraftReady] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const requestSeen = useRef(0);
+  useEffect(() => {
+    if (request?.kind !== 'images' || requestSeen.current === request.nonce || !draftReady) return;
+    requestSeen.current = request.nonce; setSettingsOpen(true);
+    const number = request.text?.match(/([一二三四两1234])张/);
+    if (number) setCount(({一:1,二:2,两:2,三:3,四:4} as Record<string,number>)[number[1]] || Number(number[1]));
+  }, [request?.nonce, draftReady]);
   const [itemErrors, setItemErrors] = useState<Record<string, string>>({});
   const life = useRef({ active: false, session: workSession(), sourceId: '', accountId: '', busy: false }), restored = useRef(false);
   const latest = useRef({ refresh, onUpdated, allowed: !disabled }); latest.current = { refresh, onUpdated, allowed: !disabled };
@@ -103,7 +112,7 @@ export function WorkMediaEditor({ artifact, projectId, disabled = false, onUpdat
     if (valid()) { await reload(); if (!valid()) return; await latest.current.refresh(); if (valid()) await latest.current.onUpdated?.(); }
   });
   const total = quote?.reduce((sum, item) => sum + item.estimate.reservation, 0) || 0, currency = quote?.[0]?.estimate.currency || selectedModel?.currency || 'USD';
-  return <section className="work-media" aria-label={`原地制作图片 · ${artifact.title}`}>
+  const editor = <section className="work-media" aria-label={`原地制作图片 · ${artifact.title}`}>
     <div className="work-media-heading"><div><h3><ImagePlus size={18}/>图片 Agent</h3><p>已保存成果 V{artifact.version} · 每张图片独立保存与重试</p></div><Pill color={running ? 'amber' : 'gray'}>{running ? '图片处理中' : assets.some(item => item.aiCover?.phase === 'ready' || item.aiCover?.phase === 'applied') ? '图片成果已保存' : '待核对图片设置'}</Pill></div>
     {(error || savedView.error) && <p className="work-error" role="alert">{error || savedView.error}</p>}{loading && <p role="status">正在恢复这份成果的图片草稿…</p>}
     {!loading && <>
@@ -130,4 +139,6 @@ export function WorkMediaEditor({ artifact, projectId, disabled = false, onUpdat
       {running && <p className="small-note" role="status">正在处理已提交的图片，刷新后会恢复。已完成项不会因为其他图片失败而重复生成。</p>}{artifact.kind === 'script' && <p className="small-note">此处制作脚本配图；图片请求不包含视频生成。</p>}
     </>}
   </section>;
+  return <>{compact ? <section className="chat-media" aria-label="图片 Agent 成果"><div className="work-media-heading"><div><h3><ImagePlus size={17}/>图片 Agent</h3><p>{running ? '正在生成已批准的图片…' : assets.some(item => item.aiCover?.phase === 'ready') ? '图片已生成，等待你查看并采用' : assets.some(item => item.aiCover?.phase === 'applied') ? '已采用的图片可以继续核对发布' : '下一步可以制作配图，先核对指令、Skills 和费用'}</p></div><button className="button small" onClick={() => setSettingsOpen(true)}>{assets.some(item => ['ready', 'applied'].includes(item.aiCover?.phase || '')) ? '查看与采用图片' : '核对图片指令与 Skills'}</button></div>{error && <p className="work-error" role="alert">{error}</p>}<div className="chat-media-previews">{assets.filter(item => item.aiCover?.mediaData || item.aiCover?.phase === 'applied' && item.mediaData).map(item => <button key={item.id} onClick={() => setSettingsOpen(true)}><img src={item.aiCover?.mediaData || item.mediaData} alt={`图片 ${item.workImageOrigin.index + 1}`}/><small>{phases[item.aiCover!.phase]}</small></button>)}</div>{settingsOpen && <Modal wide title="图片 Agent · 指令与 Skills" onClose={() => { if (!pending) setSettingsOpen(false); }}>{editor}</Modal>}</section> : editor}<WorkPublish projectId={projectId} artifact={artifact} assets={assets} disabled={disabled} openRequest={request?.kind === 'publish' ? request.nonce : undefined}/></>;
 }
+

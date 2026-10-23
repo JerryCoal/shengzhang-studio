@@ -3,16 +3,16 @@ import { api, LOCAL_DATA } from './api';
 import { registerWorkspaceSaver } from './workspace-save';
 export type WorkRole = 'xiaohongshu-copy' | 'douyin-research' | 'douyin-script';
 export type WorkStatus = 'pending-approval' | 'waiting-dependencies' | 'queued' | 'running' | 'waiting-user' | 'paused' | 'succeeded' | 'failed' | 'cancelled' | 'needs-reconciliation';
-export type PlanNode = { id: string; title: string; role: WorkRole; accountId: string; connectionAccountId?: string; requirement: string; dependsOn: string[]; model: string; budgetUSD: number; estimateUSD?: number; knowledgeIds?: string[]; experienceIds?: string[]; skillIds?: string[]; skillMode?: 'default' | 'selected' };
+export type PlanNode = { revisionSource?: {taskId: string; artifactId: string; version: number}; id: string; title: string; role: WorkRole; accountId: string; connectionAccountId?: string; requirement: string; dependsOn: string[]; model: string; budgetUSD: number; estimateUSD?: number; knowledgeIds?: string[]; experienceIds?: string[]; skillIds?: string[]; skillMode?: 'default' | 'selected' };
 export type WorkPlan = { id: string; projectId: string; version: number; goal: string; status: 'draft' | 'approved'; nodes: PlanNode[]; estimateUSD: number; versions?: { version: number; status?: string; goal?: string }[] };
-export type WorkTask = { id: string; title: string; projectId: string; planId?: string; nodeId?: string; accountId?: string; accountName?: string; role: WorkRole | 'controller-planning'; status: WorkStatus; latestRunId: string; createdAt: string; deletedAt?: string; removable?: boolean; deletionBlockedReason?: string };
+export type WorkTask = { id: string; title: string; projectId: string; planId?: string; nodeId?: string; accountId?: string; accountName?: string; role: WorkRole | 'controller-planning'; status: WorkStatus; latestRunId: string; createdAt: string; latestRunCreatedAt?: string; deletedAt?: string; removable?: boolean; deletionBlockedReason?: string };
 export type WorkRun = { id: string; taskId: string; projectId: string; status: WorkStatus; waitReason?: string; revision: number; error?: string; createdAt: string; finishedAt?: string; planId?: string; planVersion?: number; planningPlanId?: string; planningPlanVersion?: number; planningQuestion?: string; node?: Pick<PlanNode, 'id' | 'role' | 'accountId' | 'connectionAccountId'> & Partial<Omit<PlanNode, 'id' | 'role' | 'accountId' | 'connectionAccountId'>>; dispatch?: { ready: boolean; reason?: string; workflowId?: string }; input?: Record<string, unknown>; receiptAvailable?: boolean; usage?: { estimatedUSD?: number; reservedUSD?: number; settledUSD?: number; unknownUSD?: number } };
 export type WorkArtifact = { id: string; version: number; headVersion?: number; title: string; body: string; kind: string; taskId: string; runId: string; legacy?: { assetId?: string; projectId?: string }; candidate?: boolean };
 export type WorkEvent = { id: string; sequence: number; runId: string; type: string; summary: string; detail?: string | Record<string, unknown>; at: string };
 export type DispatchDraft = { runId: string; baseRevision: number; requirement: string; model: string; skillMode: '' | 'default' | 'selected'; skillIds: string[]; budgetUSD: number };
 export type MediaDraft = { count: number; modelKey: string; skillId: string | null; prompts: Record<number, string>; textMode: 'title' | 'none'; watermark: boolean };
 export type WorkView = { cursor: number; expandedIds: string[]; draft: string; scrollTop?: number; runId?: string; dispatchDraft?: DispatchDraft | null; mediaDrafts?: Record<string, MediaDraft | null>; artifactDrafts?: Record<string, {title: string; body: string; baseVersion: number} | null> };
-export type ControllerView = { goal: string; accountIds: string[]; model: string; planId: string; planningMode: 'ai' | 'rules' };
+export type ControllerView = { goal: string; accountIds: string[]; model: string; planId: string; planningMode: 'ai' | 'rules'; replyTaskId: string; replyRunId: string; newConversation: boolean };
 export type WorkMessage = { id: string; text: string; role?: string; at?: string; createdAt?: string };
 export type WorkNotification = { id: string; title?: string; summary?: string; message?: string; projectId: string; taskId: string; runId?: string; artifactId?: string; artifactVersion?: number; readAt?: string | null; deliveryAttemptedAt?: string; deliveredAt?: string; createdAt?: string; target?: { projectId?: string; taskId?: string; runId?: string; artifactId?: string; artifactVersion?: number } };
 export type WorkCapabilities = { enabled: boolean; roles: (WorkRole | { id: WorkRole; label?: string })[]; models: (string | { id: string; label?: string })[]; note?: string };
@@ -61,7 +61,7 @@ export async function deliverWorkNotification(args: WorkDeliveryArgs, isCurrent 
   if (!delivered.delivered) await failed().catch(() => {});
   return { delivered: delivered.delivered === true };
 }
-const emptyControllerView = (): ControllerView => ({ goal: '', accountIds: [], model: '', planId: '', planningMode: 'ai' });
+const emptyControllerView = (): ControllerView => ({ goal: '', accountIds: [], model: '', planId: '', planningMode: 'ai', replyTaskId: '', replyRunId: '', newConversation: false });
 /** Project drafts restore before editing, and every queued save keeps its original owner/project. */
 export function useControllerView(projectId: string) {
   const ownerSession = workSession();

@@ -42,7 +42,7 @@ export function ExportDialog({ content, projectId, onClose, onExported }: { cont
     {(error || validation) && <p className="info-box error-box" role="alert">{error || validation}</p>}
     {saved && <p className="info-box" role="status"><Check size={18}/>保存已发起。请确认文件完整下载；ZIP 请先解压，再选择里面的图片或视频上传。</p>}
     <div className="export-copy"><Field label={`标题 · ${Array.from(content.title).length} 字`}><input readOnly value={content.title} onFocus={e => e.target.select()}/></Field><button className="button small" onClick={() => void copy(content.title)}><Copy size={14}/>复制标题</button><Field label={`正文 · ${Array.from(content.body || '').length} 字（含话题原文）`}><textarea rows={5} readOnly value={content.body} onFocus={e => e.target.select()}/></Field><button className="button small" onClick={() => void copy(content.body)}><Copy size={14}/>复制正文</button></div>
-    <details className="manual-publish-steps"><summary>上传步骤与注意事项</summary><ol><li>打开官方创作中心，确认登录的账号。</li><li>上传解压后的素材，分别粘贴标题与正文；话题请在平台检查并选中。</li><li>检查画面、声音、可见范围及 AI 内容标识，亲自点击发布。</li><li>确认成功后，回到发布中心，在对应待办中登记作品链接；没有待办时先添加。计划时间不会触发发布。</li></ol></details>
+    <details className="manual-publish-steps"><summary>上传步骤与注意事项</summary><ol><li>打开官方创作中心，确认登录的账号。</li><li>上传解压后的素材，分别粘贴标题与正文；话题请在平台检查并选中。</li><li>检查画面、声音、可见范围及 AI 内容标识，亲自点击发布。</li><li>确认成功后，回到工作站，在对应成品旁登记真实作品链接。计划时间不会触发发布。</li></ol></details>
     <div className="modal-actions"><button className="button" disabled={working} onClick={onClose}>返回工作台</button>{info && <a className="button primary" href={info.creatorUrl} target="_blank" rel="noreferrer"><ExternalLink size={16}/>打开{info.label}创作中心</a>}</div>
   </Modal>;
 }

@@ -21,7 +21,7 @@ const rejectExternal = async () => { throw Object.assign(Error('验收工作区�
 store.mutate(state => {
   state.accounts = [{ id: accountId, name: '校园账号 A（合成验收）', platform: 'xiaohongshu' }];
   const project = state.projects[0]; state.projects = [project];
-  project.brief.name = '总控单页流程验收'; project.brief.brand = '合成校园品牌'; project.brief.product = '学习资料整理工具'; project.brief.budgetUsd = 100; project.brief.channels = ['xiaohongshu'];
+  project.sample = false; project.brief.name = '总控单页流程验收'; project.brief.brand = '合成校园品牌'; project.brief.product = '学习资料整理工具'; project.brief.budgetUsd = 100; project.brief.channels = ['xiaohongshu'];
   project.assets = []; project.tasks = []; project.usage = []; project.publications = []; state.contentRules = [];
   for (const [workflowId, name] of [['copy-xiaohongshu', '校园真实场景写作'], ['cover', '校园图文视觉规范']]) installCreativeSkill(state, { fileName: `${name}.md`, text: `---\nname: ${name}\ndescription: 合成验收 Skills，检查逐次选择和版本保存\nversion: 1.0.0\n---\n# 规则\n使用清晰的校园场景，保留事实边界。`, workflowId, confirmed: true, expectedRevision: state.skillsRevision || 0 });
 });
@@ -41,7 +41,7 @@ const app = createApp(store, {
     if (String(url) === 'https://api.openai.com/v1/responses') {
       const body = JSON.parse(init.body), payload = JSON.parse(body.input);
       if (!Array.isArray(payload.allowedAccounts)) return rejectExternal();
-      return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify({ kind: 'proposal', goal: payload.goal || '校园账号图文制作', question: '', nodes: [node] }) }] }], usage: { input_tokens: 100, output_tokens: 100 } });
+      return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify({ kind: 'proposal', goal: payload.goal || '校园账号图文制作', question: '', nodes: [{ id: node.id, title: node.title, role: node.role, accountId: node.accountId, connectionAccountId: node.connectionAccountId, requirement: node.requirement, dependsOn: node.dependsOn }] }) }] }], usage: { input_tokens: 100, output_tokens: 100 } });
     }
     if (String(url) === 'https://ark.cn-beijing.volces.com/api/v3/images/generations') { await delay(500); return Response.json({ data: [{ b64_json: syntheticImage }], usage: { generated_images: 1 } }); }
     return rejectExternal();

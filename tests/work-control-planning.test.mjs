@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
+import { createWorkBackup, validateWorkBackup } from '../server/work-backup.mjs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createApp } from '../server/app.mjs';
 import { createStore } from '../server/store.mjs';
@@ -210,4 +211,137 @@ test('a source plan changed before planning confirmation invalidates its revisio
   const f = await fixture(t), original = await f.seedPlan(), quote = await f.estimate({ taskId: original.task.id });
   const changed = await f.request(`/api/work-plans/${original.plan.id}`, { expectedVersion: original.plan.version, goal: '重新核对', nodes: original.plan.nodes }, 'PATCH'); assert.equal(changed.status, 200);
   const rejected = await f.start(quote); assert.equal(rejected.status, 409); assert.equal(f.modelCalls.length, 0); assert.equal(f.store.work.all('run').length, 2);
+});
+
+async function chatSend(f, body = {}) {
+  return f.request(`/api/projects/${f.projectId}/controller-messages`, { text: '为校园账号准备 AI 学习图文', accountIds: ['xhs-a'], intent: 'plan', idempotencyKey: randomUUID(), ...body });
+}
+async function chatQuote(f, message) {
+  const result = await f.request(`/api/projects/${f.projectId}/planning/estimate`, { messageId: message.id, model: 'gpt-5.4-mini' });
+  assert.equal(result.status, 200, JSON.stringify(result.data)); return result.data;
+}
+const chatQuestion = () => ({ kind: 'question', goal: '请补充课堂内容', nodes: [], question: '这轮内容面向学生还是教师？' });
+test('chat: message replay is durable and provider-free before explicit approval', async t => {
+  const f = await fixture(t), key = randomUUID(), first = await chatSend(f, { idempotencyKey: key }), replay = await chatSend(f, { idempotencyKey: key });
+  assert.equal(first.status, 201); assert.equal(replay.status, 201); assert.equal(first.data.message.id, replay.data.message.id); assert.equal(f.store.work.all('controller-message').length, 1);
+  assert.equal((await chatSend(f, { idempotencyKey: key, text: '改变请求' })).status, 409);
+  const history = await f.request(`/api/projects/${f.projectId}/controller-messages`);
+  assert.equal(history.data.items.filter(row => row.role === 'user').length, 1); assert.equal(f.modelCalls.length, 0); assert.equal(f.store.work.all('run').length, 0);
+});
+test('chat: distinct quotes and concurrent approvals produce one planning run', { timeout: 15000 }, async t => {
+  const f = await fixture(t, { hold: true, output: chatQuestion }), sent = await chatSend(f);
+  const quotes = await Promise.all([chatQuote(f, sent.data.message), chatQuote(f, sent.data.message)]); assert.notEqual(quotes[0].quoteId, quotes[1].quoteId);
+  const replies = await Promise.all(quotes.map(quote => f.start(quote))); assert(replies.every(reply => reply.status === 201), JSON.stringify(replies)); assert.equal(replies[0].data.run.id, replies[1].data.run.id);
+  const runId = replies[0].data.run.id; await until(() => f.modelCalls.length === 1); assert.equal(f.store.work.all('run').length, 1);
+  assert.equal(f.store.work.get('controller-message', sent.data.message.id).planningRunId, runId);
+  assert.equal((await f.request(`/api/projects/${f.projectId}/controller-messages`)).data.items.filter(row => row.role === 'user').length, 1);
+  f.release(); await f.finished(runId); assert.equal(f.modelCalls.length, 1); assert.equal(f.businessCalls.length, 0);
+});
+test('chat: clarification preserves full root and excludes private state', { timeout: 15000 }, async t => {
+  const f = await fixture(t, { output: chatQuestion }), rootText = '原始需求'.repeat(700) + '完整根需求尾部标记';
+  const root = (await chatSend(f, { text: rootText, accountIds: [] })).data.message;
+  const original = await f.start(await chatQuote(f, root)), run = await f.finished(original.data.run.id);
+  f.store.work.put('message', { id: randomUUID(), ownerId, taskId: run.taskId, runId: run.id, text: 'PRIVATE_TASK_CHAT_NEVER_INCLUDE' });
+  const answer = await chatSend(f, { text: '面向学生，使用校园账号。', accountIds: ['xhs-a'], replyToRunId: run.id }); assert.equal(answer.status, 201, JSON.stringify(answer.data)); assert.equal(answer.data.message.rootMessageId, root.id);
+  const quoted = await chatQuote(f, answer.data.message), stored = f.store.work.get('planning-quote', quoted.quoteId);
+  assert.equal(stored.input.payload.conversation[0].text, rootText); assert.equal(stored.input.payload.goal, '面向学生，使用校园账号。'); assert.deepEqual(stored.input.payload.allowedAccounts.map(row => row.id), ['xhs-a']);
+  assert(stored.input.payload.conversation.some(row => row.role === 'assistant' && /学生还是教师/.test(row.text))); assert(!JSON.stringify(stored.input.payload).includes('PRIVATE_TASK_CHAT')); assert(!JSON.stringify(stored.input.payload).includes(secret));
+  const next = await f.start(quoted); await f.finished(next.data.run.id);
+  assert.equal((await chatSend(f, { text: '改成另外账号', accountIds: ['dy-b'], replyToRunId: next.data.run.id })).status, 409); assert.equal(f.modelCalls.length, 2);
+});
+test('chat: task-revision clarification keeps target and public dialogue', { timeout: 15000 }, async t => {
+  const f = await fixture(t, { output: chatQuestion }), original = await f.seedPlan();
+  const root = await chatSend(f, { text: '把这条文案缩短一半', taskId: original.task.id }); assert.equal(root.status, 201, JSON.stringify(root.data));
+  const started = await f.start(await chatQuote(f, root.data.message)), run = await f.finished(started.data.run.id);
+  const answer = await chatSend(f, { text: '面向大学生，采用自然语气', replyToRunId: run.id }); assert.equal(answer.status, 201, JSON.stringify(answer.data)); assert.equal(answer.data.message.taskId, original.task.id); assert.equal(answer.data.message.rootMessageId, root.data.message.id);
+  const quote = await chatQuote(f, answer.data.message), frozen = f.store.work.get('planning-quote', quote.quoteId);
+  assert.equal(frozen.sourcePlan.taskId, original.task.id); assert.equal(frozen.input.payload.context.currentTask.id, original.task.nodeId); assert.equal(frozen.input.payload.context.message, '面向大学生，采用自然语气'); assert.equal(frozen.input.payload.conversation[0].text, '把这条文案缩短一半'); assert(frozen.input.payload.conversation.some(row => row.role === 'assistant'));
+});
+test('chat: deleted target rejects quoted planning without new charge', { timeout: 15000 }, async t => {
+  const f = await fixture(t, { output: chatQuestion }), original = await f.seedPlan(), sent = await chatSend(f, { taskId: original.task.id }), quote = await chatQuote(f, sent.data.message);
+  assert.equal((await f.request(`/api/tasks/${original.task.id}`, { expectedRunId: original.task.latestRunId }, 'DELETE')).status, 200);
+  assert.equal((await f.start(quote)).status, 409); assert.equal(f.modelCalls.length, 0); assert.equal(f.store.work.all('run').length, 2);
+});
+test('chat: foreign owner and cross-project reply references are rejected', { timeout: 15000 }, async t => {
+  const f = await fixture(t, { output: chatQuestion }), root = (await chatSend(f)).data.message, started = await f.start(await chatQuote(f, root)), run = await f.finished(started.data.run.id);
+  f.store.work.put('run', { ...run, id: 'foreign-planning', ownerId: 'other-owner' }); assert.equal((await chatSend(f, { replyToRunId: 'foreign-planning' })).status, 404);
+  f.store.work.put('run', { ...run, id: 'other-project-planning', projectId: 'different-project' }); assert.equal((await chatSend(f, { replyToRunId: 'other-project-planning' })).status, 409);
+  assert.equal(f.modelCalls.length, 1); assert.equal(f.store.work.all('controller-message').length, 1);
+});
+test('chat: reply draft restores its target and rejects unrelated references', async t => {
+  const f = await fixture(t, { output: chatQuestion }), original = await f.seedPlan(), path = `/api/projects/${f.projectId}/controller-view`;
+  const saved = await f.request(path, { goal: '改第二段', replyTaskId: original.task.id, replyRunId: '', newConversation: false }, 'PUT'); assert.equal(saved.status, 200);
+  assert.equal((await f.request(path)).data.replyTaskId, original.task.id);
+  assert.equal((await f.request(path, { replyTaskId: 'nonexistent-task' }, 'PUT')).status, 404);
+  assert.equal((await f.request(path, { replyRunId: original.runs[0].id }, 'PUT')).status, 409);
+});
+
+function rehashChatBackup(backup) {
+  const { sha256: _old, ...content } = backup;
+  const canonical = value => JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item) ? Object.fromEntries(Object.entries(item).sort(([left], [right]) => left.localeCompare(right))) : item);
+  backup.sha256 = createHash('sha256').update(canonical(content)).digest('hex'); return backup;
+}
+test('chat: backup rejects invalid message timestamps', async t => {
+  const f = await fixture(t); await chatSend(f, {text:'第一条待批准需求'}); await chatSend(f, {text:'第二条待批准需求'});
+  const backup = createWorkBackup(f.store, { ownerId }).exportForOwner(ownerId); assert.doesNotThrow(() => validateWorkBackup(backup));
+  for (const invalid of [undefined, '', 'not-a-date', 12345, null]) {
+    const bad = structuredClone(backup);
+    for (const entry of bad.records.filter(row => row.kind === 'controller-message')) { if (invalid === undefined) delete entry.value.createdAt; else entry.value.createdAt = invalid; }
+    rehashChatBackup(bad); assert.throws(() => validateWorkBackup(bad), /总控消息|时间|日期/);
+  }
+});
+const revisionBodyV2 = ['第一段：这是手动保留的开头。', '第二段：这是用户手动编辑的 V2 正文，需要缩短这个段落，但不能换成生成时的旧文案。', '第三段：这是必须保留的结尾。'].join('\n\n');
+const revisionProposal = payload => ({kind:'proposal',goal:payload.goal,question:'',nodes:[{...payload.context.currentTask,requirement:'仅缩短当前稿件第二段，第一段和第三段保持原样。'}]});
+async function seedManualRevision(f) {
+  const original = await f.seedPlan(), source = f.store.work.get('artifact', `${original.task.id}:1`);
+  const edited = await f.request(`/api/artifacts/${original.task.id}/versions/1`, {title:source.title,body:revisionBodyV2,expectedHeadVersion:1,idempotencyKey:randomUUID()}, 'PUT');
+  assert.equal(edited.status,200,JSON.stringify(edited.data)); assert.equal(edited.data.artifact.version,2); assert.notEqual(edited.data.artifact.body,source.structured.body);
+  return {...original,edited:edited.data.artifact};
+}
+async function prepareRevisionRun(f, original) {
+  const quote = await f.estimate({taskId:original.task.id,goal:'把第二段改短'});
+  assert.equal(f.store.work.get('planning-quote',quote.quoteId).input.payload.context.currentArtifact.body,revisionBodyV2);
+  const planning = await f.start(quote), finished = await f.finished(planning.data.run.id); assert.equal(finished.status,'succeeded',finished.error);
+  const plan = (await f.request(`/api/planning-runs/${finished.id}`)).data.plan;
+  const confirmed = await f.request(`/api/work-plans/${plan.id}/approvals`, {version:plan.version,idempotencyKey:randomUUID()}); assert.equal(confirmed.status,200,JSON.stringify(confirmed.data));
+  return {quote,plan,run:confirmed.data.runs.find(row=>row.node.id==='copy'),confirmed};
+}
+async function quoteRevisionDispatch(f, run) {
+  const quote = await f.request(`/api/task-runs/${run.id}/approval-estimate`, {expectedRevision:run.revision,requirement:run.node.requirement,model:'glm-4.7-flash',skillMode:'default',skillIds:[]});
+  assert.equal(quote.status,200,JSON.stringify(quote.data)); return quote.data;
+}
+test('revision: planner and writer receive manual V2 and reuse original task', {timeout:15000}, async t=>{
+  const f=await fixture(t,{output:revisionProposal}), original=await seedManualRevision(f), revision=await prepareRevisionRun(f,original);
+  assert.equal(revision.run.taskId,original.task.id); assert.equal(f.modelCalls[0].payload.context.currentArtifact.body,revisionBodyV2);
+  assert.deepEqual(revision.run.node.revisionSource,{taskId:original.task.id,artifactId:original.task.id,version:2});
+  const quote=await quoteRevisionDispatch(f,revision.run); assert.equal(quote.revisionSource.version,2); assert.equal(quote.revisionSource.body,undefined);
+  const stored=f.store.work.get('dispatch-quote',quote.quoteId); assert.equal(stored.input.payload.revisionSource.body,revisionBodyV2); assert.equal(stored.input.payload.task.body,revisionBodyV2);
+  const approved=await f.request(`/api/task-runs/${revision.run.id}/approvals`,{expectedRevision:revision.run.revision,quoteId:quote.quoteId,budgetUSD:1,idempotencyKey:randomUUID()}); assert.equal(approved.status,200,JSON.stringify(approved.data));
+  const completed=await f.finished(revision.run.id); assert.equal(completed.status,'succeeded',completed.error); assert.equal(completed.baseArtifactVersion,2);
+  assert.equal(f.businessCalls.length,3); assert.equal(f.businessCalls.at(-1).revisionSource.body,revisionBodyV2); assert.equal(f.businessCalls.at(-1).task.body,revisionBodyV2);
+  assert.equal(f.store.work.get('artifact-head',original.task.id).version,3); assert.equal(f.store.work.get('task',original.task.id).latestRunId,revision.run.id);
+});
+test('revision: save V3 after estimate rejects stale approval without writer call', {timeout:15000}, async t=>{
+  const f=await fixture(t,{output:revisionProposal}), original=await seedManualRevision(f), revision=await prepareRevisionRun(f,original), quote=await quoteRevisionDispatch(f,revision.run);
+  const edited=await f.request(`/api/artifacts/${original.task.id}/versions/2`,{title:original.edited.title,body:'手动 V3 最新正文，不允许旧修改覆盖。',expectedHeadVersion:2,idempotencyKey:randomUUID()},'PUT'); assert.equal(edited.status,200,JSON.stringify(edited.data));
+  const approved=await f.request(`/api/task-runs/${revision.run.id}/approvals`,{expectedRevision:revision.run.revision,quoteId:quote.quoteId,budgetUSD:1,idempotencyKey:randomUUID()}); assert.equal(approved.status,409,JSON.stringify(approved.data));
+  assert.equal(f.businessCalls.length,2); assert.equal(f.run(revision.run.id).status,'pending_approval'); assert.equal(f.store.work.get('artifact-head',original.task.id).version,3);
+});
+test('revision: client cannot create replace or strip server-owned source', {timeout:15000}, async t=>{
+  const f=await fixture(t,{output:revisionProposal}), original=await seedManualRevision(f), revision=await prepareRevisionRun(f,original), target=revision.plan.nodes.find(node=>node.id==='copy');
+  assert.equal((await f.request(`/api/projects/${f.projectId}/work-plans`,{goal:'伪造引用',nodes:[target],idempotencyKey:randomUUID()})).status,400);
+  const otherTaskId=original.runs.find(run=>run.taskId!==original.task.id).taskId;
+  for(const replacement of [{...target.revisionSource,version:1},{taskId:otherTaskId,artifactId:otherTaskId,version:1}]) {
+    const changed=await f.request(`/api/work-plans/${revision.plan.id}`,{expectedVersion:revision.plan.version,goal:revision.plan.goal,nodes:revision.plan.nodes.map(node=>node.id==='copy'?{...node,revisionSource:replacement}:node)},'PATCH'); assert.equal(changed.status,409);
+  }
+  const omitted=await f.request(`/api/work-plans/${revision.plan.id}`,{expectedVersion:revision.plan.version,goal:revision.plan.goal,nodes:revision.plan.nodes.map(({revisionSource,...node})=>node)},'PATCH'); assert.equal(omitted.status,200,JSON.stringify(omitted.data)); assert.deepEqual(omitted.data.plan.nodes.find(node=>node.id==='copy').revisionSource,target.revisionSource); assert.equal(f.businessCalls.length,2);
+});
+test('revision: detached fork refuses confirmation without orphan tasks or changed ownership', {timeout:15000}, async t=>{
+  const f=await fixture(t,{hold:true,output:revisionProposal}), original=await seedManualRevision(f), quote=await f.estimate({taskId:original.task.id,goal:'缩短第二段'}), planning=await f.start(quote);
+  await until(()=>f.modelCalls.length===1);
+  assert.equal((await f.request(`/api/work-plans/${original.plan.id}`,{expectedVersion:original.plan.version,goal:'另一窗口的新计划',nodes:original.plan.nodes},'PATCH')).status,200);
+  f.release(); await f.finished(planning.data.run.id); const fork=(await f.request(`/api/planning-runs/${planning.data.run.id}`)).data.plan; assert.notEqual(fork.id,original.plan.id);
+  const tasksBefore=f.store.work.all('task').length,runsBefore=f.store.work.all('run').length;
+  const confirmed=await f.request(`/api/work-plans/${fork.id}/approvals`,{version:fork.version,idempotencyKey:randomUUID()}); assert.equal(confirmed.status,409,JSON.stringify(confirmed.data)); assert.match(confirmed.data.error,/原任务|原计划|重新提交/);
+  assert.equal(f.store.work.all('task').length,tasksBefore); assert.equal(f.store.work.all('run').length,runsBefore); assert.equal(f.store.work.get('task',original.task.id).planId,original.plan.id); assert.equal(f.store.work.get('task',original.task.id).latestRunId,original.task.latestRunId); assert.equal(f.businessCalls.length,2);
 });
